@@ -980,9 +980,7 @@ else ifneq ($(CONFIG_ARCH_HISI),)
 endif
 
 DHDCFLAGS += -DDHD_DEBUG
-DHDCFLAGS += -DDHD_COMPILED=\"$(BCMDHD_ROOT)\"
 DHDCFLAGS += -I$(BCMDHD_ROOT)/include/ -I$(BCMDHD_ROOT)/
-DHDCFLAGS += -Wno-date-time
 ifeq ($(KERNEL_SRC),)
 KBUILD_CFLAGS += -I$(LINUXDIR)/include -I$(CURDIR)
 endif
