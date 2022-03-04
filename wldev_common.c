@@ -92,7 +92,6 @@ static s32 wldev_ioctl(
 	ret = dhd_ioctl_entry_local(dev, (wl_ioctl_t *)&ioc, cmd);
 #else
 	struct ifreq ifr;
-	mm_segment_t fs;
 
 	bzero(&ioc, sizeof(ioc));
 	ioc.cmd = cmd;
@@ -103,15 +102,8 @@ static s32 wldev_ioctl(
 	strlcpy(ifr.ifr_name, dev->name, sizeof(ifr.ifr_name));
 	ifr.ifr_data = (caddr_t)&ioc;
 
-	GETFS_AND_SETFS_TO_KERNEL_DS(fs);
-#if LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 31)
-	ret = dev->do_ioctl(dev, &ifr, SIOCDEVPRIVATE);
-#else
-	ret = dev->netdev_ops->ndo_do_ioctl(dev, &ifr, SIOCDEVPRIVATE);
-#endif /* LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 31) */
-	SETFS(fs);
-
-	ret = 0;
+	ret = dev->netdev_ops->ndo_siocdevprivate(dev, &ifr, ifr.ifr_data,
+						  SIOCDEVPRIVATE);
 #endif /* defined(BCMDONGLEHOST) */
 
 	return ret;

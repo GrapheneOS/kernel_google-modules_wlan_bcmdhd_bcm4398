@@ -5941,93 +5941,27 @@ done:
 	return bcmerror;
 }
 
-
-/* For the moment, local ioctls will return BCM errors */
-/* Others return linux codes, need to be changed... */
-/**
- * Called by the OS (optionally via a wrapper function).
- * @param net  Linux per dongle instance
- * @param ifr  Linux request structure
- * @param cmd  e.g. SIOCETHTOOL
- */
-static int
-dhd_ioctl_entry(struct net_device *net, struct ifreq *ifr, int cmd)
+static int dhd_priv_cmd_process_locked(struct net_device *net,
+				       struct ifreq *ifr, void __user *data)
 {
 	dhd_info_t *dhd = DHD_DEV_INFO(net);
 	dhd_ioctl_t ioc;
-	int bcmerror = 0;
 	int ifidx;
-	int ret;
+	int bcmerror = BCME_OK;
 	void *local_buf = NULL;           /**< buffer in kernel space */
 	void __user *ioc_buf_user = NULL; /**< buffer in user space */
 	u16 buflen = 0;
 
-	if (atomic_read(&exit_in_progress)) {
-		DHD_ERROR(("%s module exit in progress\n", __func__));
-		bcmerror = BCME_DONGLE_DOWN;
-		return OSL_ERROR(bcmerror);
-	}
-
-	DHD_OS_WAKE_LOCK(&dhd->pub);
-
-#if defined(OEM_ANDROID)
-	/* Interface up check for built-in type */
-	if (!dhd_download_fw_on_driverload && dhd->pub.up == FALSE) {
-		DHD_TRACE(("%s: Interface is down \n", __FUNCTION__));
-		DHD_OS_WAKE_UNLOCK(&dhd->pub);
-		return OSL_ERROR(BCME_NOTUP);
-	}
-#endif /* (OEM_ANDROID) */
-
 	ifidx = dhd_net2idx(dhd, net);
-	DHD_TRACE(("%s: ifidx %d, cmd 0x%04x\n", __FUNCTION__, ifidx, cmd));
-
-#if defined(WL_STATIC_IF)
-	/* skip for static ndev when it is down */
-	if (dhd_is_static_ndev(&dhd->pub, net) && !(net->flags & IFF_UP)) {
-		DHD_OS_WAKE_UNLOCK(&dhd->pub);
-		return -1;
-	}
-#endif /* WL_STATIC_iF */
-
-	if (ifidx == DHD_BAD_IF) {
-		DHD_ERROR(("%s: BAD IF\n", __FUNCTION__));
-		DHD_OS_WAKE_UNLOCK(&dhd->pub);
-		return -1;
-	}
-
-	if (cmd == SIOCETHTOOL) {
-		ret = dhd_ethtool(dhd, (void*)ifr->ifr_data);
-		DHD_OS_WAKE_UNLOCK(&dhd->pub);
-		return ret;
-	}
-
-#if defined(OEM_ANDROID)
-	if (cmd == SIOCDEVPRIVATE+1) {
-		ret = wl_android_priv_cmd(net, ifr);
-		dhd_check_hang(net, &dhd->pub, ret);
-		DHD_OS_WAKE_UNLOCK(&dhd->pub);
-		return ret;
-	}
-
-#endif /* OEM_ANDROID */
-
-	if (cmd != SIOCDEVPRIVATE) {
-		DHD_OS_WAKE_UNLOCK(&dhd->pub);
-		return -EOPNOTSUPP;
-	}
 
 	bzero(&ioc, sizeof(ioc));
 
 #ifdef CONFIG_COMPAT
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 6, 0))
 	if (in_compat_syscall())
-#else
-	if (is_compat_task())
-#endif /* LINUX_VER >= 4.6 */
 	{
 		compat_wl_ioctl_t compat_ioc;
-		if (copy_from_user(&compat_ioc, ifr->ifr_data, sizeof(compat_wl_ioctl_t))) {
+		if (copy_from_user(&compat_ioc, data,
+		      sizeof(compat_wl_ioctl_t))) {
 			bcmerror = BCME_BADADDR;
 			goto done;
 		}
@@ -6038,8 +5972,9 @@ dhd_ioctl_entry(struct net_device *net, struct ifreq *ifr, int cmd)
 		ioc.used = compat_ioc.used;
 		ioc.needed = compat_ioc.needed;
 		/* To differentiate between wl and dhd read 4 more byes */
-		if ((copy_from_user(&ioc.driver, (char *)ifr->ifr_data + sizeof(compat_wl_ioctl_t),
-			sizeof(uint)) != 0)) {
+		if (copy_from_user(&ioc.driver,
+		      (char *)data + sizeof(compat_wl_ioctl_t),
+		      sizeof(uint)) != 0) {
 			bcmerror = BCME_BADADDR;
 			goto done;
 		}
@@ -6047,14 +5982,15 @@ dhd_ioctl_entry(struct net_device *net, struct ifreq *ifr, int cmd)
 #endif /* CONFIG_COMPAT */
 	{
 		/* Copy the ioc control structure part of ioctl request */
-		if (copy_from_user(&ioc, ifr->ifr_data, sizeof(wl_ioctl_t))) {
+		if (copy_from_user(&ioc, data, sizeof(wl_ioctl_t))) {
 			bcmerror = BCME_BADADDR;
 			goto done;
 		}
 
 		/* To differentiate between wl and dhd read 4 more byes */
-		if ((copy_from_user(&ioc.driver, (char *)ifr->ifr_data + sizeof(wl_ioctl_t),
-			sizeof(uint)) != 0)) {
+		if (copy_from_user(&ioc.driver,
+		      (char *)data + sizeof(wl_ioctl_t),
+		      sizeof(uint)) != 0) {
 			bcmerror = BCME_BADADDR;
 			goto done;
 		}
@@ -6123,9 +6059,125 @@ done:
 	if (local_buf)
 		MFREE(dhd->pub.osh, local_buf, buflen+1);
 
-	DHD_OS_WAKE_UNLOCK(&dhd->pub);
-
 	return OSL_ERROR(bcmerror);
+}
+
+static int dhd_siocdevprivate(struct net_device *net, struct ifreq *ifr,
+			      void __user *data, int cmd)
+{
+	dhd_info_t *dhd = DHD_DEV_INFO(net);
+	int ifidx, ret;
+
+	if (atomic_read(&exit_in_progress)) {
+		DHD_ERROR(("%s module exit in progress\n", __func__));
+		ret = BCME_DONGLE_DOWN;
+		return OSL_ERROR(ret);
+	}
+
+	DHD_OS_WAKE_LOCK(&dhd->pub);
+
+	/* Interface up check for built-in type */
+	if (!dhd_download_fw_on_driverload && dhd->pub.up == FALSE) {
+		DHD_ERROR(("%s: Interface is down\n", __func__));
+		ret = OSL_ERROR(BCME_NOTUP);
+		goto done;
+	}
+
+	ifidx = dhd_net2idx(dhd, net);
+	DHD_TRACE(("%s: ifidx %d, cmd 0x%04x\n", __func__, ifidx, cmd));
+
+#if defined(WL_STATIC_IF)
+	/* skip for static ndev when it is down */
+	if (dhd_is_static_ndev(&dhd->pub, net) && !(net->flags & IFF_UP)) {
+		DHD_ERROR(("%s: exit: static ndev\n", __func__));
+		ret = -1;
+		goto done;
+	}
+#endif /* WL_STATIC_iF */
+
+	if (ifidx == DHD_BAD_IF) {
+		DHD_ERROR(("%s: BAD IF\n", __func__));
+		ret = -1;
+		goto done;
+	}
+
+	switch (cmd) {
+	case SIOCDEVPRIVATE:
+		ret = dhd_priv_cmd_process_locked(net, ifr, data);
+		break;
+	case SIOCDEVPRIVATE + 1:
+		ret = wl_android_priv_cmd(net, ifr);
+		dhd_check_hang(net, &dhd->pub, ret);
+		break;
+	default:
+		ret = -EOPNOTSUPP;
+	}
+
+done:
+	DHD_OS_WAKE_UNLOCK(&dhd->pub);
+	return ret;
+}
+
+
+/* XXX For the moment, local ioctls will return BCM errors */
+/* XXX Others return linux codes, need to be changed... */
+/**
+ * Called by the OS (optionally via a wrapper function).
+ * @param net  Linux per dongle instance
+ * @param ifr  Linux request structure
+ * @param cmd  e.g. SIOCETHTOOL
+ */
+static int
+dhd_ioctl_entry(struct net_device *net, struct ifreq *ifr, int cmd)
+{
+	dhd_info_t *dhd = DHD_DEV_INFO(net);
+	int ifidx;
+	int ret;
+
+	if (atomic_read(&exit_in_progress)) {
+		DHD_ERROR(("%s module exit in progress\n", __func__));
+		ret = BCME_DONGLE_DOWN;
+		return OSL_ERROR(ret);
+	}
+
+	DHD_OS_WAKE_LOCK(&dhd->pub);
+
+	/* Interface up check for built-in type */
+	if (!dhd_download_fw_on_driverload && dhd->pub.up == FALSE) {
+		DHD_ERROR(("%s: Interface is down\n", __func__));
+		ret = OSL_ERROR(BCME_NOTUP);
+		goto done;
+	}
+
+	ifidx = dhd_net2idx(dhd, net);
+	DHD_TRACE(("%s: ifidx %d, cmd 0x%04x\n", __func__, ifidx, cmd));
+
+#if defined(WL_STATIC_IF)
+	/* skip for static ndev when it is down */
+	if (dhd_is_static_ndev(&dhd->pub, net) && !(net->flags & IFF_UP)) {
+		DHD_ERROR(("%s: exit: static ndev\n", __func__));
+		ret = -1;
+		goto done;
+	}
+#endif /* WL_STATIC_iF */
+
+	if (ifidx == DHD_BAD_IF) {
+		DHD_ERROR(("%s: BAD IF\n", __func__));
+		ret = -1;
+		goto done;
+	}
+
+	switch (cmd) {
+	case SIOCETHTOOL:
+		ret = dhd_ethtool(dhd, (void *)ifr->ifr_data);
+		break;
+	default:
+		ret = -EOPNOTSUPP;
+	}
+
+done:
+	DHD_OS_WAKE_UNLOCK(&dhd->pub);
+	return ret;
 }
 
 #if defined(WL_CFG80211) && defined(SUPPORT_DEEP_SLEEP)
@@ -6180,6 +6232,27 @@ static void dhd_rollback_cpu_freq(dhd_info_t *dhd)
 #endif /* FIX_CPU_MIN_CLOCK */
 
 #ifdef DHD_PCIE_NATIVE_RUNTIMEPM
+static int
+dhd_siocdevprivate_wrapper(struct net_device *net, struct ifreq *ifr,
+			   void __user *data, int cmd)
+{
+	int error;
+	dhd_info_t *dhd = DHD_DEV_INFO(net);
+
+	if (atomic_read(&dhd->pub.block_bus))
+		return -EHOSTDOWN;
+
+	if (pm_runtime_get_sync(dhd_bus_to_dev(dhd->pub.bus)) < 0)
+		return BCME_ERROR;
+
+	error = dhd_siocdevprivate(net, ifr, data, cmd);
+
+	pm_runtime_mark_last_busy(dhd_bus_to_dev(dhd->pub.bus));
+	pm_runtime_put_autosuspend(dhd_bus_to_dev(dhd->pub.bus));
+
+	return error;
+}
+
 static int
 dhd_ioctl_entry_wrapper(struct net_device *net, struct ifreq *ifr, int cmd)
 {
@@ -7890,9 +7963,11 @@ static struct net_device_ops dhd_ops_pri = {
 	.ndo_get_stats = dhd_get_stats,
 #ifdef DHD_PCIE_NATIVE_RUNTIMEPM
 	.ndo_do_ioctl = dhd_ioctl_entry_wrapper,
+	.ndo_siocdevprivate = dhd_siocdevprivate_wrapper,
 	.ndo_start_xmit = dhd_start_xmit_wrapper,
 #else
 	.ndo_do_ioctl = dhd_ioctl_entry,
+	.ndo_siocdevprivate = dhd_siocdevprivate,
 	.ndo_start_xmit = dhd_start_xmit,
 #endif /* DHD_PCIE_NATIVE_RUNTIMEPM */
 	.ndo_set_mac_address = dhd_set_mac_address,
@@ -7914,9 +7989,11 @@ static struct net_device_ops dhd_ops_virt = {
 	.ndo_get_stats = dhd_get_stats,
 #ifdef DHD_PCIE_NATIVE_RUNTIMEPM
 	.ndo_do_ioctl = dhd_ioctl_entry_wrapper,
+	.ndo_siocdevprivate = dhd_siocdevprivate_wrapper,
 	.ndo_start_xmit = dhd_start_xmit_wrapper,
 #else
 	.ndo_do_ioctl = dhd_ioctl_entry,
+	.ndo_siocdevprivate = dhd_siocdevprivate,
 	.ndo_start_xmit = dhd_start_xmit,
 #endif /* DHD_PCIE_NATIVE_RUNTIMEPM */
 	.ndo_set_mac_address = dhd_set_mac_address,
