@@ -916,10 +916,13 @@ else ifneq ($(CONFIG_ARCH_HISI),)
 	DHDCFLAGS := $(filter-out -DSIMPLE_MAC_PRINT ,$(DHDCFLAGS))
 endif
 
-EXTRA_CFLAGS += $(DHDCFLAGS) -DDHD_DEBUG
-EXTRA_CFLAGS += -DDHD_COMPILED=\"$(BCMDHD_ROOT)\"
-EXTRA_CFLAGS += -I$(BCMDHD_ROOT)/include/ -I$(BCMDHD_ROOT)/
-KBUILD_CFLAGS += -I$(LINUXDIR)/include -I$(CURDIR) -Wno-date-time
+DHDCFLAGS += -DDHD_DEBUG
+DHDCFLAGS += -DDHD_COMPILED=\"$(BCMDHD_ROOT)\"
+DHDCFLAGS += -I$(BCMDHD_ROOT)/include/ -I$(BCMDHD_ROOT)/
+DHDCFLAGS += -Wno-date-time
+ifeq ($(KERNEL_SRC),)
+KBUILD_CFLAGS += -I$(LINUXDIR)/include -I$(CURDIR)
+endif
 
 DHDOFILES := dhd_pno.o dhd_common.o dhd_ip.o dhd_custom_gpio.o \
     dhd_linux.o dhd_linux_sched.o dhd_cfg80211.o dhd_linux_wq.o aiutils.o \
@@ -936,7 +939,7 @@ DHDOFILES := dhd_pno.o dhd_common.o dhd_ip.o dhd_custom_gpio.o \
 _dhd_lx_mk_dir := $(dir $(lastword $(MAKEFILE_LIST)))
 -include $(_dhd_lx_mk_dir)bcminternal-android.mk
 
-EXTRA_CFLAGS += $(BCMINTERNAL_DFLAGS)
+DHDCFLAGS += $(BCMINTERNAL_DFLAGS)
 DHDOFILES += $(BCMINTERNAL_DHDOFILES)
 
 # extra Source files
@@ -996,7 +999,7 @@ endif
 bcmdhd$(BCM_WLAN_CHIP_SUFFIX)-objs := $(DHDOFILES)
 obj-$(DRIVER_TYPE)   += bcmdhd$(BCM_WLAN_CHIP_SUFFIX).o
 ccflags-y := $(KBUILD_CFLAGS)
-ccflags-y += $(EXTRA_CFLAGS)
+ccflags-y += $(DHDCFLAGS)
 
 # For in-tree model, define make rules here (KERNEL_SRC will be NULL)
 ifeq ($(KERNEL_SRC),)

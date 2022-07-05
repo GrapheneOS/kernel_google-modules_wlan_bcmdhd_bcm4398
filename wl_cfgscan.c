@@ -4040,7 +4040,9 @@ wl_cfgscan_sched_scan_stop_work(struct work_struct *work)
 		/* Indicate sched scan stopped so that user space
 		 * can do a full scan incase found match is empty.
 		 */
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 12, 0))
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 11, 0))
+		cfg80211_sched_scan_stopped(wiphy, cfg->sched_scan_req->reqid);
+#elif (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 12, 0))
 		cfg80211_sched_scan_stopped_rtnl(wiphy, cfg->sched_scan_req->reqid);
 #else
 		cfg80211_sched_scan_stopped_rtnl(wiphy);

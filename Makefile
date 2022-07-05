@@ -23,15 +23,17 @@
 # Path to the module source
 M ?= $(shell pwd)
 
-ifeq ($(KERNEL_SRC),)
- BCMDHD_ROOT=$(src)
-else
+
+
+ifneq ($(KERNEL_SRC),)
  KBUILD_OPTIONS += BCMDHD_ROOT=$(shell cd $(KERNEL_SRC); readlink -e $(M))
+ include $(KERNEL_SRC)/../private/google-modules/soc/gs/Makefile.include
+ EXTRA_CFLAGS+="-Wno-missing-prototypes"
 endif
 
 all:
-	@echo "$(MAKE) -C $(KERNEL_SRC) M=$(M) modules $(KBUILD_OPTIONS)"
-	@$(MAKE) -C $(KERNEL_SRC) M=$(M) modules $(KBUILD_OPTIONS)
+	$(MAKE) -C $(KERNEL_SRC) M=$(M) \
+	$(KBUILD_OPTIONS) EXTRA_CFLAGS="$(EXTRA_CFLAGS)" KBUILD_EXTRA_SYMBOLS="$(EXTRA_SYMBOLS)" modules
 
 modules_install:
 	@echo "$(MAKE) INSTALL_MOD_STRIP=1 M=$(M) -C $(KERNEL_SRC) modules_install"

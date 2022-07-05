@@ -25,7 +25,7 @@
 #include <typedefs.h>
 #include <bcmdefs.h>
 
-#include <stdarg.h>
+#include <linux/stdarg.h>
 
 #ifdef BCMDRIVER
 #include <osl.h>
