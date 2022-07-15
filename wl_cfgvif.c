@@ -3896,7 +3896,7 @@ wl_cfg80211_start_ap(
  */
 #if ((LINUX_VERSION_CODE >= KERNEL_VERSION(3, 6, 0)) && !defined(WL_COMPAT_WIRELESS))
 	if ((err = wl_cfg80211_set_channel(wiphy, dev,
-		dev->ieee80211_ptr->preset_chandef.chan,
+		dev->ieee80211_ptr->u.ap.preset_chandef.chan,
 		NL80211_CHAN_HT20)) < 0) {
 		WL_ERR(("Set channel failed \n"));
 		goto fail;
@@ -3977,7 +3977,7 @@ fail:
 	if (err) {
 		WL_ERR(("ADD/SET beacon failed\n"));
 		wl_flush_fw_log_buffer(dev, FW_LOGSET_MASK_ALL);
-		wl_cfg80211_stop_ap(wiphy, dev);
+		wl_cfg80211_stop_ap(wiphy, dev, -1);
 		if (dev_role == NL80211_IFTYPE_AP) {
 #ifdef BCMDONGLEHOST
 			/* If there are no other APs active, clear the AP mode */
@@ -4017,7 +4017,8 @@ fail:
 s32
 wl_cfg80211_stop_ap(
 	struct wiphy *wiphy,
-	struct net_device *dev)
+	struct net_device *dev,
+	unsigned int link_id)
 {
 	int err = 0;
 	u32 dev_role = 0;
@@ -5604,7 +5605,7 @@ wl_cfg80211_ch_switch_notify(struct net_device *dev, uint16 chanspec, struct wip
 	}
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION (3, 8, 0))
 	freq = chandef.chan ? chandef.chan->center_freq : chandef.center_freq1;
-	cfg80211_ch_switch_notify(dev, &chandef);
+	cfg80211_ch_switch_notify(dev, &chandef, 0);
 #elif (LINUX_VERSION_CODE >= KERNEL_VERSION (3, 5, 0) && (LINUX_VERSION_CODE <= (3, 7, 0)))
 	freq = chan_info.freq;
 	cfg80211_ch_switch_notify(dev, freq, chan_info.chan_type);

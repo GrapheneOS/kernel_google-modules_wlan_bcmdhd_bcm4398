@@ -199,7 +199,8 @@ extern s32 wl_cfg80211_change_virtual_iface(struct wiphy *wiphy, struct net_devi
 	defined(WL_COMPAT_WIRELESS)
 extern s32 wl_cfg80211_start_ap(struct wiphy *wiphy, struct net_device *dev,
 		struct cfg80211_ap_settings *info);
-extern s32 wl_cfg80211_stop_ap(struct wiphy *wiphy, struct net_device *dev);
+extern s32 wl_cfg80211_stop_ap(struct wiphy *wiphy, struct net_device *dev,
+	unsigned int link_id);
 extern s32 wl_cfg80211_change_beacon(struct wiphy *wiphy, struct net_device *dev,
 	struct cfg80211_beacon_data *info);
 #else
