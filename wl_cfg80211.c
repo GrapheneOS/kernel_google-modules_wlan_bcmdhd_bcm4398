@@ -27391,7 +27391,9 @@ int wl_get_usable_channels(struct bcm_cfg80211 *cfg, usable_channel_info_t *u_in
 				}
 			}
 		}
+#ifdef WL_NAN
 		conn[WL_IF_TYPE_NAN] = wl_cfgnan_is_dp_active(bcmcfg_to_prmry_ndev(cfg));
+#endif /* WL_NAN */
 		WL_INFORM_MEM(("Cur interface STA:%d(chspec:%x) "
 				"AP:%d P2P GO:%d GC:%d NAN:%d\n",
 				conn[WL_IF_TYPE_STA], sta_chanspec,
