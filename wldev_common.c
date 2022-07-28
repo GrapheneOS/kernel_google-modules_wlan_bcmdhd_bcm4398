@@ -101,9 +101,13 @@ static s32 wldev_ioctl(
 
 	strlcpy(ifr.ifr_name, dev->name, sizeof(ifr.ifr_name));
 	ifr.ifr_data = (caddr_t)&ioc;
-
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(5, 15, 0))
+	ret = dev->netdev_ops->ndo_do_ioctl(dev, &ifr, SIOCDEVPRIVATE);
+#else
 	ret = dev->netdev_ops->ndo_siocdevprivate(dev, &ifr, ifr.ifr_data,
-						  SIOCDEVPRIVATE);
+			SIOCDEVPRIVATE);
+#endif /* LINUX_VERSION_CODE < KERNEL_VERSION(5, 15, 0) */
+
 #endif /* defined(BCMDONGLEHOST) */
 
 	return ret;
