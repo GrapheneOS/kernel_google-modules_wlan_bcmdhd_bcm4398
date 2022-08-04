@@ -4959,6 +4959,8 @@ int dhd_config_rts_in_suspend(dhd_pub_t *dhdp, bool suspend);
 #endif /* DHD_CUSTOM_CONFIG_RTS_IN_SUSPEND */
 
 extern void *dhd_irq_to_desc(unsigned int irq);
+extern void dhd_unregister_net(struct net_device *net, bool need_rtnl_lock);
+extern int dhd_register_net(struct net_device *net, bool need_rtnl_lock);
 
 #ifdef TX_FLOW_RING_INDICES_TRACE
 uint32 dhd_prot_get_flow_ring_trace_len(dhd_pub_t *dhdp);

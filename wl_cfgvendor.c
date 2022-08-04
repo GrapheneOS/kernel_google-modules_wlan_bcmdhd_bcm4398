@@ -1848,12 +1848,11 @@ wl_cfgvendor_stop_hal(struct wiphy *wiphy,
 	dhd_pub_t *dhd = (dhd_pub_t *)(cfg->pub);
 #endif /* DHD_FILE_DUMP_EVENT */
 
-	WL_INFORM(("%s,[DUMP] HAL STOPPED\n", __FUNCTION__));
-
 	cfg->hal_started = false;
 #ifdef DHD_FILE_DUMP_EVENT
 	dhd_set_dump_status(dhd, DUMP_NOT_READY);
 #endif /* DHD_FILE_DUMP_EVENT */
+	WL_INFORM(("%s,[DUMP] HAL STOPPED\n", __FUNCTION__));
 	return BCME_OK;
 }
 #endif /* WL_CFG80211 */

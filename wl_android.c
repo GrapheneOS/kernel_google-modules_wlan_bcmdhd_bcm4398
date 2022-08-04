@@ -26,6 +26,7 @@
 #include <linux/module.h>
 #include <linux/netdevice.h>
 #include <net/netlink.h>
+#include <net/rtnetlink.h>
 #ifdef CONFIG_COMPAT
 #include <linux/compat.h>
 #endif
@@ -14349,7 +14350,7 @@ wl_cfg80211_unregister_static_if(struct bcm_cfg80211 *cfg)
 	/* wdev free will happen from notifier context */
 	/* free_netdev(cfg->static_ndev);
 	*/
-	unregister_netdev(cfg->static_ndev);
+	dhd_unregister_net(cfg->static_ndev, true);
 }
 
 s32

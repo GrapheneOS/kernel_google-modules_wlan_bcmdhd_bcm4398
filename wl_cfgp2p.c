@@ -2577,7 +2577,7 @@ wl_cfgp2p_register_ndev(struct bcm_cfg80211 *cfg)
 	wdev->netdev = net;
 #endif /* WL_NEWCFG_PRIVCMD_SUPPORT */
 
-	ret = register_netdev(net);
+	ret = dhd_register_net(net, true);
 	if (ret) {
 		CFGP2P_ERR((" register_netdevice failed (%d)\n", ret));
 		free_netdev(net);
@@ -2611,7 +2611,7 @@ wl_cfgp2p_unregister_ndev(struct bcm_cfg80211 *cfg)
 		return -EINVAL;
 	}
 
-	unregister_netdev(cfg->p2p_net);
+	dhd_unregister_net(cfg->p2p_net, true);
 	free_netdev(cfg->p2p_net);
 
 	return 0;
