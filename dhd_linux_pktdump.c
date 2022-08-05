@@ -1134,14 +1134,26 @@ dhd_check_arp(uint8 *pktdata, uint16 ether_type)
 	return TRUE;
 }
 
+bool arp_print_enabled = FALSE;
 #ifdef DHD_ARP_DUMP
 #ifdef BOARD_HIKEY
 /* On Hikey, due to continuous ARP prints
- * DPC not scheduled. Hence rate limit the prints.
+ * DPC not scheduled. Hence redirect to debug dump unless
+ * enabled explicitly via sysfs variable.
  */
-#define DHD_PKTDUMP_ARP DHD_ERROR_RLMT
+#define DHD_PKTDUMP_ARP(args) \
+	do { \
+		if (arp_print_enabled) { \
+			DHD_PKTDUMP(args); \
+		} else { \
+			DHD_PKTDUMP_MEM(args); \
+		} \
+	} while (0)
+
+#define DHD_PKTDUMP_ARP_MEM DHD_PKTDUMP_ARP
 #else
 #define DHD_PKTDUMP_ARP DHD_PKTDUMP
+#define DHD_PKTDUMP_ARP_MEM DHD_PKTDUMP_MEM
 #endif /* BOARD_HIKEY */
 
 #define ARP_PRINT(str) \
@@ -1152,12 +1164,12 @@ dhd_check_arp(uint8 *pktdata, uint16 ether_type)
 					ifname, TX_PKTHASH(pkthash), \
 					TX_FATE(pktfate))); \
 			} else { \
-				DHD_PKTDUMP_MEM((str "[%s] [TX]" TXFATE_FMT "\n", \
+				DHD_PKTDUMP_ARP_MEM((str "[%s] [TX]" TXFATE_FMT "\n", \
 					ifname, TX_PKTHASH(pkthash), \
 					TX_FATE(pktfate))); \
 			} \
 		} else { \
-			DHD_PKTDUMP_MEM((str "[%s] [RX]\n", ifname)); \
+			DHD_PKTDUMP_ARP_MEM((str "[%s] [RX]\n", ifname)); \
 		} \
 	} while (0)
 
@@ -1170,12 +1182,12 @@ dhd_check_arp(uint8 *pktdata, uint16 ether_type)
 					TX_PKTHASH(pkthash), \
 					TX_FATE(pktfate))); \
 			} else { \
-				DHD_PKTDUMP_MEM((str "[%s] [TX] op_code=%d" \
+				DHD_PKTDUMP_ARP_MEM((str "[%s] [TX] op_code=%d" \
 				TXFATE_FMT "\n", ifname, opcode, \
 				TX_PKTHASH(pkthash), TX_FATE(pktfate))); \
 			} \
 		} else { \
-			DHD_PKTDUMP_MEM((str "[%s] [RX] op_code=%d\n", \
+			DHD_PKTDUMP_ARP_MEM((str "[%s] [RX] op_code=%d\n", \
 				ifname, opcode)); \
 		} \
 	} while (0)

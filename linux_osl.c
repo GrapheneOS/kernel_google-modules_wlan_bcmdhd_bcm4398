@@ -55,11 +55,11 @@
 
 #define DUMPBUFSZ 1024
 
-#if defined(CUSTOMER_HW4_DEBUG) || defined(CUSTOMER_HW2_DEBUG)
+#if defined(CUSTOMER_HW4_DEBUG) || defined(CUSTOMER_HW2_DEBUG) || defined(CUSTOMER_HW7_DEBUG)
 uint32 g_assert_type = 1; /* By Default not cause Kernel Panic */
 #else
 uint32 g_assert_type = 0; /* By Default Kernel Panic */
-#endif /* CUSTOMER_HW4_DEBUG || CUSTOMER_HW2_DEBUG */
+#endif /* CUSTOMER_HW4_DEBUG || CUSTOMER_HW2_DEBUG || CUSTOMER_HW7_DEBUG */
 
 module_param(g_assert_type, int, 0);
 
@@ -82,98 +82,6 @@ static void osl_dma_lock_init(osl_t *osh);
 #define DMA_LOCK_INIT(osh)	do { /* noop */ } while(0)
 #endif /* USE_DMA_LOCK */
 
-
-static int16 linuxbcmerrormap[] =
-{	0,				/* 0 */
-	-EINVAL,		/* BCME_ERROR */
-	-EINVAL,		/* BCME_BADARG */
-	-EINVAL,		/* BCME_BADOPTION */
-	-EINVAL,		/* BCME_NOTUP */
-	-EINVAL,		/* BCME_NOTDOWN */
-	-EINVAL,		/* BCME_NOTAP */
-	-EINVAL,		/* BCME_NOTSTA */
-	-EINVAL,		/* BCME_BADKEYIDX */
-	-EINVAL,		/* BCME_RADIOOFF */
-	-EINVAL,		/* BCME_NOTBANDLOCKED */
-	-EINVAL,		/* BCME_NOCLK */
-	-EINVAL,		/* BCME_BADRATESET */
-	-EINVAL,		/* BCME_BADBAND */
-	-E2BIG,			/* BCME_BUFTOOSHORT */
-	-E2BIG,			/* BCME_BUFTOOLONG */
-	-EBUSY,			/* BCME_BUSY */
-	-EINVAL,		/* BCME_NOTASSOCIATED */
-	-EINVAL,		/* BCME_BADSSIDLEN */
-	-EINVAL,		/* BCME_OUTOFRANGECHAN */
-	-EINVAL,		/* BCME_BADCHAN */
-	-EFAULT,		/* BCME_BADADDR */
-	-ENOMEM,		/* BCME_NORESOURCE */
-	-EOPNOTSUPP,		/* BCME_UNSUPPORTED */
-	-EMSGSIZE,		/* BCME_BADLENGTH */
-	-EINVAL,		/* BCME_NOTREADY */
-	-EPERM,			/* BCME_EPERM */
-	-ENOMEM,		/* BCME_NOMEM */
-	-EINVAL,		/* BCME_ASSOCIATED */
-	-ERANGE,		/* BCME_RANGE */
-	-EINVAL,		/* BCME_NOTFOUND */
-	-EINVAL,		/* BCME_WME_NOT_ENABLED */
-	-EINVAL,		/* BCME_TSPEC_NOTFOUND */
-	-EINVAL,		/* BCME_ACM_NOTSUPPORTED */
-	-EINVAL,		/* BCME_NOT_WME_ASSOCIATION */
-	-EIO,			/* BCME_SDIO_ERROR */
-	-ENODEV,		/* BCME_DONGLE_DOWN */
-	-EINVAL,		/* BCME_VERSION */
-	-EIO,			/* BCME_TXFAIL */
-	-EIO,			/* BCME_RXFAIL */
-	-ENODEV,		/* BCME_NODEVICE */
-	-EINVAL,		/* BCME_NMODE_DISABLED */
-	-ENODATA,		/* BCME_NONRESIDENT */
-	-EINVAL,		/* BCME_SCANREJECT */
-	-EINVAL,		/* BCME_USAGE_ERROR */
-	-EIO,			/* BCME_IOCTL_ERROR */
-	-EIO,			/* BCME_SERIAL_PORT_ERR */
-	-EOPNOTSUPP,		/* BCME_DISABLED, BCME_NOTENABLED */
-	-EIO,			/* BCME_DECERR */
-	-EIO,			/* BCME_ENCERR */
-	-EIO,			/* BCME_MICERR */
-	-ERANGE,		/* BCME_REPLAY */
-	-EINVAL,		/* BCME_IE_NOTFOUND */
-	-EINVAL,		/* BCME_DATA_NOTFOUND */
-	-EINVAL,		/* BCME_NOT_GC */
-	-EINVAL,		/* BCME_PRS_REQ_FAILED */
-	-EINVAL,		/* BCME_NO_P2P_SE */
-	-EINVAL,		/* BCME_NOA_PND */
-	-EINVAL,		/* BCME_FRAG_Q_FAILED */
-	-EINVAL,		/* BCME_GET_AF_FAILED */
-	-EINVAL,		/* BCME_MSCH_NOTREADY */
-	-EINVAL,		/* BCME_IOV_LAST_CMD */
-	-EINVAL,		/* BCME_MINIPMU_CAL_FAIL */
-	-EINVAL,		/* BCME_RCAL_FAIL */
-	-EINVAL,		/* BCME_LPF_RCCAL_FAIL */
-	-EINVAL,		/* BCME_DACBUF_RCCAL_FAIL */
-	-EINVAL,		/* BCME_VCOCAL_FAIL */
-	-EINVAL,		/* BCME_BANDLOCKED */
-	-EINVAL,		/* BCME_BAD_IE_DATA */
-	-EINVAL,		/* BCME_REG_FAILED */
-	-EINVAL,		/* BCME_NOCHAN */
-	-EINVAL,		/* BCME_PKTTOSS */
-	-EINVAL,		/* BCME_DNGL_DEVRESET */
-	-EINVAL,		/* BCME_ROAM */
-	-EOPNOTSUPP,		/* BCME_NO_SIG_FILE */
-	-EOPNOTSUPP,		/* BCME_RESP_PENDING */
-	-EINVAL,		/* BCME_ACTIVE */
-	-EINVAL,		/* BCME_IN_PROGRESS */
-	-EINVAL,		/* BCME_NOP */
-	-EINVAL,		/* BCME_6GCH_EPERM */
-
-/* When an new error code is added to bcmutils.h, add os
- * specific error translation here as well
- */
-/* check if BCME_LAST changed since the last time this function was updated */
-#if BCME_LAST != BCME_6GCH_EPERM
-#error "You need to add a OS error translation in the linuxbcmerrormap \
-	for new error code defined in bcmutils.h"
-#endif
-};
 uint lmtest = FALSE;
 
 #ifdef DHD_MAP_LOGGING
@@ -278,7 +186,7 @@ osl_error(int bcmerror)
 		bcmerror = BCME_ERROR;
 
 	/* Array bounds covered by ASSERT in osl_attach */
-	return linuxbcmerrormap[-bcmerror];
+	return linux_get_errmap(bcmerror);
 }
 
 #ifdef SHARED_OSL_CMN
@@ -325,9 +233,6 @@ osl_attach(void *pdev, uint bustype, bool pkttag)
 	atomic_add(1, &osh->cmn->refcount);
 
 	bcm_object_trace_init();
-
-	/* Check that error map has the right number of entries in it */
-	ASSERT(ABS(BCME_LAST) == (ARRAYSIZE(linuxbcmerrormap) - 1));
 
 	osh->failed = 0;
 	osh->pdev = pdev;

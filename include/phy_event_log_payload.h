@@ -1640,11 +1640,12 @@ typedef struct phy_periodic_log_cmn_v9 {
 	uint16	log_event_id;		/* logging event id */
 
 	/* Misc general purpose debug counters (will be used for future debugging) */
+	int8	ed_threshold0;		/* Threshold applied for ED core 0 */
+	int8	ed_threshold1;		/* Threshold applied for ED core 1 */
 	uint16	debug_01;
 	uint16	debug_02;
 	uint16	debug_03;
 	uint16	debug_04;
-	uint16	debug_05;
 
 	uint16	macsusp_cnt;		/* mac suspend counter */
 	uint8	amtbitmap;		/* AMT status bitamp */
@@ -1695,8 +1696,8 @@ typedef struct phy_periodic_log_cmn_v9 {
 	uint16	preempt_status2;	/* status of preemption */
 	uint16	preempt_status3;	/* status of preemption */
 	uint16	preempt_status4;	/* status of preemption */
+	uint8	debug_05;
 	uint8	cal_suppressed_cntr_ed;	/* counter including ss, mp cals, MSB is current state */
-	uint8	debug_06;
 	uint32	ed_duration;		/* ccastats: ed_duration */
 } phy_periodic_log_cmn_v9_t;
 
@@ -2005,7 +2006,7 @@ typedef struct phy_periodic_log_cmn_v11 {
 
 	bool	phycal_disable;		/* Set if calibration is disabled */
 	bool	hwpwrctrlen;		/* tx hwpwrctrl enable */
-	int8	ed_threshold;		/* Threshold applied for ED */
+	int8	debug_15;		/* multipurpose debug counter */
 	uint32	ed_duration;		/* ccastats: ed_duration */
 	uint16	ed_crs_status;		/* Status of ED and CRS during noise cal */
 	uint16	preempt_status1;	/* status of preemption */
@@ -2074,8 +2075,8 @@ typedef struct phy_periodic_log_cmn_v11 {
 	uint8	noise_cal_mode;		/* noisecal mode */
 
 	/* Misc general purpose debug counters (will be used for future debugging) */
-	uint8	debug_06;
-	uint8	debug_07;
+	int8	ed_threshold0;		/* Threshold applied for ED core 0 */
+	int8	ed_threshold1;		/* Threshold applied for ED core 1 */
 	uint8	debug_08;
 	uint8	debug_09;
 
@@ -2209,7 +2210,8 @@ typedef struct phy_periodic_log_cmn_v255 {
 
 	bool	phycal_disable;		/* Set if calibration is disabled */
 	bool	hwpwrctrlen;		/* tx hwpwrctrl enable */
-	int8	ed_threshold;		/* Threshold applied for ED */
+	uint8	phylog_noise_mode;	/* Noise mode used */
+
 	uint32	ed_duration;		/* ccastats: ed_duration */
 	uint16	ed_crs_status;		/* Status of ED and CRS during noise cal */
 	uint16	preempt_status1;	/* status of preemption */
@@ -2274,7 +2276,6 @@ typedef struct phy_periodic_log_cmn_v255 {
 	int16	last_cal_temp;
 	uint8	cal_reason;		/* reason for the cal */
 	uint8	cal_suppressed_cntr_ed;	/* counter including ss, mp cals, MSB is current state */
-	uint8	phylog_noise_mode;	/* Noise mode used */
 
 	/* Misc general purpose debug counters (will be used for future debugging) */
 	uint8	debug_06;
@@ -2282,12 +2283,12 @@ typedef struct phy_periodic_log_cmn_v255 {
 	uint8	debug_08;
 	uint8	debug_09;
 	uint8	debug_10;
+	uint8	debug_11;
 
 	uint32	interference_mode;	/* interference mitigation mode */
 	uint32	power_mode;		/* LP/VLP logging */
 
 	/* Misc general purpose debug counters (will be used for future debugging) */
-	uint32	debug_11;
 	uint32	debug_12;
 	uint32	debug_13;
 	uint32	debug_14;
@@ -2483,7 +2484,7 @@ typedef struct phy_periodic_log_core_v255 {
 	int8	noise_level_inst;	/* instantaneous noise cal pwr */
 	int8	estpwr;		/* tx powerDet value */
 	int8	crsmin_th_idx;	/* idx used to lookup crs min thresholds */
-	int8	debug_05;	/* multipurpose debug register */
+	int8	ed_threshold;	/* ed threshold */
 
 	uint16	bad_txbaseidx_cnt;	/* cntr for tx_baseidx=127 in healthcheck */
 	uint16	curr_tssival;	/* TxPwrCtrlInit_path[01].TSSIVal */
@@ -2496,13 +2497,13 @@ typedef struct phy_periodic_log_core_v255 {
 	uint16	flexpwrdig3;
 	uint16	flexpwrdig4;
 	uint16	flexgaininfo_A;
-	uint16	debug_06;	/* multipurpose debug register */
+	uint16	debug_05;	/* multipurpose debug register */
 
 	/* Misc general purpose debug counters (will be used for future debugging) */
+	uint8	debug_06;
 	uint8	debug_07;
 	uint8	debug_08;
 	uint8	debug_09;
-	uint8	debug_10;
 
 	int8	phy_noise_pwr_array[PHY_NOISE_PWR_ARRAY_SIZE];	/* noise buffer array */
 } phy_periodic_log_core_v255_t;

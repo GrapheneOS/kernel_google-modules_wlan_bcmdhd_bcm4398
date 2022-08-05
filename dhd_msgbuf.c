@@ -454,6 +454,26 @@ typedef struct dhd_hmaptest {
 	uint32	offset;
 } dhd_hmaptest_t;
 #endif /* DHD_HMAPTEST */
+
+#ifdef TX_FLOW_RING_INDICES_TRACE
+
+/* By default 4K, which can be overridden by Makefile */
+#ifndef TX_FLOW_RING_INDICES_TRACE_SIZE
+#define TX_FLOW_RING_INDICES_TRACE_SIZE (4 * 1024)
+#endif /* TX_FLOW_RING_INDICES_TRACE_SIZE */
+
+typedef struct rw_trace {
+	uint64 timestamp;
+	uint32 err_rollback_idx_cnt;
+	uint16 rd; /* shared mem or dma rd */
+	uint16 wr; /* shared mem or dma wr */
+	uint16 local_wr;
+	uint16 local_rd;
+	uint8 current_phase;
+	bool start; /* snapshot updated from the start of tx function */
+} rw_trace_t;
+#endif /* TX_FLOW_RING_INDICES_TRACE */
+
 /**
  * msgbuf_ring : This object manages the host side ring that includes a DMA-able
  * buffer, the WR and RD indices, ring parameters such as max number of items
@@ -501,6 +521,11 @@ typedef struct msgbuf_ring {
 	uint8 pending_pkt; /* Pending packet count */
 #endif /* DHD_AGGR_WI */
 	struct msgbuf_ring *linked_ring; /* Ring Associated to metadata ring */
+#ifdef TX_FLOW_RING_INDICES_TRACE
+	rw_trace_t *tx_flow_rw_trace;
+	uint32	tx_flow_rw_trace_cnt;
+	uint32  err_rollback_idx_cnt;
+#endif /* TX_FLOW_RING_INDICES_TRACE */
 } msgbuf_ring_t;
 
 #define DHD_RING_BGN_VA(ring)           ((ring)->dma_buf.va)
@@ -941,6 +966,7 @@ static void dhd_prot_aggregate_db_ring_door_bell(dhd_pub_t *dhd, uint16 flowid, 
 static void dhd_prot_txdata_aggr_db_write_flush(dhd_pub_t *dhd, uint16 flowid);
 #endif /* AGG_H2D_DB */
 static void dhd_prot_ring_doorbell(dhd_pub_t *dhd, uint32 value);
+static void __dhd_prot_upd_read_idx(dhd_pub_t *dhd, msgbuf_ring_t *ring);
 static void dhd_prot_upd_read_idx(dhd_pub_t *dhd, msgbuf_ring_t *ring);
 
 static INLINE int dhd_prot_dma_indx_alloc(dhd_pub_t *dhd, uint8 type,
@@ -2523,7 +2549,7 @@ typedef enum dhd_pkttype {
 #define DHD_MAX_PKTID_16BITS			0xFF00u
 
 #define IS_FLOWRING(ring) \
-	((strncmp(ring->name, "h2dflr", sizeof("h2dflr"))) == (0))
+	((strstr(ring->name, "h2dflr")) != NULL)
 
 typedef void * dhd_pktid_map_handle_t; /* opaque handle to a pktid map */
 
@@ -6051,6 +6077,9 @@ int dhd_sync_with_dongle(dhd_pub_t *dhd)
 
 	DHD_PRINT(("\nwlc_ver_major %d, wlc_ver_minor %d",
 		dhd->wlc_ver_major, dhd->wlc_ver_minor));
+
+	dhdpcie_quirks_after_prot_init(dhd);
+
 #ifndef OEM_ANDROID
 	/* Get the device MAC address */
 	bzero(buf, sizeof(buf));
@@ -7827,7 +7856,6 @@ void
 dhd_prot_edl_ring_tcm_rd_update(dhd_pub_t *dhd)
 {
 	dhd_prot_t *prot = NULL;
-	unsigned long flags = 0;
 	msgbuf_ring_t *ring = NULL;
 
 	if (!dhd)
@@ -7838,9 +7866,7 @@ dhd_prot_edl_ring_tcm_rd_update(dhd_pub_t *dhd)
 		return;
 
 	ring = prot->d2hring_edl;
-	DHD_RING_LOCK(ring->ring_lock, flags);
 	dhd_prot_upd_read_idx(dhd, ring);
-	DHD_RING_UNLOCK(ring->ring_lock, flags);
 }
 #endif /* EWP_EDL */
 
@@ -8298,8 +8324,8 @@ BCMFASTPATH(dhd_prot_process_msgbuf_rxcpl)(dhd_pub_t *dhd, int ringtype, uint32 
 				ring->rd -= msg_len / item_len;
 		}
 
-		/* Update read pointer */
-		dhd_prot_upd_read_idx(dhd, ring);
+		/* Update read pointer, use lockless variant */
+		__dhd_prot_upd_read_idx(dhd, ring);
 
 		DHD_RING_UNLOCK(ring->ring_lock, flags);
 
@@ -8369,13 +8395,6 @@ dhd_prot_update_txflowring(dhd_pub_t *dhd, uint16 flowid, void *msgring)
 		DHD_ERROR(("%s: NULL txflowring. exiting...\n",  __FUNCTION__));
 		return FALSE;
 	}
-
-#ifndef DHD_FAKE_TX_STATUS
-	/* Update read pointer */
-	if (dhd->dma_d2h_ring_upd_support) {
-		ring->rd = dhd_prot_dma_indx_get(dhd, H2D_DMA_INDX_RD_UPD, ring->idx);
-	}
-#endif /* DHD_FAKE_TX_STATUS */
 
 	DHD_TRACE(("ringid %d flowid %d write %d read %d \n\n",
 		ring->idx, flowid, ring->wr, ring->rd));
@@ -9239,8 +9258,8 @@ BCMFASTPATH(dhd_prot_txstatus_process)(dhd_pub_t *dhd, void *msg)
 	void *secdma;
 	bool pkt_fate;
 	msgbuf_ring_t *ring = &dhd->prot->d2hring_tx_cpln;
-#if defined(TX_STATUS_LATENCY_STATS)
 	flow_info_t *flow_info;
+#if defined(TX_STATUS_LATENCY_STATS)
 	uint64 tx_status_latency;
 #endif /* TX_STATUS_LATENCY_STATS || DHD_HP2P */
 #ifdef AGG_H2D_DB
@@ -9371,13 +9390,13 @@ BCMFASTPATH(dhd_prot_txstatus_process)(dhd_pub_t *dhd, void *msg)
 
 	DMA_UNMAP(dhd->osh, pa, (uint) len, DMA_TX, 0, dmah);
 
+	flow_info = &flow_ring_node->flow_info;
 #ifdef TX_STATUS_LATENCY_STATS
 	/* update the tx status latency for flowid */
-	flow_info = &flow_ring_node->flow_info;
 	tx_status_latency = OSL_SYSUPTIME_US() - DHD_PKT_GET_QTIME(pkt);
 	flow_info->cum_tx_status_latency += tx_status_latency;
-	flow_info->num_tx_status++;
 #endif /* TX_STATUS_LATENCY_STATS */
+	flow_info->num_tx_status++;
 
 
 #ifdef HOST_SFH_LLC
@@ -9780,6 +9799,33 @@ end:
 }
 #endif /* DHD_FAKE_TX_STATUS */
 
+#ifdef TX_FLOW_RING_INDICES_TRACE
+static void
+dhd_prot_txflowring_rw_trace(dhd_pub_t *dhd, msgbuf_ring_t *ring, bool start)
+{
+	uint32 cnt = ring->tx_flow_rw_trace_cnt % TX_FLOW_RING_INDICES_TRACE_SIZE;
+	rw_trace_t *tx_flow_rw_trace = &ring->tx_flow_rw_trace[cnt];
+	if (!(dhd->dma_d2h_ring_upd_support || dhd->dma_h2d_ring_upd_support)) {
+		return;
+	}
+	if (!tx_flow_rw_trace) {
+		/* Not adding print here as it is called per packet */
+		return;
+	}
+	/* these ring variables are not updated in any other context. so lock is not needed */
+	tx_flow_rw_trace->timestamp = OSL_LOCALTIME_NS();
+	tx_flow_rw_trace->rd = dhd_prot_dma_indx_get(dhd, H2D_DMA_INDX_RD_UPD, ring->idx);
+	tx_flow_rw_trace->wr = dhd_prot_dma_indx_get(dhd, H2D_DMA_INDX_WR_UPD, ring->idx);
+	tx_flow_rw_trace->local_wr = ring->wr;
+	tx_flow_rw_trace->local_rd = ring->rd;
+	tx_flow_rw_trace->current_phase = ring->current_phase;
+	tx_flow_rw_trace->err_rollback_idx_cnt = ring->err_rollback_idx_cnt;
+	tx_flow_rw_trace->start = start;
+	ring->tx_flow_rw_trace_cnt++;
+	return;
+}
+#endif /* TX_FLOW_RING_INDICES_TRACE */
+
 /**
  * Called when a tx ethernet packet has been dequeued from a flow queue, and has to be inserted in
  * the corresponding flow ring.
@@ -9915,6 +9961,7 @@ BCMFASTPATH(dhd_prot_txdata)(dhd_pub_t *dhd, void *PKTBUF, uint8 ifidx)
 			__FUNCTION__, __LINE__, OSL_ATOMIC_READ(dhd->osh, &prot->active_tx_count)));
 		goto err_free_pktid;
 	}
+
 	txdesc->flags = 0;
 
 	/* Extract the data pointer and length information */
@@ -10229,7 +10276,9 @@ BCMFASTPATH(dhd_prot_txdata)(dhd_pub_t *dhd, void *PKTBUF, uint8 ifidx)
 #ifndef TX_STATUS_LATENCY_STATS
 
 #endif /* TX_STATUS_LATENCY_STATS */
-
+#ifdef TX_FLOW_RING_INDICES_TRACE
+	dhd_prot_txflowring_rw_trace(dhd, ring, FALSE);
+#endif /* TX_FLOW_RING_INDICES_TRACE */
 	DHD_RING_UNLOCK(ring->ring_lock, flags);
 
 	OSL_ATOMIC_INC(dhd->osh, &prot->active_tx_count);
@@ -10251,9 +10300,7 @@ BCMFASTPATH(dhd_prot_txdata)(dhd_pub_t *dhd, void *PKTBUF, uint8 ifidx)
 #ifdef PCIE_INB_DW
 	dhd_prot_dec_hostactive_ack_pending_dsreq(dhd->bus, __FUNCTION__);
 #endif
-#ifdef TX_STATUS_LATENCY_STATS
 	flow_ring_node->flow_info.num_tx_pkts++;
-#endif /* TX_STATUS_LATENCY_STATS */
 	return BCME_OK;
 
 err_rollback_idx:
@@ -10268,6 +10315,9 @@ err_rollback_idx:
 				0 : BCMPCIE_CMNHDR_PHASE_BIT_INIT;
 		}
 	}
+#ifdef TX_FLOW_RING_INDICES_TRACE
+	ring->err_rollback_idx_cnt++;
+#endif /* TX_FLOW_RING_INDICES_TRACE */
 
 err_free_pktid:
 #if defined(DHD_PCIE_PKTID)
@@ -12333,6 +12383,27 @@ dhd_fillup_ioct_reqst(dhd_pub_t *dhd, uint16 len, uint cmd, void* buf, int ifidx
 	return 0;
 } /* dhd_fillup_ioct_reqst */
 
+#ifdef TX_FLOW_RING_INDICES_TRACE
+static void
+dhd_prot_txflowring_rw_trace_attach(dhd_pub_t *dhd, msgbuf_ring_t *ring)
+{
+	if (ring->tx_flow_rw_trace == NULL) {
+		ring->tx_flow_rw_trace =
+			VMALLOCZ(dhd->osh, TX_FLOW_RING_INDICES_TRACE_SIZE * sizeof(rw_trace_t));
+		if (ring->tx_flow_rw_trace == NULL) {
+			DHD_ERROR(("%s: ring->tx_flow_rw_trace alloc failed\n", __FUNCTION__));
+		}
+	}
+}
+static void
+dhd_prot_txflowring_rw_trace_detach(dhd_pub_t *dhd, msgbuf_ring_t *ring)
+{
+	if (ring->tx_flow_rw_trace) {
+		VMFREE(dhd->osh, ring->tx_flow_rw_trace,
+			TX_FLOW_RING_INDICES_TRACE_SIZE * sizeof(rw_trace_t));
+	}
+}
+#endif /* TX_FLOW_RING_INDICES_TRACE */
 
 /**
  * dhd_prot_ring_attach - Initialize the msgbuf_ring object and attach a
@@ -12474,6 +12545,10 @@ dhd_prot_ring_attach(dhd_pub_t *dhd, msgbuf_ring_t *ring, const char *name,
 
 	ring->ring_lock = osl_spin_lock_init(dhd->osh);
 
+#ifdef TX_FLOW_RING_INDICES_TRACE
+	dhd_prot_txflowring_rw_trace_attach(dhd, ring);
+#endif /* TX_FLOW_RING_INDICES_TRACE */
+
 	DHD_INFO(("RING_ATTACH : %s Max item %d len item %d total size %d "
 		"ring start %p buf phys addr  %x:%x \n",
 		ring->name, ring->max_items, ring->item_len,
@@ -12483,6 +12558,16 @@ dhd_prot_ring_attach(dhd_pub_t *dhd, msgbuf_ring_t *ring, const char *name,
 	return BCME_OK;
 } /* dhd_prot_ring_attach */
 
+#ifdef TX_FLOW_RING_INDICES_TRACE
+static void
+dhd_prot_txflowring_rw_trace_init(dhd_pub_t *dhd, msgbuf_ring_t *ring)
+{
+	ring->err_rollback_idx_cnt = 0;
+	ring->tx_flow_rw_trace_cnt = 0;
+	bzero(ring->tx_flow_rw_trace, (sizeof(rw_trace_t) * TX_FLOW_RING_INDICES_TRACE_SIZE));
+
+}
+#endif /* TX_FLOW_RING_INDICES_TRACE */
 
 /**
  * dhd_prot_ring_init - Post the common ring information to dongle.
@@ -12499,6 +12584,9 @@ dhd_prot_ring_init(dhd_pub_t *dhd, msgbuf_ring_t *ring)
 	ring->wr = 0;
 	ring->rd = 0;
 	ring->curr_rd = 0;
+#ifdef TX_FLOW_RING_INDICES_TRACE
+	dhd_prot_txflowring_rw_trace_init(dhd, ring);
+#endif /* TX_FLOW_RING_INDICES_TRACE */
 
 	/* CAUTION: ring::base_addr already in Little Endian */
 	dhd_bus_cmn_writeshared(dhd->bus, &ring->base_addr,
@@ -12534,6 +12622,9 @@ dhd_prot_ring_reset(dhd_pub_t *dhd, msgbuf_ring_t *ring)
 	ring->curr_rd = 0;
 	ring->inited = FALSE;
 	ring->create_pending = FALSE;
+#ifdef TX_FLOW_RING_INDICES_TRACE
+	dhd_prot_txflowring_rw_trace_init(dhd, ring);
+#endif /* TX_FLOW_RING_INDICES_TRACE */
 }
 
 
@@ -12582,6 +12673,10 @@ dhd_prot_ring_detach(dhd_pub_t *dhd, msgbuf_ring_t *ring)
 			dhd_dma_buf_free(dhd, &ring->dma_buf);
 		}
 	}
+
+#ifdef TX_FLOW_RING_INDICES_TRACE
+	dhd_prot_txflowring_rw_trace_detach(dhd, ring);
+#endif /* TX_FLOW_RING_INDICES_TRACE */
 
 	osl_spin_lock_deinit(dhd->osh, ring->ring_lock);
 
@@ -12786,6 +12881,9 @@ dhd_prot_flowrings_pool_fetch(dhd_pub_t *dhd, uint16 flowid)
 	ring->rd = 0;
 	ring->curr_rd = 0;
 	ring->inited = TRUE;
+#ifdef TX_FLOW_RING_INDICES_TRACE
+	dhd_prot_txflowring_rw_trace_init(dhd, ring);
+#endif /* TX_FLOW_RING_INDICES_TRACE */
 	/**
 	 * Every time a flowring starts dynamically, initialize current_phase with 0
 	 * then flip to BCMPCIE_CMNHDR_PHASE_BIT_INIT
@@ -12819,6 +12917,9 @@ dhd_prot_flowrings_pool_release(dhd_pub_t *dhd, uint16 flowid, void *flow_ring)
 	ring->wr = 0;
 	ring->rd = 0;
 	ring->inited = FALSE;
+#ifdef TX_FLOW_RING_INDICES_TRACE
+	dhd_prot_txflowring_rw_trace_init(dhd, ring);
+#endif /* TX_FLOW_RING_INDICES_TRACE */
 
 	ring->curr_rd = 0;
 }
@@ -12863,7 +12964,6 @@ BCMFASTPATH(dhd_prot_get_ring_space)(msgbuf_ring_t *ring, uint16 nitems, uint16 
 	ASSERT(nitems <= ring->max_items);
 
 	ring_avail_cnt = CHECK_WRITE_SPACE(ring->rd, ring->wr, ring->max_items);
-
 	if ((ring_avail_cnt == 0) ||
 	       (exactly_nitems && (ring_avail_cnt < nitems) &&
 	       ((ring->max_items - ring->wr) >= nitems))) {
@@ -12925,7 +13025,6 @@ dhd_prot_agg_db_ring_write(dhd_pub_t *dhd, msgbuf_ring_t * ring, void* p,
 			dhd_bus_cmn_writeshared(dhd->bus, &(ring->wr),
 				sizeof(uint16), RING_WR_UPD, ring->idx);
 	}
-
 	DHD_BUS_LP_STATE_UNLOCK(dhd->bus->bus_lp_state_lock, flags_bus);
 }
 
@@ -13091,7 +13190,7 @@ BCMFASTPATH(dhd_prot_ring_write_complete_mbdata)(dhd_pub_t *dhd, msgbuf_ring_t *
  * directly in dongle's ring state memory.
  */
 static void
-dhd_prot_upd_read_idx(dhd_pub_t *dhd, msgbuf_ring_t * ring)
+__dhd_prot_upd_read_idx(dhd_pub_t *dhd, msgbuf_ring_t * ring)
 {
 	dhd_prot_t *prot = dhd->prot;
 	uint32 db_index;
@@ -13133,6 +13232,16 @@ dhd_prot_upd_read_idx(dhd_pub_t *dhd, msgbuf_ring_t * ring)
 	}
 
 	DHD_BUS_LP_STATE_UNLOCK(dhd->bus->bus_lp_state_lock, flags_bus);
+}
+
+static void
+dhd_prot_upd_read_idx(dhd_pub_t *dhd, msgbuf_ring_t * ring)
+{
+	unsigned long flags;
+
+	DHD_RING_LOCK(ring->ring_lock, flags);
+	__dhd_prot_upd_read_idx(dhd, ring);
+	DHD_BUS_LP_STATE_UNLOCK(ring->ring_lock, flags);
 }
 
 static int
@@ -13318,12 +13427,12 @@ dhd_prot_dma_indx_set(dhd_pub_t *dhd, uint16 new_index, uint8 type, uint16 ringi
 	dhd_prot_t *prot = dhd->prot;
 	uint16 max_h2d_rings = dhd->bus->max_submission_rings;
 
-	/* This is to ensure that memory operation of
-	 * ring are excuted prior to DMA Indices.
+	/* Ensure that instruction operates on workitem are
+	 * completed before dma indices are updated.
 	 * For non-dma indices case, this is handled
 	 * using W_REG() which inturn has wmb().
 	 */
-	OSL_SMP_WMB();
+	OSL_MB();
 	switch (type) {
 		case H2D_DMA_INDX_WR_UPD:
 			ptr = (uint8 *)(prot->h2d_dma_indx_wr_buf.va);
@@ -13354,6 +13463,10 @@ dhd_prot_dma_indx_set(dhd_pub_t *dhd, uint16 new_index, uint8 type, uint16 ringi
 
 	OSL_CACHE_FLUSH((void *)ptr, prot->rw_index_sz);
 
+	/* Ensure that instruction operates on workitem are
+	 * performed after dma indices are updated.
+	 */
+	OSL_MB();
 	DHD_TRACE(("%s: data %d type %d ringid %d ptr 0x%p offset %d\n",
 		__FUNCTION__, new_index, type, ringid, ptr, offset));
 
@@ -13375,6 +13488,10 @@ dhd_prot_dma_indx_get(dhd_pub_t *dhd, uint8 type, uint16 ringid)
 	dhd_prot_t *prot = dhd->prot;
 	uint16 max_h2d_rings = dhd->bus->max_submission_rings;
 
+	/* Ensure that instruction operates on workitem are
+	 * completed before dma indices are read.
+	 */
+	OSL_MB();
 	switch (type) {
 		case H2D_DMA_INDX_WR_UPD:
 			ptr = (uint8 *)(prot->h2d_dma_indx_wr_buf.va);
@@ -13427,10 +13544,10 @@ dhd_prot_dma_indx_get(dhd_pub_t *dhd, uint8 type, uint16 ringid)
 	DHD_TRACE(("%s: data %d type %d ringid %d ptr 0x%p offset %d\n",
 		__FUNCTION__, data, type, ringid, ptr, offset));
 
-	/* Memory barrier to ensure that ring operations are
-	 * performed after dma indices is synced.
+	/* Ensure that instruction operates on workitem are
+	 * performed after dma indices are read.
 	 */
-	OSL_SMP_WMB();
+	OSL_MB();
 	return (data);
 
 } /* dhd_prot_dma_indx_get */
@@ -15252,6 +15369,70 @@ copy_hang_info_linkdown(dhd_pub_t *dhd)
 
 }
 #endif /* WL_CFGVENDOR_SEND_HANG_EVENT */
+
+#ifdef TX_FLOW_RING_INDICES_TRACE
+uint32
+dhd_prot_get_flow_ring_trace_len(dhd_pub_t *dhdp)
+{
+	return (dhd_get_max_flow_rings(dhdp) * TX_FLOW_RING_INDICES_TRACE_SIZE *
+		sizeof(rw_trace_t));
+}
+
+void
+dhd_prot_tx_flow_ring_trace_dump(dhd_pub_t *dhdp, struct bcmstrbuf *strbuf)
+{
+	int dumpsz;
+	int i;
+	uint32 flowid;
+	msgbuf_ring_t *ring;
+	flow_ring_node_t *flow_ring_node;
+	rw_trace_t *tx_flow_rw_trace;
+
+	DHD_PRINT(("%s\n", __FUNCTION__));
+	for (flowid = 0; flowid < dhdp->num_h2d_rings; flowid++) {
+		flow_ring_node = DHD_FLOW_RING(dhdp, flowid);
+		if (flow_ring_node->status != FLOW_RING_STATUS_OPEN) {
+			continue;
+		}
+
+		ring = (msgbuf_ring_t *)flow_ring_node->prot_info;
+
+		tx_flow_rw_trace = ring->tx_flow_rw_trace;
+		if (tx_flow_rw_trace == NULL) {
+			bcm_bprintf(strbuf, "ring->tx_flow_rw_trace is NULL\n");
+			continue;
+		}
+
+		dumpsz = ring->tx_flow_rw_trace_cnt < TX_FLOW_RING_INDICES_TRACE_SIZE ?
+			ring->tx_flow_rw_trace_cnt : TX_FLOW_RING_INDICES_TRACE_SIZE;
+		if (dumpsz == 0) {
+			bcm_bprintf(strbuf, "%s EMPTY RING\n", ring->name);
+			continue;
+		}
+
+		bcm_bprintf(strbuf, "%s flowid: %d trace_idx:%d\n",
+			ring->name, flowid,
+			ring->tx_flow_rw_trace_cnt % TX_FLOW_RING_INDICES_TRACE_SIZE);
+		bcm_bprintf(strbuf, "%8s: %16s\t%9s\t%11s\t%5s\t%5s\t%7s\n",
+			"index", "timestamp", "dma_wr-rd", "local_wr-rd", "phase", "start",
+			"rbk_cnt");
+
+		for (i = 0; i < dumpsz; i++) {
+			bcm_bprintf(strbuf, "%8d: %16llu\t%6d-%d\t%8d-%d\t0x%x\t%5d\t%7d\n",
+				i,
+				tx_flow_rw_trace[i].timestamp,
+				tx_flow_rw_trace[i].wr,
+				tx_flow_rw_trace[i].rd,
+				tx_flow_rw_trace[i].local_wr,
+				tx_flow_rw_trace[i].local_rd,
+				tx_flow_rw_trace[i].current_phase,
+				tx_flow_rw_trace[i].start,
+				tx_flow_rw_trace[i].err_rollback_idx_cnt);
+		}
+	}
+}
+#endif /* TX_FLOW_RING_INDICES_TRACE */
+
 void
 dhd_prot_ctrl_info_print(dhd_pub_t *dhd)
 {

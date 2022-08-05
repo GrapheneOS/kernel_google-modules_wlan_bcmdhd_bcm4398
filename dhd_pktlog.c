@@ -416,7 +416,6 @@ dhd_pktlog_ring_deinit(dhd_pub_t *dhdp, dhd_pktlog_ring_t *ring)
 	return ret;
 }
 
-#ifdef DHD_PKT_LOGGING_DBGRING
 int
 dhd_pktlog_ring_reinit(dhd_pub_t *dhdp)
 {
@@ -487,7 +486,6 @@ dhd_pktlog_ring_reinit(dhd_pub_t *dhdp)
 
 	return BCME_OK;
 }
-#endif /* DHD_PKT_LOGGING_DBGRING */
 
 /*
  * dhd_pktlog_ring_add_pkts : add filtered packets into pktlog ring

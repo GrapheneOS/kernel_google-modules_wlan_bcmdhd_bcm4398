@@ -118,6 +118,15 @@ typedef volatile struct pmuregs pmuregs_t;
 /* Include Regs from vlsi_xxx files only for Dongle FW builds */
 #if defined(DONGLEBUILD) || defined(COEX_CPU_BUILD)
 #include <vlsi_chipcommon_all_regs.h>
+
+/**
+ * Get the width of a field in a register.
+ * @param  _regname    The name register that the field is defined in.
+ * @param  _fieldname  The name of the field.
+ * @return             An unsigned integer.
+ */
+#define CC_REG_FIELD_WIDTH(_regname, _fieldname) \
+	(chipcommon_## _regname ##__## _fieldname ##_WIDTH)
 #endif /* DONGLEBUILD || COEX_CPU_BUILD */
 
 typedef volatile struct chipcregs chipcregs_t;
@@ -202,6 +211,7 @@ typedef volatile struct chipcregs chipcregs_t;
 #define chipcommon_GPIOEventIntMask_ADDR                                                0x7cu
 #define chipcommon_GPIOEventIntPolarity_ADDR                                            0x84u
 #define chipcommon_GPIOEvent_ADDR                                                       0x78u
+#define chipcommon_JtagMasterCtrl_ADDR							0x3cu
 #endif /* !DONGLEBUILD && !COEX_CPU_BUILD */
 
 #ifndef USE_NEW_GCI_REG_OFF
@@ -621,15 +631,19 @@ typedef volatile struct chipcregs chipcregs_t;
 #define DVFS_VOLTAGE_NDV_NON_LVM	76u	/* 0.76V */
 #define DVFS_VOLTAGE_NDV_MAX		80u	/* 0.80V */
 #define DVFS_VOLTAGE_NDV_PWR_OPT	68u	/* 0.68V */
+
 #ifdef BCMDVFS_NDV_CBUCK_98B0_WAR
-#define DVFS_VOLTAGE_NDV_DEF_CBUCK	83u	/* 0.67V */
-#define DVFS_VOLTAGE_NDV_MLO_CBUCK	83u	/* 0.71V */
+#define DVFS_VOLTAGE_NDV_DEF_CBUCK	83u	/* 0.83V */
+#define DVFS_VOLTAGE_NDV_MLO_CBUCK	83u	/* 0.83V */
+#define DVFS_VOLTAGE_NDV_DEF_CLDO	71u	/* 0.71V */
+#define DVFS_VOLTAGE_NDV_MLO_CLDO	71u	/* 0.71V */
 #else
 #define DVFS_VOLTAGE_NDV_DEF_CBUCK	67u	/* 0.67V */
 #define DVFS_VOLTAGE_NDV_MLO_CBUCK	71u	/* 0.71V */
-#endif /* BCMDVFS_NDV_CBUCK_98B0_WAR */
 #define DVFS_VOLTAGE_NDV_DEF_CLDO	60u	/* 0.60V */
 #define DVFS_VOLTAGE_NDV_MLO_CLDO	67u	/* 0.67V */
+#endif /* BCMDVFS_NDV_CBUCK_98B0_WAR */
+
 #define DVFS_VOLTAGE_NDV_SHIFT		8u
 #define DVFS_VOLTAGE_NDV_MASK		(0x7Fu << DVFS_VOLTAGE_NDV_SHIFT)
 #define DVFS_VOLTAGE_LDV		65u	/* 0.65V */
@@ -680,9 +694,11 @@ typedef volatile struct chipcregs chipcregs_t;
 #if defined(BCM_FASTLPO) && !defined(BCM_FASTLPO_DISABLED)
 #define DVFS_DELAY	DVFS_FASTLPO_DELAY
 #define DVFS_NDV_DELAY	DVFS_NDV_FASTLPO_DELAY
+#define DVFS_SWITCH_TIMEOUT	(200)
 #else
 #define DVFS_DELAY	DVFS_LPO_DELAY
 #define DVFS_NDV_DELAY	DVFS_NDV_LPO_DELAY
+#define DVFS_SWITCH_TIMEOUT	(10000)
 #endif /* BCM_FASTLPO && !BCM_FASTLPO_DISABLED */
 
 #define DVFS_LDV	0u

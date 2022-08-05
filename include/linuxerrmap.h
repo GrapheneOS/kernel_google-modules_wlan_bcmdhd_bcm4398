@@ -1,4 +1,6 @@
 /*
+ * Linux Error mappings
+ *
  * Copyright (C) 2022, Broadcom.
  *
  *      Unless you and Broadcom execute a separate written software license
@@ -16,38 +18,11 @@
  * modifications of the software.
  *
  *
- * <<Broadcom-WL-IPTag/Open:>>
- *
-*/
+ * <<Broadcom-WL-IPTag/Dual:>>
+ */
 
-#ifndef _epivers_h_
-#define _epivers_h_
+#ifndef _linuxerrmap_h_
+#define _linuxerrmap_h_
+extern int linux_get_errmap(int bcmerror);
 
-#define EPI_MAJOR_VERSION	103
-
-#define EPI_MINOR_VERSION	10
-
-#define EPI_RC_NUMBER		99
-
-#define EPI_INCREMENTAL_NUMBER	0
-
-#define EPI_BUILD_NUMBER	0
-
-#define EPI_VERSION		103, 10, 99, 0
-
-#define EPI_VERSION_NUM		0x670a6300
-
-#define EPI_VERSION_DEV		103.10.99
-
-/* Driver Version String, ASCII, 32 chars max */
-#if defined (WLTEST)
-#define EPI_VERSION_STR		"103.10.99 (TOB) (wlan=r987290 WLTEST)"
-#elif (defined (BCMDBG_ASSERT) && \
-	!defined (BCMDBG_ASSERT_DISABLED) && \
-	!defined (ASSERT_FP_DISABLE))
-#define EPI_VERSION_STR		"103.10.99 (TOB) (wlan=r987290 ASSRT)"
-#else
-#define EPI_VERSION_STR		"103.10.99 (TOB) (wlan=r987290)"
-#endif /* BCMINTERNAL */
-
-#endif /* _epivers_h_ */
+#endif /* _linuxerrmap_h_ */

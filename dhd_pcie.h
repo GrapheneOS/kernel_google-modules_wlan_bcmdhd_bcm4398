@@ -380,6 +380,12 @@ typedef struct dhd_bus {
 					 */
 	uint32		resetinstr;
 	uint32		dongle_ram_base;
+#ifdef COEX_CPU
+	uint32		coex_itcm_base;
+	uint32		coex_dtcm_base;
+	uint32		coex_itcm_size;
+	uint32		coex_dtcm_size;
+#endif /* COEX_CPU */
 	ulong		shared_addr;
 	pciedev_shared_t	*pcie_sh;
 	uint32		dma_rxoffset;
@@ -668,6 +674,7 @@ typedef struct dhd_bus {
 	 */
 	uint32 *flowring_cur_items;
 	uint32 lpbk_xfer_data_pattern_type; /*  data Pattern type DMA lpbk */
+	bool ltr_active_set_during_init;
 } dhd_bus_t;
 
 #define LPBK_DMA_XFER_DTPTRN_DEFAULT	0
@@ -1076,4 +1083,6 @@ void dhd_assoc_check_sr(dhd_pub_t *dhd, bool state);
 #endif /* DEVICE_TX_STUCK_DETECT && ASSOC_CHECK_SR */
 
 void dhd_init_bar1_switch_lock(dhd_bus_t *bus);
+int dhd_pcie_nci_wrapper_dump(dhd_pub_t *dhd);
+int dhd_bus_get_armca7_pc(struct dhd_bus *bus, bool loop_print);
 #endif /* dhd_pcie_h */

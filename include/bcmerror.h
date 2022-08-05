@@ -136,8 +136,9 @@ typedef int bcmerror_t;
 #define BCME_IN_PROGRESS		-77	/* Command/context is in progress */
 #define BCME_NOP			-78	/* No action taken i.e. NOP */
 #define BCME_6GCH_EPERM			-79	/* 6G channel is not permitted */
+#define BCME_6G_NO_TPE			-80	/* TPE for a 6G channel does not exist */
 
-#define BCME_LAST			BCME_6GCH_EPERM
+#define BCME_LAST			BCME_6G_NO_TPE
 
 #define BCME_NOTENABLED BCME_DISABLED
 
@@ -233,11 +234,15 @@ typedef int bcmerror_t;
 	"Command/context is in progress", \
 	"No action taken i.e. NOP",	\
 	"6G Not permitted", \
+	"tpe for 6g channel(s) does not exist", \
 }
 
 /* FTM error codes [-1024, -2047] */
 enum {
-	WL_FTM_E_LAST			= -1082,
+	WL_FTM_E_LAST			= -1085,
+	WL_FTM_E_INVALID_SLTF_COUNTER	= -1085,
+	WL_FTM_E_BAD_KEY_INFO_IDX	= -1084,
+	WL_FTM_E_VALID_SAC_GEN_FAIL	= -1083,
 	WL_FTM_E_NDPA_SAC_MISMATCH      = -1082,
 	WL_FTM_E_MEAS_SAC_MISMATCH      = -1081,
 	WL_FTM_E_VALID_SAC_MISMATCH	= -1080,
@@ -250,7 +255,7 @@ enum {
 	WL_FTM_E_INVALID_BW		= -1073,
 	WL_FTM_E_INVALID_ST_CH		= -1072,
 	WL_FTM_E_RSTA_AND_ISTA		= -1071,
-	WL_FTM_E_NO_SLTF		= -1070,
+	WL_FTM_E_NO_SLTF_INFO		= -1070,
 	WL_FTM_E_INVALID_NBURST		= -1069,
 	WL_FTM_E_FATAL			= -1068,
 	WL_FTM_E_PASN			= -1067,

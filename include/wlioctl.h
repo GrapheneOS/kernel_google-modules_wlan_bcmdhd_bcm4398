@@ -4427,7 +4427,7 @@ typedef struct wl_bsstrans_roamthrottle {
 
 #ifndef NFIFO_EXT
 #if defined(BCM_AQM_DMA_DESC) && !defined(BCM_AQM_DMA_DESC_DISABLED)
-#if defined(LLW) && !defined(SWLLW)
+#if (defined(LLW) && !defined(SWLLW)) || defined(BCM_SAQM_FOR_ALL_TX_QUEUES)
 #define NFIFO_EXT		11	/* 4EDCA + 4 TWT + 1 Mcast/Bcast + 1 Spare + 1 LLQ */
 #else
 #define NFIFO_EXT		10	/* 4EDCA + 4 TWT + 1 Mcast/Bcast + 1 Spare */
@@ -4527,6 +4527,7 @@ enum {
 #define WL_CNT_VERSION_7	7
 #define WL_CNT_VERSION_11	11
 #define WL_CNT_VERSION_XTLV	30
+#define WL_CNT_VERSION_XTLV_ML	31
 
 #define WL_COUNTERS_IOV_VERSION_1	1
 #define WL_SUBCNTR_IOV_VER		WL_COUNTERS_IOV_VERSION_1
@@ -4544,7 +4545,24 @@ enum {
 #define WL_TLV_DATASET_V2_LEN	2u /* First 32 bit - TLV type
 				* Second 32 bit - TLV Len
 				*/
+#define SUBC_SUBFLD_NUMTLV_MASK		0x00ff
+#define SUBC_SUBFLD_NUMTLV_GET(val)	(val & SUBC_SUBFLD_NUMTLV_MASK)
 
+#define SUBC_SUBFLD_NUMLINKS_MASK	0x0f00
+#define SUBC_SUBFLD_NUMLINKS_SHIFT	8
+#define SUBC_SUBFLD_NUMLINKS_UPD(val, nl)		\
+		(val) |= (((((uint16)nl)) << SUBC_SUBFLD_NUMLINKS_SHIFT) & \
+		SUBC_SUBFLD_NUMLINKS_MASK)
+#define SUBC_SUBFLD_NUMLINKS_GET(val)		\
+		(val & SUBC_SUBFLD_NUMLINKS_MASK) >> SUBC_SUBFLD_NUMLINKS_SHIFT
+
+#define SUBC_SUBFLD_SLICEIX_MASK	0x7000
+#define SUBC_SUBFLD_SLICEIX_SHIFT	12
+#define SUBC_SUBFLD_SLICEIX_UPD(val, slix)		\
+		(val) |= (((((uint16)slix)) << SUBC_SUBFLD_SLICEIX_SHIFT) & \
+		SUBC_SUBFLD_SLICEIX_MASK)
+#define SUBC_SUBFLD_SLICEIX_GET(val)		\
+		(val & SUBC_SUBFLD_SLICEIX_MASK) >> SUBC_SUBFLD_SLICEIX_SHIFT
 /**
  * tlv IDs uniquely identifies counter component
  * packed into wl_cmd_t container
@@ -4934,8 +4952,10 @@ typedef struct {
 			* so to calculate offset of supported TLVs.
 			* If there is a mismatch in the version, FW will update an error
 			*/
-	uint16  num_tlv;	/* Max number of TLV info passed by FW to WL app.
-			* and vice-versa
+	uint16  num_tlv;	/* for WL_CNT_VERSION_XTLV: Max number of TLV info passed by FW
+			* to WL app. and vice-versa
+			* For WL_CNT_VERSION_XTLV_ML: this field carries links and sliceix-
+			* additionally. see SUBC_SUBFLD_xxx
 			*/
 	uint32   data[];	/* variable length payload:
 			* This stores the tlv as supported by F/W to the wl app.
@@ -5184,6 +5204,7 @@ typedef struct {
 	uint32  rxunsolicitedproberesp; /**< number of "unsoliocited" probe responses RXed */
 	uint32  rco_passthrough;	/**< hw rco required but passthrough */
 	uint32	rco_normal;	/**< hw rco hdr for normal process */
+	uint32	rxnodatabuf;	/**< # of nobuf failure due to rxdata buf non-availability */
 	/* Do not remove or rename in the middle of this struct.
 	 * All counter variables have to be of uint32.
 	 */
@@ -6371,14 +6392,13 @@ typedef struct {
 	uint32	strmeof;
 	uint32	stsfifofull;
 	uint32	stsfifoerr;
-	uint32	PAD[6];
 	uint32	rxerr_stat;
 	uint32	ctx_fifo_full;	/* Firmware not draining frames fast enough */
-	uint32	PAD[9];
+	uint32	PAD[20];
 	uint32	ctmode_ufc_cnt;
-	uint32	PAD[26];	/* PAD added for counter elements to be added soon */
+	uint32	PAD[12];	/* PAD added for counter elements to be added soon */
 	uint32	ctx_fifo2_full;	/* Firmware not draining frames fast enough */
-	uint32	PAD;		/* PAD to match to the struct size before ctx_fifo2_full count was
+	uint32	PAD[10];	/* PAD to match to the struct size before ctx_fifo2_full count was
 				 * introduced. Can be repurposed to a different counter
 				 */
 } wl_cnt_ge80mcst_v1_t;
@@ -11472,7 +11492,8 @@ typedef struct phy_ecounter_log_core_v255 {
 	int8	noise_level_inst;	/* Instantaneous noise cal pwr */
 	int8	tgt_pwr;		/* Programmed Target power */
 	int8	estpwradj;		/* Current Est Power Adjust value */
-	uint8	PAD1[2];
+	int8	ed_threshold;	/* Energy detection threshold */
+	uint8	PAD1;
 } phy_ecounter_log_core_v255_t;
 
 /* Do not remove phy_ecounter_v1_t parameters */
@@ -11691,7 +11712,7 @@ typedef struct phy_ecounter_v255 {
 	int8		weakest_rssi;		/* Weakest link RSSI */
 	int8		ltecx_mode;		/* LTE coex desense mode */
 	int32		btcx_mode;		/* BT coex desense mode */
-	int8		ed_threshold;		/* Threshold applied for ED */
+	int8		debug_01;		/* multipurpose debug counter */
 	uint8		chan_switch_cnt;	/* Count to track channel change */
 	uint8		phycal_disable;		/* Status of phy calibration */
 	uint8		scca_txstall_precondition;	/* SmartCCA TX stall precondition */
@@ -14518,6 +14539,8 @@ typedef enum wl_nan_tlv {
 	WL_NAN_XTLV_SD_NDL_QOS_UPD	= NAN_CMD(WL_NAN_CMD_SD_COMP_ID, 0x11),
 	WL_NAN_XTLV_SD_DISC_CACHE_TIMEOUT	= NAN_CMD(WL_NAN_CMD_SD_COMP_ID, 0x12),
 	WL_NAN_XTLV_SD_PEER_NMI		= NAN_CMD(WL_NAN_CMD_SD_COMP_ID, 0x13),
+	WL_NAN_XTLV_SD_FUP_UNSYNC_CHANSPEC = NAN_CMD(WL_NAN_CMD_SD_COMP_ID, 0x14),
+	WL_NAN_XTLV_SD_CHANSPEC = NAN_CMD(WL_NAN_CMD_SD_COMP_ID, 0x15),
 
 	WL_NAN_XTLV_SYNC_BCN_RX		= NAN_CMD(WL_NAN_CMD_SYNC_COMP_ID, 0x01),
 	WL_NAN_XTLV_EV_MR_CHANGED	= NAN_CMD(WL_NAN_CMD_SYNC_COMP_ID, 0x02),
@@ -15759,6 +15782,7 @@ typedef int8 wl_nan_sd_optional_field_types_t;
 
 #define WL_NAN_FOLLOWUP			0x20000 /* Follow-up frames */
 #define WL_NAN_TX_FOLLOWUP             0x40000 /* host generated transmit Follow-up frames */
+#define WL_NAN_TX_FOLLOWUP_UNSYNC      0x80000 /* host generated TX Follow-up in unsync disc */
 
 /* Event generation indicator (default is continuous) */
 #define WL_NAN_MATCH_ONCE		0x100000
@@ -15948,6 +15972,8 @@ typedef struct wl_nan_sd_stats {
 #define WL_NAN_FUP_SUPR_EVT_TXS      0x01
 /* If set, insert shared key descr attribute in tx-followup msg */
 #define WL_NAN_FUP_ADD_SKDA          0x02
+/* If set, send tx-followup msg without peer availability check */
+#define WL_NAN_FUP_UNSYNC_TX         0x04
 /* more flags can be added here */
 
 /*
@@ -16812,7 +16838,9 @@ enum wl_nan_fw_cap_flag1 {
 	/* Group Addressed Frames Protect (GTK/IGTK/BIGTK) */
 	WL_NAN_FW_CAP_FLAG1_GAF_PROTECT		= 0x00800000,
 	WL_NAN_FW_CAP_FLAG1_REKEY		= 0x01000000,
-	WL_NAN_FW_CAP_FLAG1_S3			= 0x02000000
+	WL_NAN_FW_CAP_FLAG1_S3			= 0x02000000,
+	WL_NAN_FW_CAP_FLAG1_PAIRING		= 0x04000000,
+	WL_NAN_FW_CAP_FLAG1_6G			= 0x08000000
 };
 
 
@@ -17182,7 +17210,7 @@ enum {
 	WL_AVAIL_PERIOD_8192	= 7,	/* 8192TU */
 };
 
-/* band */
+/* Band ID values: See Table 99 in NAN R4 spec */
 enum {
 	WL_AVAIL_BAND_NONE	= 0,	/* reserved */
 	WL_AVAIL_BAND_SUB1G	= 1,	/* sub-1 GHz */
@@ -17190,7 +17218,8 @@ enum {
 	WL_AVAIL_BAND_3G	= 3,	/* reserved (for 3.6 GHz) */
 	WL_AVAIL_BAND_5G	= 4,	/* 4.9 and 5 GHz */
 	WL_AVAIL_BAND_60G	= 5,	/* reserved (for 60 GHz) */
-	WL_AVAIL_BAND_6G	= 6,	/* 6 GHz */
+	WL_AVAIL_BAND_45G	= 6,	/* 45 GHz */
+	WL_AVAIL_BAND_6G	= 7,	/* 6 GHz */
 };
 
 #define WL_AVAIL_ENTRY_TYPE_MASK	0x000F
@@ -19781,6 +19810,9 @@ typedef enum {
 	WL_PROXD_TLV_ID_COLLECT_INLINE_RESULTS	= 1035,
 	WL_PROXD_TLV_ID_RESERVED_ID1036		= 1036,	/* ftm component only */
 	WL_PROXD_TLV_ID_RESERVED_ID1037		= 1037,	/* ftm component only */
+	WL_PROXD_TLV_ID_RESERVED_ID1038		= 1038,	/* ftm component only */
+	WL_PROXD_TLV_ID_RESERVED_ID1039		= 1039,	/* ftm component only */
+	WL_PROXD_TLV_ID_RESERVED_ID1040		= 1040,	/* ftm component only */
 
 	WL_PROXD_TLV_ID_MAX
 } wl_proxd_tlv_types_t;
@@ -24339,6 +24371,50 @@ typedef struct wl_mlo_tid_map_v1 {
 #define TID_TO_LINK_MAP_SIZE(tid_map) \
 	(OFFSETOF(wl_mlo_tid_map_v1_t, link_tid_map) + \
 		(tid_map->num_links * sizeof(wl_mlo_link_tid_map_v1_t)))
+
+#define WL_MLO_TID_MAP_VER_2	(2u)
+
+typedef struct wl_mlo_tid_map_v2 {
+	uint16	version;
+	uint16	length;
+	uint8	control;	/* Control bitmap as defined below:
+				 * bits 0-1: direction (0-DL, 1-UL, 2-BOTH)
+				 * bits 2-3: number of links
+				 * bit 4: trigger TID-to-link mapping negotiation (0/1)
+				 */
+	uint8	pad[3];
+	wl_mlo_link_tid_map_v1_t link_tid_map[];	/* TID map per link */
+} wl_mlo_tid_map_v2_t;
+
+/* MLO tid_map control definitions */
+#define WL_MLO_TID_MAP_DIR_MASK		(0x03u)
+#define WL_MLO_TID_MAP_LINK_NUM_MASK	(0x0Cu)
+#define WL_MLO_TID_MAP_NEG_MASK		(0x10u)
+#define WL_MLO_TID_MAP_LINK_NUM_SHIFT	(2u)
+#define WL_MLO_TID_MAP_NEG_SHIFT	(4u)
+
+#define WL_MLO_TID_MAP_DIR_GET(tidmap) \
+	((tidmap)->control & WL_MLO_TID_MAP_DIR_MASK)
+
+#define WL_MLO_TID_MAP_DIR_SET(tidmap, val) \
+	((tidmap)->control = ((tidmap)->control & ~WL_MLO_TID_MAP_DIR_MASK) | \
+		(val))
+
+#define WL_MLO_TID_MAP_LINK_NUM_GET(tidmap) \
+	(((tidmap)->control & WL_MLO_TID_MAP_LINK_NUM_MASK) >> \
+		WL_MLO_TID_MAP_LINK_NUM_SHIFT)
+
+#define WL_MLO_TID_MAP_LINK_NUM_SET(tidmap, val) \
+	((tidmap)->control = ((tidmap)->control & ~WL_MLO_TID_MAP_LINK_NUM_MASK) | \
+		(val << WL_MLO_TID_MAP_LINK_NUM_SHIFT))
+
+#define WL_MLO_TID_MAP_NEG_GET(tidmap) \
+	(((tidmap)->control & WL_MLO_TID_MAP_NEG_MASK) >> \
+		WL_MLO_TID_MAP_NEG_SHIFT)
+
+#define WL_MLO_TID_MAP_NEG_SET(tidmap, val) \
+	((tidmap)->control = ((tidmap)->control & ~WL_MLO_TID_MAP_NEG_MASK) | \
+		(val << WL_MLO_TID_MAP_NEG_SHIFT))
 
 /* MLO emlsr ctrl shift definition */
 #define WL_MLO_EMLSR_CTRL_FLAGS_MURTS_EN_SHIFT	(0u)
@@ -29216,6 +29292,21 @@ typedef struct wl_timestamps_v1 {
 	uint32  PAD;
 } wl_timestamps_v1_t;
 
+#define WL_TIMESTAMP_VERSION_2 2
+typedef struct wl_timestamps_v2 {
+	uint16	version;	  /**< structure version */
+	uint16	length;		  /**< length of this struct */
+	uint32  PAD;
+	uint64	cpu_cycles;	  /**< cpu cycle count */
+	uint64	pgt;		  /**< local pgt master timestamp in nano seconds */
+	uint64	pmu_timer;	  /**< legacy pmu timer in microseconds */
+	uint32	tsf_main;	  /**< main slice tsf */
+	uint32	tsf_aux;	  /**< aux slice tsf */
+	uint32	tsf_scan;	  /**< scan core tsf */
+	uint32  PAD;
+	uint64	sysuptime_ns;	  /**< sysup time in nanoseconds */
+} wl_timestamps_v2_t;
+
 #define WL_LOW_LATENCY_CONFIG_V1	1u
 #define WL_LOW_LATENCY_V1		1u
 
@@ -29578,21 +29669,24 @@ typedef struct wlc_aft_entry_info_v2 {
 
 
 /* subcommand ids for phy_tpc */
+#define WL_TPC_CMD_INFO_BUF_SZ	4
+
 enum wl_tpc_subcmd_ids {
 	WL_TPC_SUBCMD_AV = 0u,			/* AV */
 	WL_TPC_SUBCMD_VMID = 1u,		/* VMID */
 	WL_TPC_SUBCMD_VER_CHECK = 2u,		/* VER CHECK */
+	WL_TPC_SUBCMD_PACAL = 3u,		/* VER CHECK */
 };
 
 typedef struct wl_tpc_avvmid_info_v1 {
-	uint16  version;			/* structure version */
-	uint16  length;				/* structure length */
-	uint8   core;				/* core number */
-	uint8   sub_band_idx;			/* sub band index */
-	uint8   pa_mode;			/* PA mode */
-	uint8   is_6g;				/* 0: 2G/5G or 1: 6G */
-	uint8   avvmid_val;			/* AV or Vmid value */
-	uint8	PAD[3];				/* explicit padding */
+	uint16  version;	/* structure version */
+	uint16  length;		/* structure length */
+	uint8   core;		/* core number */
+	uint8   sub_band_idx;	/* sub band index */
+	uint8   pa_mode;	/* PA mode */
+	uint8   is_6g;		/* 0: 2G/5G or 1: 6G */
+	uint8   avvmid_val;	/* AV or Vmid value */
+	uint8	PAD[3];		/* explicit padding */
 } wl_tpc_avvmid_info_v1_t;
 
 typedef struct wl_tpc_cmd_v1 {
@@ -29603,8 +29697,28 @@ typedef struct wl_tpc_cmd_v1 {
 	wl_tpc_avvmid_info_v1_t avvmid_info;	/* avvmid info */
 } wl_tpc_cmd_v1_t;
 
+typedef struct wl_tpc_cmd_info_v2 {
+	uint16  version;			/* structure version */
+	uint16  length;				/* structure length */
+	uint8   core;				/* core number */
+	uint8   sub_band_idx;			/* sub band index */
+	uint8   pa_mode;			/* PA mode */
+	uint8   is_6g;				/* 0: 2G/5G or 1: 6G */
+	uint8   buf[WL_TPC_CMD_INFO_BUF_SZ];	/* value buffer */
+} wl_tpc_cmd_info_v2_t;
+
+typedef struct wl_tpc_cmd_v2 {
+	uint16  version;			/* structure version */
+	uint16  length;				/* structure length */
+	uint16	sub_cmd;			/* sub_cmd type */
+	uint8	PAD[2];				/* explicit padding */
+	wl_tpc_cmd_info_v2_t info;
+} wl_tpc_cmd_v2_t;
+
 #define WL_TPC_CMD_IOV_VER_1		1u
+#define WL_TPC_CMD_IOV_VER_2		2u
 #define WL_TPC_AVVMID_IOV_VER_1		1u
+#define WL_TPC_PACAL_IOV_VER_1		1u
 
 /* PTM */
 #define WL_PTM_IOV_MAJOR_VER_1		1u
@@ -30075,8 +30189,11 @@ enum wlc_capext_feature_bitpos {
 	WLC_CAPEXT_FEATURE_BITPOS_CSI			= 117,
 	WLC_CAPEXT_FEATURE_BITPOS_SAE_H2E		= 118,
 	WLC_CAPEXT_FEATURE_BITPOS_SAE_PK		= 119,
+
 	WLC_CAPEXT_FEATURE_BITPOS_OBSS_HW		= 120,
 	WLC_CAPEXT_FEATURE_BITPOS_DYN_BW		= 121,
+	WLC_CAPEXT_FEATURE_BITPOS_OCT			= 122,
+
 	WLC_CAPEXT_FEATURE_BITPOS_MAX
 };
 

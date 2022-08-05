@@ -561,6 +561,10 @@ typedef volatile struct pcie_serdes_regs {
 
 #define PCIE_EXT_L1SS_MASK		0xf	/* Bits [3:0] of L1SSControl 0x248 */
 #define PCIE_EXT_L1SS_ENAB		0xf	/* Bits [3:0] of L1SSControl 0x248 */
+#define PCIE_LTR_THRESHOLD_SCALE_SHIFT	29u     /* LTR_L1_2_THRESHOLD_SCALE in PML1_sub_control1 */
+#define PCIE_LTR_THRESHOLD_SCALE_MASK	0xE0000000u
+#define PCIE_LTR_THRESHOLD_VALUE_SHIFT	16u	/* LTR_L1_2_THRESHOLD_VALUE in PML1_sub_control1 */
+#define PCIE_LTR_THRESHOLD_VALUE_MASK	0x3FF0000u
 
 /* NumMsg and NumMsgEn in PCIE MSI Cap */
 #define MSICAP_NUM_MSG_SHF		17

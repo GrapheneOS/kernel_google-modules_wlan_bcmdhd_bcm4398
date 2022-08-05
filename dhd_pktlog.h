@@ -143,8 +143,8 @@ extern int dhd_os_detach_pktlog(dhd_pub_t *dhdp);
 extern int dhd_pktlog_is_enabled(dhd_pub_t *dhdp);
 extern void dhd_pktlog_suspend(dhd_pub_t *dhdp);
 extern void dhd_pktlog_resume(dhd_pub_t *dhdp);
-extern int dhd_pktlog_ring_reinit(dhd_pub_t *dhdp);
 #endif /* DHD_PKT_LOGGING_DBGRING */
+extern int dhd_pktlog_ring_reinit(dhd_pub_t *dhdp);
 extern dhd_pktlog_ring_t* dhd_pktlog_ring_init(dhd_pub_t *dhdp, int size);
 extern int dhd_pktlog_ring_deinit(dhd_pub_t *dhdp, dhd_pktlog_ring_t *ring);
 extern int dhd_pktlog_ring_set_nextpos(dhd_pktlog_ring_t *ringbuf);

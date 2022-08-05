@@ -229,13 +229,15 @@ typedef struct flow_info {
 #if defined(BCMDBG)
 	uint32		tx_status[DHD_MAX_TX_STATUS_MSGS];
 #endif
-#ifdef TX_STATUS_LATENCY_STATS
 	/* total number of tx_status received on this flowid */
 	uint64           num_tx_status;
-	/* cumulative tx_status latency for this flowid */
-	uint64          cum_tx_status_latency;
 	/* num tx packets sent on this flowring */
 	uint64		num_tx_pkts;
+	/* number of tx pkts dropped (not enqueued) on this flowring */
+	uint64		num_tx_dropped;
+#ifdef TX_STATUS_LATENCY_STATS
+	/* cumulative tx_status latency for this flowid */
+	uint64          cum_tx_status_latency;
 #endif /* TX_STATUS_LATENCY_STATS */
 
 #if defined(DHD_MESH)

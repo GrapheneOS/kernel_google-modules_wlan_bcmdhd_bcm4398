@@ -337,7 +337,15 @@ BCMFASTPATH(__dhd_sendpkt)(dhd_pub_t *dhdp, int ifidx, void *pktbuf)
 #endif /* !PKTPRIO_OVERRIDE */
 		{
 #if (!defined(BCM_ROUTER_DHD) && (defined(QOS_MAP_SET) || defined(WL_CUSTOM_MAPPING_OF_DSCP)))
-			pktsetprio_qms(pktbuf, wl_get_up_table(dhdp, ifidx), FALSE);
+			u8 *up_table = wl_get_up_table(dhdp, ifidx);
+			pktsetprio_qms(pktbuf, up_table, FALSE);
+			if (PKTPRIO(pktbuf) > MAXPRIO) {
+				DHD_ERROR_RLMT(("wrong user prio:%d from qosmap ifidx:%d\n",
+					PKTPRIO(pktbuf), ifidx));
+				if (up_table) {
+					prhex("up_table", up_table, UP_TABLE_MAX);
+				}
+			}
 #else
 			/* For LLR, pkt prio will be changed to 7(NC) here */
 			pktsetprio(pktbuf, FALSE);
@@ -353,7 +361,6 @@ BCMFASTPATH(__dhd_sendpkt)(dhd_pub_t *dhdp, int ifidx, void *pktbuf)
 		}
 #endif /* !PKTPRIO_OVERRIDE */
 	}
-
 
 #if defined(BCM_ROUTER_DHD)
 	traffic_mgmt_pkt_set_prio(dhdp, pktbuf);
@@ -391,6 +398,14 @@ BCMFASTPATH(__dhd_sendpkt)(dhd_pub_t *dhdp, int ifidx, void *pktbuf)
 		PKTSETPRIO(pktbuf, PRIO_8021D_VO);
 	}
 #endif /* defined(DHD_TX_PROFILE) */
+	if (PKTPRIO(pktbuf) > MAXPRIO) {
+		DHD_ERROR_RLMT(("Wrong user prio:%d ifidx:%d\n", PKTPRIO(pktbuf), ifidx));
+		/* non-assert build, print ratelimit error, free packet and exit */
+		ASSERT(0);
+		PKTCFREE(dhd->pub.osh, pktbuf, TRUE);
+		return BCME_ERROR;
+	}
+
 	pkt_flow_prio = dhdp->flow_prio_map[(PKTPRIO(pktbuf))];
 
 	ret = dhd_flowid_update(dhdp, ifidx, pkt_flow_prio, pktbuf);
@@ -455,6 +470,7 @@ BCMFASTPATH(__dhd_sendpkt)(dhd_pub_t *dhdp, int ifidx, void *pktbuf)
 			dhdp->tx_packets++;
 			dhdp->tx_bytes += datalen;
 			ifp->stats.tx_packets++;
+			ifp->tx_pkts++;
 			ifp->stats.tx_bytes += datalen;
 		}
 		dhdp->actual_tx_pkts++;
@@ -714,6 +730,26 @@ BCMFASTPATH(dhd_start_xmit)(struct sk_buff *skb, struct net_device *net)
 	ASSERT((ifp != NULL) && ((ifidx < DHD_MAX_IFS) && (ifp == dhd->iflist[ifidx])));
 
 	bcm_object_trace_opr(skb, BCM_OBJDBG_ADD_PKT, __FUNCTION__, __LINE__);
+
+#ifdef HOST_SFH_LLC
+	/* if upper layer has cloned the skb, ex:- packet filter
+	 * unclone the skb, otherwise due to host sfh llc insertion
+	 * the upper layer packet capture will show wrong ethernet DA/SA
+	 */
+	if (unlikely(skb_cloned(skb))) {
+		int res = 0;
+		gfp_t gfp_flags = CAN_SLEEP() ? GFP_KERNEL : GFP_ATOMIC;
+		res = skb_unclone(skb, gfp_flags);
+		if (res) {
+			DHD_ERROR_RLMT(("%s: sbk_unclone fails ! err = %d\n",
+				__FUNCTION__, res));
+#ifdef CUSTOMER_HW2_DEBUG
+			return -ENOMEM;
+#endif /* CUSTOMER_HW2_DEBUG */
+		}
+	}
+#endif /* HOST_SFH_LLC */
+
 
 	/* re-align socket buffer if "skb->data" is odd address */
 	if (((unsigned long)(skb->data)) & 0x1) {
@@ -1025,13 +1061,14 @@ dhd_txcomplete(dhd_pub_t *dhdp, void *txp, bool success)
 				dhd->pub.tx_packets++;
 				dhd->pub.tx_bytes += datalen;
 				ifp->stats.tx_packets++;
+				ifp->tx_pkts++;
 				ifp->stats.tx_bytes += datalen;
 			} else {
 				ifp->stats.tx_dropped++;
 			}
 		}
 	}
-#endif
+#endif /* PROP_TXSTATUS */
 	if (success) {
 		dhd->pub.tot_txcpl++;
 	}
@@ -1429,4 +1466,46 @@ dhd_handle_pktdata(dhd_pub_t *dhdp, int ifidx, void *pkt, uint8 *pktdata, uint32
 		default:
 			break;
 	}
+}
+
+void
+dhd_print_if_stats(dhd_pub_t *dhdp, struct bcmstrbuf *strbuf)
+{
+	dhd_info_t *dhd = dhdp->info;
+	dhd_if_t *ifp = NULL;
+	int i = 0;
+
+	if (!strbuf) {
+		return;
+	}
+
+	bcm_bprintf(strbuf, "\nPer interface TX/RX stats:\n");
+	bcm_bprintf(strbuf, "%9s %9s %9s", "Interface", "TxPkts", "RxPkts\n");
+	bcm_bprintf(strbuf, "%9s %9s %9s", "=========", "======", "======\n");
+	dhd_net_if_lock_local(dhd);
+	for (i = 0; i < DHD_MAX_IFS; i++) {
+		ifp = dhd->iflist[i];
+		if (ifp && ifp->net && ifp->net->name[0]) {
+			bcm_bprintf(strbuf, "%9s %9llu %9llu\n", ifp->net->name,
+				ifp->tx_pkts, ifp->rx_pkts);
+		}
+	}
+	dhd_net_if_unlock_local(dhd);
+}
+
+void
+dhd_clear_if_stats(dhd_pub_t *dhdp)
+{
+	dhd_info_t *dhd = dhdp->info;
+	dhd_if_t *ifp = NULL;
+	int i = 0;
+
+	dhd_net_if_lock_local(dhd);
+	for (i = 0; i < DHD_MAX_IFS; i++) {
+		ifp = dhd->iflist[i];
+		if (ifp && ifp->net && ifp->name[0]) {
+			ifp->tx_pkts = ifp->rx_pkts = 0;
+		}
+	}
+	dhd_net_if_unlock_local(dhd);
 }

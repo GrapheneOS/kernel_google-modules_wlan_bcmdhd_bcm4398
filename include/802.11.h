@@ -1449,8 +1449,11 @@ enum dot11_tag_ids {
 	DOT11_MNG_EXT_PREP_ID			= 131,	/* Mesh PREP IE */
 	DOT11_MNG_EXT_PERR_ID			= 132,	/* Mesh PERR IE */
 	DOT11_MNG_MIC_ID			= 140,	/* MIC IE */
+	DOT11_MNG_MULTI_BAND_ID			= 158,	/* Multi-band IE */
+	DOT11_MNG_ADDBA_EXT_ID			= 159,	/* ADDBA ext IE */
 	DOT11_MNG_INTRA_AC_PRIO_ID		= 184,	/* Intra-Access Category Priority IE */
 	DOT11_MNG_SCS_DESCR_ID			= 185,	/* SCS Descriptor IE */
+	DOT11_MNG_GCR_GRPADDR_ID		= 189,	/* GCR group address IE */
 	DOT11_MNG_VHT_CAP_ID			= 191,	/* d11 mgmt VHT cap id */
 	DOT11_MNG_VHT_OPERATION_ID		= 192,	/* d11 mgmt VHT op id */
 	DOT11_MNG_EXT_BSSLOAD_ID		= 193,	/* d11 mgmt VHT extended bss load id */

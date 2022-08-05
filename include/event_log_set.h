@@ -149,6 +149,7 @@
 //For all BCM HAL logging.
 #define EVENT_LOG_SET_BCMHAL		(38u)
 
+#define EVENT_LOG_SET_OBP_TRACE_LOG	(39u)
 
 #ifndef NUM_EVENT_LOG_SETS
 /* Set a maximum number of sets here.  It is not dynamic for
@@ -158,9 +159,9 @@
  */
 #ifdef NUM_EVENT_LOG_SETS_V2
 /* for v2, everything has became unsigned */
-#define NUM_EVENT_LOG_SETS (39u)
+#define NUM_EVENT_LOG_SETS (40u)
 #else /* NUM_EVENT_LOG_SETS_V2 */
-#define NUM_EVENT_LOG_SETS (39)
+#define NUM_EVENT_LOG_SETS (40)
 #endif /* NUM_EVENT_LOG_SETS_V2 */
 #endif /* NUM_EVENT_LOG_SETS */
 

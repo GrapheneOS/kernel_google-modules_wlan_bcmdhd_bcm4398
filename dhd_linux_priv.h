@@ -527,6 +527,8 @@ void dhd_irq_set_affinity(dhd_pub_t *dhdp, const struct cpumask *cpumask);
 #endif /* SET_PCIE_IRQ_CPU_CORE ||  DHD_CONTROL_PCIE_CPUCORE_WIFI_TURNON */
 
 void dhd_flush_logtrace_process(dhd_info_t *dhd);
+void dhd_net_if_lock_local(dhd_info_t *dhd);
+void dhd_net_if_unlock_local(dhd_info_t *dhd);
 
 #ifdef DHD_SSSR_DUMP
 extern uint sssr_enab;

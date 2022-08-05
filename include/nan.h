@@ -43,17 +43,7 @@
 /* IEEE 802.11 vendor specific information element. (Same as P2P_IE_ID.) */
 #define NAN_IE_ID		0xdd
 
-/* NAN KDE subtypes */
-#define NAN_KEY_DATA_TYPE_GTK			1
-#define NAN_KEY_DATA_TYPE_IGTK			2
-#define NAN_KEY_DATA_TYPE_BIGTK			3
-#define NAN_KEY_DATA_TYPE_NIK			4
-#define NAN_KEY_DATA_TYPE_GTK_LIFETIME		5
-#define NAN_KEY_DATA_TYPE_IGTK_LIFETIME		6
-#define NAN_KEY_DATA_TYPE_BIGTK_LIFETIME	7
-#define NAN_KEY_DATA_TYPE_NIK_LIFETIME		8
-
-#define NAN_IDENTITY_KEY_LIFETIME_MS	(24u*3600u*1000u) /* 24 hours. */
+#define NAN_IDENTITY_KEY_LIFETIME_SECONDS	(24u*3600u) /* 24 hours. */
 
 /* Default cipher version for pairing NIK KDE */
 #define NAN_SEC_NIK_DEFAULT_CIPHER_VER	0
@@ -1112,7 +1102,7 @@ static const uint8 nan_pairing_tag_prefix[] = "NIR";
 #define NAN_DEV_CAP_GTK_REKEY_SUPPORT_SHIFT	5u
 #endif /* NAN_REKEY */
 
-/* Band IDs */
+/* Band IDs: See Table 99 in NAN R4 spec */
 enum {
 	NAN_BAND_ID_TVWS		= 0,
 	NAN_BAND_ID_SIG			= 1,	/* Sub 1 GHz */
@@ -1120,7 +1110,8 @@ enum {
 	NAN_BAND_ID_3G			= 3,	/* 3.6 GHz */
 	NAN_BAND_ID_5G			= 4,	/* 4.9 & 5 GHz */
 	NAN_BAND_ID_60G			= 5,	/* 60 GHz */
-	NAN_BAND_ID_6G			= 6	/* 6 GHz */
+	NAN_BAND_ID_45G			= 6,	/* 45 GHz */
+	NAN_BAND_ID_6G			= 7	/* 6 GHz */
 };
 typedef uint8 nan_band_id_t;
 
@@ -1902,6 +1893,22 @@ typedef BWL_PRE_PACKED_STRUCT struct wifi_nan_nira_attr_s {
 #define NAN_SEC_NCS_SK_PTK_CONST	"NAN Pairwise key expansion"
 #define NAN_SEC_NCS_PK_KEK_CONST	"NAN Management KEK Derivation"
 #define NAN_SEC_NCS_PK_PMK_CONST	"NDP PMK Derivation"
+
+#define NAN_IDENTITY_KEY_LENGTH	16u
+/* NIK KDE */
+typedef BWL_PRE_PACKED_STRUCT struct {
+	uint8	cipher;
+	uint8	nik[];
+} BWL_POST_PACKED_STRUCT nan_identity_key_t;
+
+/* Lifetime KDE */
+typedef BWL_PRE_PACKED_STRUCT struct {
+	uint16	key_bitmap;
+	uint32	lifetime;
+} BWL_POST_PACKED_STRUCT nan_key_lifetime_t;
+
+#define NAN_KEY_DATA_SUBTYPE_NIK		36
+#define NAN_KEY_DATA_SUBTYPE_LIFETIME		37
 
 /* This marks the end of a packed structure section. */
 #include <packed_section_end.h>

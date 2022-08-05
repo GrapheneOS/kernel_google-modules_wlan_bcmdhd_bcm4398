@@ -162,6 +162,9 @@ typedef struct dhd_sta {
 	bool mesh_flag;		/* indicatates the mesh capability */
 #endif /* defined(DHD_MESH) */
 	chanspec_t chanspec;    /* sta chanspec info */
+#ifdef WL_MLO
+	dhd_mlo_peer_info_t *peer_info;
+#endif /* WL_MLO */
 } dhd_sta_t;
 typedef dhd_sta_t dhd_sta_pool_t;
 
@@ -348,6 +351,8 @@ typedef struct dhd_if {
 	bool recv_reassoc_evt;
 	bool post_roam_evt;
 #endif /* DHD_POST_EAPOL_M1_AFTER_ROAM_EVT */
+	uint64 rx_pkts;		/* per interface total rx pkts, can be cleared with iovar */
+	uint64 tx_pkts;		/* per interface total tx pkts, can be cleared with iovar */
 } dhd_if_t;
 
 struct ipv6_work_info_t {
@@ -361,6 +366,10 @@ typedef struct dhd_dump {
 	int bufsize;
 	uint8 *hscb_buf;
 	int hscb_bufsize;
+#ifdef COEX_CPU
+	uint8 *coex_buf;
+	int coex_bufsize;
+#endif /* COEX_CPU */
 } dhd_dump_t;
 #ifdef DNGL_AXI_ERROR_LOGGING
 typedef struct dhd_axi_error_dump {

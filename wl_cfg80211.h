@@ -813,6 +813,8 @@ do {									\
 #define WLAN_AKM_SUITE_DPP                0X506F9A02
 #endif /* WLAN_AKM_SUITE_DPP */
 
+#define CRYPTO_PARAMS_PN_IV_LEN 6
+
 /*
  * BRCM local.
  * Use a high number that's unlikely to clash with linux upstream for a while until we can
@@ -1005,6 +1007,9 @@ enum wl_status {
 
 };
 
+#ifdef WL_MLO
+#define IS_WL_IFTYPE_MLO_STA_LINK(iftype) (iftype == WL_IF_TYPE_MLO_STA_LINK)
+#endif
 
 typedef enum wl_iftype {
 	WL_IF_TYPE_STA = 0,
@@ -1275,6 +1280,39 @@ struct wl_eap_exp {
 } __attribute__ ((packed));
 typedef struct wl_eap_exp wl_eap_exp_t;
 
+#ifdef WL_MLO
+#define MAX_MLO_LINK 3
+typedef struct wl_mlo_link {
+	u8 link_id;
+	u8 link_idx;
+	u8 link_addr[ETH_ALEN];
+	struct net_device *mld_dev;
+	chanspec_t chspec;
+} wl_mlo_link_t;
+
+typedef struct wl_ml_ap_link {
+	chanspec_t chspec;
+	struct net_device *link_dev;
+} wl_ml_ap_link_t;
+
+typedef struct wl_mlo_ap_cfg {
+	bool config_in_progress;
+	u8 num_links;
+	u8 num_links_configured;
+	u8 num_links_up;
+	struct net_device *mld_dev;
+	wl_ml_ap_link_t link[MAX_MLO_LINK];
+} wl_mlo_ap_cfg_t;
+
+typedef struct wl_mlo_config {
+	bool supported;
+	bool link_active;
+	u8 str_links;
+	u8 emlsr_links;
+	u8 max_mlo_links;
+	wl_mlo_ap_cfg_t ap;
+} wl_mlo_config_t;
+#endif /* WL_MLO */
 
 struct net_info {
 	struct net_device *ndev;
@@ -1301,6 +1339,10 @@ struct net_info {
 	*/
 	u8* passphrase_cfg;
 	u16 passphrase_cfg_len;
+#ifdef WL_MLO
+	wl_mlo_link_t mlinfo;	/* For MLO Link interface */
+	u8 mlo_num_links;			/* For MLD interface */
+#endif /* WL_MLO */
 	u8 *qos_up_table;
 };
 
@@ -2273,9 +2315,15 @@ struct bcm_cfg80211 {
 #endif /* CONFIG_SILTENT_ROAM */
 	uint32 roam_allowed_band;	/* roam allow band in order to purne roam candidate */
 	uint8 num_radios;		/* number of active radios */
+#ifdef WL_MLO
+	wl_mlo_config_t mlo;
+#endif /* WL_MLO */
 	uint32 ap_bw_limit;
 	uint32 ap_bw_chspec;
 	bool frameburst_disabled;
+#ifdef WL_IDAUTH
+	bool idauth_enabled;
+#endif /* WL_IDAUTH */
 };
 
 /* Max auth timeout allowed in case of EAP is 70sec, additional 5 sec for
@@ -3174,8 +3222,8 @@ wl_iftype_to_str(int wl_iftype)
 	defined(BCMSUP_4WAY_HANDSHAKE)
 /* Enable PSK key mgmt offload */
 #define WL_PSK_OFFLOAD
-#define WL_SUPP_PMK_LEN				32u
 #endif /* LINUX_VERSION_CODE >= 4, 13, 0 && BCMSUP_4WAY_HANDSHAKE */
+#define WL_SUPP_PMK_LEN				32u
 
 extern s32 wl_cfg80211_attach(struct net_device *ndev, void *context);
 extern void wl_cfg80211_detach(struct bcm_cfg80211 *cfg);
@@ -3508,10 +3556,11 @@ bool wl_cfg80211_check_in_progress(struct net_device *dev);
 extern int wl_android_set_ncho_mode(struct net_device *dev, int mode);
 #endif /* WES_SUPPORT */
 #ifdef KEEP_ALIVE
-extern int wl_cfg80211_start_mkeep_alive(struct bcm_cfg80211 *cfg, uint8 mkeep_alive_id,
-	uint16 ether_type, uint8 *ip_pkt, uint16 ip_pkt_len, uint8* src_mac_addr,
-	uint8* dst_mac_addr, uint32 period_msec);
-extern int wl_cfg80211_stop_mkeep_alive(struct bcm_cfg80211 *cfg, uint8 mkeep_alive_id);
+extern int wl_cfg80211_start_mkeep_alive(struct net_device *ndev, struct bcm_cfg80211 *cfg,
+	uint8 mkeep_alive_id, uint16 ether_type, uint8 *ip_pkt, uint16 ip_pkt_len,
+	uint8* src_mac_addr, uint8* dst_mac_addr, uint32 period_msec);
+extern int wl_cfg80211_stop_mkeep_alive(struct net_device *ndev, struct bcm_cfg80211 *cfg,
+	uint8 mkeep_alive_id);
 #endif /* KEEP_ALIVE */
 
 extern s32 wl_cfg80211_handle_macaddr_change(struct net_device *dev, u8 *macaddr);

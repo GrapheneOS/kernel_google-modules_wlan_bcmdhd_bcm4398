@@ -25,6 +25,8 @@
 #define _linux_osl_h_
 
 #include <typedefs.h>
+#include <linuxerrmap.h>
+
 #define DECLSPEC_ALIGN(x)	__attribute__ ((aligned(x)))
 
 /* Linux Kernel: File Operations: start */

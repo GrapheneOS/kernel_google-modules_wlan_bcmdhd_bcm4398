@@ -272,4 +272,8 @@ chanspec_t wl_cfg80211_get_ap_bw_limited_chspec(struct bcm_cfg80211 *cfg,
 	uint32 band, chanspec_t candidate);
 int wl_cfg80211_set_softap_bw(struct bcm_cfg80211 *cfg, uint32 band, uint32 limit);
 #endif /* LIMIT_AP_BW */
+#ifdef WL_IDAUTH
+extern s32 wl_cfgvif_scb_authorized(struct bcm_cfg80211 *cfg, bcm_struct_cfgdev *cfgdev,
+	const wl_event_msg_t *event, void *data);
+#endif /* WL_IDAUTH */
 #endif /* _wl_cfgvif_h_ */

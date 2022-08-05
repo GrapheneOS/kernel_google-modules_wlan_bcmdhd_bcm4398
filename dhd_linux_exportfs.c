@@ -2789,6 +2789,31 @@ __ATTR(ptm_sync_periodic, 0660, show_ptm_sync_periodic,
 		set_ptm_sync_periodic);
 #endif /* PCIE_FULL_DONGLE */
 
+extern bool arp_print_enabled;
+static ssize_t
+show_arp_print(struct dhd_info *dev, char *buf)
+{
+	ssize_t ret = 0;
+	ret = scnprintf(buf, PAGE_SIZE - 1, "%u\n", arp_print_enabled);
+	return ret;
+}
+
+static ssize_t
+set_arp_print(struct dhd_info *dev, const char *buf, size_t count)
+{
+	uint val;
+
+	sscanf(buf, "%u", &val);
+	if (val != 0 && val != 1) {
+		return -EINVAL;
+	}
+	arp_print_enabled = val;
+	return count;
+}
+
+static struct dhd_attr dhd_attr_arp_print =
+__ATTR(arp_print, 0660, show_arp_print, set_arp_print);
+
 /* Attribute object that gets registered with "wifi" kobject tree */
 static struct attribute *default_file_attrs[] = {
 #ifdef DHD_MAC_ADDR_EXPORT
@@ -2913,6 +2938,7 @@ static struct attribute *default_file_attrs[] = {
 	&dhd_att_ptm_sync_periodic.attr,
 #endif /* PCIE_FULL_DONGLE */
 	&dhd_attr_tcm_test_mode.attr,
+	&dhd_attr_arp_print.attr,
 	NULL
 };
 

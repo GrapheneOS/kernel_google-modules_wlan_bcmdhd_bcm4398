@@ -464,4 +464,14 @@ typedef volatile struct ca7regs ca7regs_t;
 
 #endif	/* _LANGUAGE_ASSEMBLY */
 
+/* For DHD builds define only those registers that needs to be accessed from Host */
+#if !defined(DONGLEBUILD) && !defined(COEX_CPU_BUILD)
+#define ARMCA7_DEBUG_REGBASE	0x30000u
+#define ARMCA7_OS_UNLOCK_VAL	0xACCE55u
+#define ARMCA7_OS_LOCK_VAL	0xC5ACCE55u
+
+#define armca7_OsLockCtrl_ADDR			0x300u
+#define armca7_ProgramCounterSampling_ADDR	0xa0u
+#endif /* !DONGLEBUILD && !COEX_CPU_BUILD */
+
 #endif	/* _sbhndarm_h_ */

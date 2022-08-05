@@ -106,7 +106,7 @@ typedef void  (*osl_wreg_fn_t)(void *ctx, volatile void *reg, unsigned int val, 
  * @return         The value in the register at the provided address after the optional write.
  */
 #define RMWR_REG(addr, mask, val) ({ \
-	if ((bool)(mask) || (bool)(val)) { \
+	if ((mask != 0) || (val != 0)) { \
 		SET_REG(NULL, (uint32 *)(addr), (mask), (val)); \
 	} \
 	R_REG(NULL, (uint32 *)(addr)); \

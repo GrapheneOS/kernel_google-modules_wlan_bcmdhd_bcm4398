@@ -927,10 +927,11 @@ dhd_flowid_lookup(dhd_pub_t *dhdp, uint8 ifindex,
 		flow_ring_node->stuck_count = 0;
 #endif /* DEVICE_TX_STUCK_DETECT */
 #ifdef TX_STATUS_LATENCY_STATS
-		flow_ring_node->flow_info.num_tx_status = 0;
 		flow_ring_node->flow_info.cum_tx_status_latency = 0;
-		flow_ring_node->flow_info.num_tx_pkts = 0;
 #endif /* TX_STATUS_LATENCY_STATS */
+		flow_ring_node->flow_info.num_tx_status = 0;
+		flow_ring_node->flow_info.num_tx_pkts = 0;
+		flow_ring_node->flow_info.num_tx_dropped = 0;
 #ifdef BCMDBG
 		bzero(&flow_ring_node->flow_info.tx_status[0],
 			sizeof(uint32) * DHD_MAX_TX_STATUS_MSGS);

@@ -1365,6 +1365,9 @@ BCMPOSTTRAPFASTPATH(pktpool_get_ext)(pktpool_t *pktp, uint8 type, uint *pktcnt)
 			pktpool_emptycb_disable(pktp, FALSE);
 			if (pktp->avail == 0) {
 				last_alloc_err = PKT_ALLOC_FAIL_NOPKT;
+				if (pktcnt) {
+					*pktcnt = 0;
+				}
 				goto done;
 			}
 		}

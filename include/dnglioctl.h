@@ -237,6 +237,30 @@ typedef struct mpu_test_args {
 	uint8 val[];
 } mpu_test_args_t;
 
+/* MMU test iovar version returned by MMU_IOV_SUBCMD_VER */
+#define MMU_IOV_TEST_VER_1	1u
+
+/* Debug iovar for MMU testing */
+typedef struct mmu_iov_test_args_v1 {
+	uint32 addr;	/* address to test */
+	uint32 value;	/* valid for read/write */
+} mmu_iov_test_args_v1_t;
+
+/* valid when getting a read response */
+typedef struct mmu_iov_test_read_resp_v1 {
+	uint16 size;	/* size of variable length data */
+	uint8 data[];	/* variable length read data */
+} mmu_iov_test_read_resp_v1_t;
+
+/* subcommand ids */
+enum mmu_iov_cmd_ids {
+	MMU_IOV_SUBCMD_VER	= 0u,	/* MMU IOVAR version */
+	MMU_IOV_SUBCMD_READ	= 1u,	/* MMU READ */
+	MMU_IOV_SUBCMD_WRITE	= 2u,	/* MMU WRITE */
+	MMU_IOV_SUBCMD_EXECUTE	= 3u,	/* MMU EXECUTE */
+	MMU_IOV_SUBCMD_DUMP	= 4u	/* MMU DUMP */
+};
+
 /* dsec command uses bcm iov framework (bcm_iov_buf_t) for iovar input/output */
 /* dsec command vesion */
 #define DSEC_IOV_VERSION_V1		1u
@@ -327,6 +351,7 @@ enum dsec_sboot_xtlv_id {
 	DSEC_OTP_XTLV_SBOOT_PRODUCTION_CHIP	= 27u,	/* Production chip bit */
 	DSEC_OTP_XTLV_SBOOT_ENCRYPTION_KEY	= 28u,	/* AES wrapped fw encryption key 320 bits */
 	DSEC_OTP_XTLV_SBOOT_LOT_NUM_MS		= 29u,	/* Chip lot num high bits [17:47] 31 bits */
+	DSEC_OTP_XTLV_SBOOT_OTP_WR_LOCK_ENAB	= 30u,	/* OTP write lock enable bit */
 };
 
 #define CAPEXT_INFO_VERSION_1	(1u)

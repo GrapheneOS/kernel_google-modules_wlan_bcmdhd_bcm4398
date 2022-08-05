@@ -595,8 +595,12 @@
 /* Scan abort related debug msgs */
 #define EVENT_LOG_TAG_WL_SCAN_ABORT_LOG		455
 
+/* OBP - On Board Packet event log msgs. */
+#define EVENT_LOG_TAG_OBP			456
+
+
 /* EVENT_LOG_TAG_MAX	= Set to the same value of last tag, not last tag + 1 */
-#define EVENT_LOG_TAG_MAX			455
+#define EVENT_LOG_TAG_MAX			457
 
 typedef enum wl_el_set_type_def {
 	EVENT_LOG_SET_TYPE_DEFAULT = 0, /* flush the log buffer when it is full - Default option */

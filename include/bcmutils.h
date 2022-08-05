@@ -583,8 +583,9 @@ uint16 bcmhex2bin(const uint8* hex, uint hex_len, uint8 *buf, uint buf_len);
 #define BCME_IN_PROGRESS		-77	/* Command/context is in progress */
 #define BCME_NOP			-78	/* No action taken i.e. NOP */
 #define BCME_6GCH_EPERM			-79	/* 6G channel not permitted */
+#define BCME_6G_NO_TPE			-80	/* TPE for a 6G channel does not exist */
 
-#define BCME_LAST			BCME_6GCH_EPERM
+#define BCME_LAST			BCME_6G_NO_TPE
 
 #define BCME_NOTENABLED BCME_DISABLED
 
@@ -680,6 +681,7 @@ uint16 bcmhex2bin(const uint8* hex, uint hex_len, uint8 *buf, uint buf_len);
 	"Command/context is in progress", \
 	"No action taken i.e. NOP",	\
 	"6G Not permitted", \
+	"tpe for 6g channel(s) does not exist", \
 }
 #endif	/* BCMUTILS_ERR_CODES */
 

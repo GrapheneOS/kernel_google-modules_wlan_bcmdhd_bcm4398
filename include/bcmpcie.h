@@ -568,6 +568,16 @@ typedef struct {
 #define CHECK_NOWRITE_SPACE(r, w, d) \
 	(((uint32)(r) == (uint32)((w) + 1)) || (((r) == 0) && ((w) == ((d) - 1))))
 
+/* Validate if w_new is in the valid range of existing r & w values */
+#define BCMPCIE_IS_WRITE_VALID(w_new, r, w) (((w) >= (r)) ? \
+					       ((w_new) < (w) && (w_new) >= (r) ? FALSE : TRUE) : \
+					       ((w_new) < (w) || (w_new) >= (r) ? FALSE : TRUE))
+
+/* Validate if r_new is in the valid range of existing r & w values */
+#define BCMPCIE_IS_READ_VALID(r_new, r, w) (((w) >= (r)) ? \
+					       ((r_new) > (w) || (r_new) < (r) ? FALSE : TRUE) : \
+					       ((r_new) < (r) && (r_new) > (w) ? FALSE : TRUE))
+
 #ifndef PRIV_PCIE_RING_MACROS
 /* These should be moved into pciedev.h --- */
 #define WRT_PEND(x)	((x)->wr_pending)

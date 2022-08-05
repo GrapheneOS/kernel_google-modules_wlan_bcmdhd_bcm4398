@@ -137,7 +137,6 @@
 #ifdef DHD_PSTA
 #include <dhd_psta.h>
 #endif /* DHD_PSTA */
-
 #ifdef AMPDU_VO_ENABLE
 /* Enabling VO AMPDU to reduce FER */
 #include <802.1d.h>
@@ -534,6 +533,7 @@ static void dhd_ifadd_event_handler(void *handle, void *event_info, u8 event);
 static void dhd_ifdel_event_handler(void *handle, void *event_info, u8 event);
 static void dhd_set_mac_addr_handler(void *handle, void *event_info, u8 event);
 static void dhd_set_mcast_list_handler(void *handle, void *event_info, u8 event);
+static void dhd_ndev_upd_features_handler(void *handle, void *event_info, u8 event);
 #ifdef BCM_ROUTER_DHD
 static void dhd_inform_dhd_monitor_handler(void *handle, void *event_info, u8 event);
 #endif
@@ -784,6 +784,11 @@ static char *map_file_path = PLATFORM_PATH"rtecdc.map";
 static char *rom_st_str_file_path = PLATFORM_PATH"roml.bin";
 static char *rom_map_file_path = PLATFORM_PATH"roml.map";
 
+#ifdef COEX_CPU
+static char *coex_logstrs_path = PLATFORM_PATH"coex_logstrs.bin";
+static char *coex_st_str_file_path = PLATFORM_PATH"coex.bin";
+static char *coex_map_file_path = PLATFORM_PATH"coex.map";
+#endif /* COEX_CPU */
 
 #endif /* DHD_LINUX_STD_FW_API */
 
@@ -796,6 +801,12 @@ module_param(map_file_path, charp, S_IRUGO);
 module_param(rom_st_str_file_path, charp, S_IRUGO);
 module_param(rom_map_file_path, charp, S_IRUGO);
 
+#ifdef COEX_CPU
+static char *coex_file_str = "coex";
+module_param(coex_logstrs_path, charp, S_IRUGO);
+module_param(coex_st_str_file_path, charp, S_IRUGO);
+module_param(coex_map_file_path, charp, S_IRUGO);
+#endif /* COEX_CPU */
 
 static int dhd_init_logstrs_array(dhd_info_t *dhdinfo, char *file_path);
 static int dhd_read_map(const dhd_info_t *dhdinfo, const char *fname, uint32 *ramstart,
@@ -1032,8 +1043,6 @@ extern char fw_version[];
 extern char clm_version[];
 
 int dhd_net_bus_devreset(struct net_device *dev, uint8 flag);
-static void dhd_net_if_lock_local(dhd_info_t *dhd);
-static void dhd_net_if_unlock_local(dhd_info_t *dhd);
 static void dhd_suspend_lock(dhd_pub_t *dhdp);
 static void dhd_suspend_unlock(dhd_pub_t *dhdp);
 
@@ -1523,6 +1532,12 @@ dhd_sta_free(dhd_pub_t * dhdp, dhd_sta_t * sta)
 		sta->flowid[prio] = FLOWID_INVALID;
 	}
 
+#ifdef WL_MLO
+	if (sta->peer_info) {
+		MFREE(dhdp->osh, sta->peer_info, sizeof(dhd_mlo_peer_info_t));
+		sta->peer_info = NULL;
+	}
+#endif /* WL_MLO */
 	id16_map_free(dhdp->staid_allocator, sta->idx);
 	DHD_CUMM_CTR_INIT(&sta->cumm_ctr);
 	sta->ifp = DHD_IF_NULL; /* dummy dhd_if object */
@@ -1557,6 +1572,9 @@ dhd_sta_alloc(dhd_pub_t * dhdp)
 
 	DHD_CUMM_CTR_INIT(&sta->cumm_ctr);
 
+#ifdef WL_MLO
+	sta->peer_info = NULL;
+#endif /* WL_MLO */
 	sta->idx = idx; /* implying allocated */
 
 	return sta;
@@ -1933,6 +1951,49 @@ dhd_update_sta_chanspec_info(void *pub, int ifidx, const uint8 *ea, chanspec_t c
 
 }
 
+#ifdef WL_MLO
+void
+dhd_update_mlo_peer_info(void *pub, int ifidx, const uint8 *ea, dhd_mlo_peer_info_t *peer_info)
+{
+	dhd_sta_t *sta;
+	dhd_if_t *ifp;
+	unsigned long flags;
+
+	ASSERT(ea != NULL);
+	ifp = dhd_get_ifp((dhd_pub_t *)pub, ifidx);
+	if (ifp == NULL) {
+		DHD_ERROR(("%s: NULL ifp for ifidx:%d\n", __FUNCTION__, ifidx));
+		return;
+	}
+
+	DHD_IF_STA_LIST_LOCK(&ifp->sta_list_lock, flags);
+
+	GCC_DIAGNOSTIC_PUSH_SUPPRESS_CAST();
+	sta = __dhd_find_sta(ifp, pub, ifidx, (void *)ea);
+	GCC_DIAGNOSTIC_POP();
+
+	if (sta) {
+		if (peer_info) {
+			sta->peer_info = MALLOCZ(((dhd_pub_t *)pub)->osh,
+				sizeof(dhd_mlo_peer_info_t));
+			if (sta->peer_info == NULL) {
+				goto exit;
+			}
+			(void)memcpy_s(sta->peer_info, sizeof(dhd_mlo_peer_info_t),
+				peer_info, sizeof(dhd_mlo_peer_info_t));
+			DHD_PRINT(("%s: updated peer info for STA:" MACDBG "\n",
+				__FUNCTION__, MAC2STRDBG(sta->ea.octet)));
+		}
+	} else {
+		DHD_ERROR(("%s: found no STA:" MACDBG "\n",
+			__FUNCTION__, MAC2STRDBG(ea)));
+	}
+
+exit:
+	DHD_IF_STA_LIST_UNLOCK(&ifp->sta_list_lock, flags);
+}
+#endif /* WL_MLO */
+
 bool
 dhd_is_sta_htput(void *pub, int ifidx, void *ea)
 {
@@ -1963,6 +2024,17 @@ dhd_is_sta_htput(void *pub, int ifidx, void *ea)
 		if (CHSPEC_IS160(sta->chanspec)) {
 			htput = TRUE;
 		}
+#ifdef WL_MLO
+		/* Currently "mlo" queried from assoc_ind event does not contain details of
+		 * all the peers. Alternately below is the hack to check if STA is MLO capable.
+		 * This will be removed after FW fix.
+		 */
+		else if ((sta->peer_info != NULL) && (sta->peer_info->num_links > 0)) {
+			DHD_ERROR(("Associated to MLO capable STA, enabling htput\n"));
+			htput = TRUE;
+		}
+#endif /* WL_MLO */
+
 		DHD_PRINT(("%s: ifidx:%d htput:%d chanspec:0x%x of STA:" MACDBG "\n",
 			__FUNCTION__, ifidx, htput, sta->chanspec, MAC2STRDBG(sta->ea.octet)));
 	} else {
@@ -2032,6 +2104,10 @@ dhd_sta_t *dhd_find_sta(void *pub, int ifidx, void *ea) { return NULL; }
 void dhd_del_sta(void *pub, int ifidx, void *ea) {}
 void dhd_update_sta_chanspec_info(void *pub, int ifidx, const uint8 *ea,
 	chanspec_t chanspec) {}
+#ifdef WL_MLO
+void dhd_update_mlo_peer_info(void *pub, int ifidx, const uint8 *ea,
+	dhd_mlo_peer_info_t *peer_info) {}
+#endif /* WL_MLO */
 bool dhd_is_sta_htput(void *pub, int ifidx, void *ea) { return FALSE; }
 #endif /* PCIE_FULL_DONGLE */
 
@@ -3278,6 +3354,30 @@ dhd_set_mac_addr_handler(void *handle, void *event_info, u8 event)
 done:
 	DHD_OS_WAKE_UNLOCK(&dhd->pub);
 	dhd_net_if_unlock_local(dhd);
+}
+
+static void
+dhd_ndev_upd_features_handler(void *handle, void *event_info, u8 event)
+{
+	struct net_device *net = event_info;
+
+	if (event != DHD_WQ_WORK_NDEV_UPD_FEATURES) {
+		DHD_ERROR(("%s: unexpected event \n", __FUNCTION__));
+		return;
+	}
+	if (!net) {
+		DHD_ERROR(("%s: event data is null \n", __FUNCTION__));
+		return;
+	}
+	netdev_update_features(net);
+}
+
+static void
+dhd_ndev_upd_features(dhd_info_t *dhd, struct net_device *net)
+{
+	dhd_deferred_schedule_work(dhd->dhd_deferred_wq, (void *)net,
+		DHD_WQ_WORK_NDEV_UPD_FEATURES, dhd_ndev_upd_features_handler,
+		DHD_WQ_WORK_PRIORITY_HIGH);
 }
 
 static void
@@ -5941,6 +6041,7 @@ done:
 	return bcmerror;
 }
 
+
 static int
 dhd_priv_cmd_process_locked(struct net_device *net,
 	struct ifreq *ifr, void __user *data)
@@ -6068,7 +6169,7 @@ done:
 }
 
 static int dhd_siocdevprivate(struct net_device *net, struct ifreq *ifr,
-			      void __user *data, int cmd)
+	void __user *data, int cmd)
 {
 	dhd_info_t *dhd = DHD_DEV_INFO(net);
 	int ifidx, ret;
@@ -6128,6 +6229,22 @@ done:
 	return ret;
 }
 
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(5, 15, 0))
+/* XXX For the moment, local ioctls will return BCM errors */
+/* XXX Others return linux codes, need to be changed... */
+/**
+ * Called by the OS (optionally via a wrapper function).
+ * @param net  Linux per dongle instance
+ * @param ifr  Linux request structure
+ * @param cmd  e.g. SIOCETHTOOL
+ */
+static int
+dhd_ioctl_entry(struct net_device *net, struct ifreq *ifr, int cmd)
+{
+	return dhd_siocdevprivate(net, ifr, ifr->ifr_data, cmd);
+}
+#endif /* LINUX_VERSION_CODE < KERNEL_VERSION(5, 15, 0) */
+
 #if defined(WL_CFG80211) && defined(SUPPORT_DEEP_SLEEP)
 /* Flags to indicate if we distingish power off policy when
  * user set the memu "Keep Wi-Fi on during sleep" to "Never"
@@ -6178,25 +6295,11 @@ static void dhd_rollback_cpu_freq(dhd_info_t *dhd)
 	mutex_unlock(&dhd->cpufreq_fix);
 }
 #endif /* FIX_CPU_MIN_CLOCK */
-#if (LINUX_VERSION_CODE < KERNEL_VERSION(5, 15, 0))
-/* XXX For the moment, local ioctls will return BCM errors */
-/* XXX Others return linux codes, need to be changed... */
-/**
- * Called by the OS (optionally via a wrapper function).
- * @param net  Linux per dongle instance
- * @param ifr  Linux request structure
- * @param cmd  e.g. SIOCETHTOOL
- */
-static int
-dhd_ioctl_entry(struct net_device *net, struct ifreq *ifr, int cmd)
-{
-	return dhd_siocdevprivate(net, ifr, ifr->ifr_data, cmd);
-}
-#endif
+
 #ifdef DHD_PCIE_NATIVE_RUNTIMEPM
 static int
 dhd_siocdevprivate_wrapper(struct net_device *net, struct ifreq *ifr,
-			   void __user *data, int cmd)
+	void __user *data, int cmd)
 {
 	int error;
 	dhd_info_t *dhd = DHD_DEV_INFO(net);
@@ -6477,6 +6580,20 @@ dhd_stop(struct net_device *net)
 					dhd->event_data.rom.raw_sstr_size);
 			}
 
+#ifdef COEX_CPU
+			if (dhd->event_data.coex_fmts.fmts) {
+				MFREE(dhd->pub.osh, dhd->event_data.coex_fmts.fmts,
+					dhd->event_data.coex_fmts.fmts_size);
+			}
+			if (dhd->event_data.coex_fmts.raw_fmts) {
+				MFREE(dhd->pub.osh, dhd->event_data.coex_fmts.raw_fmts,
+					dhd->event_data.coex_fmts.raw_fmts_size);
+			}
+			if (dhd->event_data.coex.raw_sstr) {
+				MFREE(dhd->pub.osh, dhd->event_data.coex.raw_sstr,
+					dhd->event_data.coex.raw_sstr_size);
+			}
+#endif /* COEX_CPU */
 
 			dhd->dhd_state &= ~DHD_ATTACH_LOGTRACE_INIT;
 		}
@@ -6643,7 +6760,7 @@ dhd_force_collect_init_fail_dumps(dhd_pub_t *dhdp)
 {
 #ifdef OEM_ANDROID
 
-#if defined(CUSTOMER_HW4_DEBUG) || defined(CUSTOMER_HW2_DEBUG)
+#if defined(CUSTOMER_HW4_DEBUG)
 #ifdef DEBUG_DNGL_INIT_FAIL
 	/* As HAL is not inited, do force crash and collect from host dram */
 	dhdp->memdump_enabled = DUMP_MEMONLY;
@@ -6652,22 +6769,11 @@ dhd_force_collect_init_fail_dumps(dhd_pub_t *dhdp)
 		" cannot collect dumps\n", __FUNCTION__));
 	return;
 #endif /* DEBUG_DNGL_INIT_FAIL */
-#endif /* CUSTOMER_HW4_DEBUG || CUSTOMER_HW2_DEBUG */
+#endif /* CUSTOMER_HW4_DEBUG */
 
 #ifdef DHD_FW_COREDUMP
 	/* save core dump or write to a file */
 	if (dhdp->memdump_enabled && (dhdp->busstate != DHD_BUS_DOWN)) {
-#ifdef DHD_SSSR_DUMP
-		if (!dhdp->sssr_inited) {
-			DHD_PRINT(("%s: #### force init SSSR ###\n", __FUNCTION__));
-			dhdp->force_sssr_init = TRUE;
-			/* Hard code sssr_reg_info for 4389 */
-			DHD_SSSR_DUMP_INIT(dhdp);
-			/* force collect FIS */
-			fis_enab = TRUE;
-		}
-		dhdp->collect_sssr = TRUE;
-#endif /* DHD_SSSR_DUMP */
 #ifdef DHD_SDTC_ETB_DUMP
 		dhdp->collect_sdtc = TRUE;
 #endif /* DHD_SDTC_ETB_DUMP */
@@ -6676,6 +6782,37 @@ dhd_force_collect_init_fail_dumps(dhd_pub_t *dhdp)
 	}
 #endif /* DHD_FW_COREDUMP */
 #endif /* OEM_ANDROID */
+}
+
+static void
+dhd_enable_net_offloads(dhd_info_t *dhd, struct net_device *net)
+{
+#ifdef TX_CSO
+	if (dhd_bus_get_txcso_supported(dhd->pub.bus)) {
+		net->features |= NETIF_F_HW_CSUM;
+		DHD_PRINT(("%s: set HW_CSUM for %s, features = 0x%llx \n",
+			__func__, net->name, net->features));
+	}
+#endif /* TX_CSO */
+#ifdef RX_CSO
+	if (RXCSO_ENAB(&dhd->pub)) {
+		net->features |= NETIF_F_RXCSUM;
+		DHD_PRINT(("%s: rco set RXCSUM for %s, features = 0x%llx \n",
+			__FUNCTION__, net->name, net->features));
+	}
+#endif /* RX_CSO */
+
+#ifdef HOST_SFH_LLC
+	net->needed_headroom = DOT11_LLC_SNAP_HDR_LEN;
+#endif
+
+#ifdef DHD_LB
+#ifdef ENABLE_DHD_GRO
+	net->features |= NETIF_F_GRO;
+#endif /* ENABLE_DHD_GRO */
+#endif /* DHD_LB */
+
+	dhd_ndev_upd_features(dhd, net);
 }
 
 int
@@ -6756,6 +6893,13 @@ dhd_open(struct net_device *net)
 				dhd->dhd_state |= DHD_ATTACH_LOGTRACE_INIT;
 			}
 
+#ifdef COEX_CPU
+			ret = dhd_init_logstrs_array(dhd, coex_logstrs_path);
+			if (ret == BCME_OK) {
+				dhd_init_static_strs_array(dhd,
+					coex_st_str_file_path, coex_map_file_path);
+			}
+#endif /* COEX_CPU */
 
 		}
 #endif /* SHOW_LOGTRACE */
@@ -6939,30 +7083,10 @@ dhd_open(struct net_device *net)
 		}
 #endif /* TOE */
 
-#ifdef TX_CSO
-		if (dhd_bus_get_txcso_supported(dhd->pub.bus)) {
-			dhd->iflist[ifidx]->net->features |= NETIF_F_HW_CSUM;
-			DHD_PRINT(("%s: set HW_CSUM for ifidx %u, features = 0x%llx \n",
-				__func__, ifidx, dhd->iflist[ifidx]->net->features));
-		}
-#endif /* TX_CSO */
-#ifdef RX_CSO
-		if (RXCSO_ENAB(&dhd->pub)) {
-			net->features |= NETIF_F_RXCSUM;
-			DHD_PRINT(("%s: rco set RXCSUM for ifidx %u, features = 0x%llx \n",
-				__FUNCTION__, ifidx, net->features));
-		}
-#endif /* RX_CSO */
-
-#ifdef HOST_SFH_LLC
-		dhd->iflist[ifidx]->net->needed_headroom = DOT11_LLC_SNAP_HDR_LEN;
-#endif
+		/* enable network offload features like CSO RCO */
+		dhd_enable_net_offloads(dhd, net);
 
 #ifdef DHD_LB
-#ifdef ENABLE_DHD_GRO
-		dhd->iflist[ifidx]->net->features |= NETIF_F_GRO;
-#endif /* ENABLE_DHD_GRO */
-
 #if defined(DHD_LB_RXP)
 		__skb_queue_head_init(&dhd->rx_pend_queue);
 		skb_queue_head_init(&dhd->rx_emerge_queue);
@@ -6988,7 +7112,6 @@ dhd_open(struct net_device *net)
 		dhd->dhd_lb_candidacy_override = FALSE;
 #endif /* DHD_LB */
 
-		netdev_update_features(net);
 #ifdef DHD_PM_OVERRIDE
 		g_pm_override = FALSE;
 #endif /* DHD_PM_OVERRIDE */
@@ -7180,6 +7303,7 @@ dhd_static_if_open(struct net_device *net)
 	s32 ret = 0;
 	struct bcm_cfg80211 *cfg;
 	struct net_device *primary_netdev = NULL;
+	dhd_info_t *dhd = DHD_DEV_INFO(net);
 
 	cfg = wl_get_cfg(net);
 	primary_netdev = bcmcfg_to_prmry_ndev(cfg);
@@ -7199,6 +7323,9 @@ dhd_static_if_open(struct net_device *net)
 		DHD_ERROR(("Failed to open primary dev ret %d\n", ret));
 		goto done;
 	}
+
+	/* enable network offload features like CSO RCO */
+	dhd_enable_net_offloads(dhd, net);
 
 	ret = wl_cfg80211_static_if_open(net);
 	if (ret == BCME_OK) {
@@ -8307,6 +8434,11 @@ dhd_init_logstrs_array(dhd_info_t *dhdinfo, char *file_path)
 
 	log_fmts = &dhdinfo->event_data.wlan_fmts;
 
+#ifdef COEX_CPU
+	if (strstr(file_path, coex_logstrs_path) != NULL) {
+		log_fmts = &dhdinfo->event_data.coex_fmts;
+	}
+#endif /* COEX_CPU */
 
 	if (control_logtrace != LOGTRACE_PARSED_FMT) {
 		DHD_ERROR_NO_HW4(("%s : turned off logstr parsing\n", __FUNCTION__));
@@ -8414,6 +8546,10 @@ dhd_init_static_strs_array(dhd_info_t *dhdinfo, const char *str_file, const char
 	} else if (strstr(str_file, rom_file_str) != NULL) {
 		map = &temp->rom;
 
+#ifdef COEX_CPU
+	} else if (strstr(str_file, coex_file_str) != NULL) {
+		map = &temp->coex;
+#endif /* COEX_CPU */
 
 	} else {
 		DHD_ERROR(("Unknown map file %s\n", str_file));
@@ -8505,6 +8641,11 @@ dhd_init_logstrs_array(dhd_info_t *dhdinfo, char *file_path)
 
 	log_fmts = &dhdinfo->event_data.wlan_fmts;
 
+#ifdef COEX_CPU
+	if (strstr(file_path, coex_logstrs_path) != NULL) {
+		log_fmts = &dhdinfo->event_data.coex_fmts;
+	}
+#endif /* COEX_CPU */
 
 	if (control_logtrace != LOGTRACE_PARSED_FMT) {
 		DHD_ERROR_NO_HW4(("%s : turned off logstr parsing\n", __FUNCTION__));
@@ -8627,6 +8768,10 @@ dhd_init_static_strs_array(dhd_info_t *dhdinfo, const char *str_file, const char
 	} else if (strstr(str_file, rom_file_str) != NULL) {
 		map = &temp->rom;
 
+#ifdef COEX_CPU
+	} else if (strstr(str_file, coex_file_str) != NULL) {
+		map = &temp->coex;
+#endif /* COEX_CPU */
 
 	} else {
 		DHD_ERROR(("Unknown map file %s\n", str_file));
@@ -8807,6 +8952,15 @@ dhd_init_logstrs_map_arrays(dhd_info_t *dhdinfo)
 		dhd_init_static_strs_array(dhdinfo, rom_st_str_file_path, rom_map_file_path);
 	}
 
+#ifdef COEX_CPU
+	if (dhd_init_logstrs_array(dhdinfo, coex_logstrs_path) == BCME_OK) {
+		if (dhdinfo->fw_path[0] != '\0') {
+			/* preference given firmware_path over hardcoded st_str_file_path */
+			st_str_file_path = dhdinfo->fw_path;
+		}
+		dhd_init_static_strs_array(dhdinfo, coex_st_str_file_path, coex_map_file_path);
+	}
+#endif /* COEX_CPU */
 
 }
 #endif /* SHOW_LOGTRACE */
@@ -10050,7 +10204,6 @@ dhd_bus_start(dhd_pub_t *dhdp)
 		DHD_OS_WD_WAKE_UNLOCK(&dhd->pub);
 		return ret;
 	}
-
 	/* If bus is not ready, can't come up */
 	if (dhd->pub.busstate != DHD_BUS_DATA) {
 		DHD_GENERAL_LOCK(&dhd->pub, flags);
@@ -13008,6 +13161,7 @@ dhd_legacy_preinit_ioctls(dhd_pub_t *dhd)
 	setbit(mask, WLC_E_START);
 	setbit(mask, WLC_E_ASSOC_IND);
 	setbit(mask, WLC_E_PSK_SUP);
+	setbit(mask, WLC_E_AUTHORIZED);
 	setbit(mask, WLC_E_LINK);
 	setbit(mask, WLC_E_MIC_ERROR);
 	setbit(mask, WLC_E_ASSOC_REQ_IE);
@@ -13049,6 +13203,7 @@ dhd_legacy_preinit_ioctls(dhd_pub_t *dhd)
 #ifdef WL_CFG80211
 	setbit(mask, WLC_E_ESCAN_RESULT);
 	setbit(mask, WLC_E_AP_STARTED);
+	setbit(mask, WLC_E_PSK_AUTH);
 	setbit(mask, WLC_E_ACTION_FRAME_RX);
 	if (dhd->op_mode & DHD_FLAG_P2P_MODE) {
 		setbit(mask, WLC_E_P2P_DISC_LISTEN_COMPLETE);
@@ -14750,6 +14905,20 @@ void dhd_detach(dhd_pub_t *dhdp)
 					dhd->event_data.rom.raw_sstr_size);
 		}
 
+#ifdef COEX_CPU
+		if (dhd->event_data.coex_fmts.fmts) {
+			MFREE(dhd->pub.osh, dhd->event_data.coex_fmts.fmts,
+					dhd->event_data.coex_fmts.fmts_size);
+		}
+		if (dhd->event_data.coex_fmts.raw_fmts) {
+			MFREE(dhd->pub.osh, dhd->event_data.coex_fmts.raw_fmts,
+					dhd->event_data.coex_fmts.raw_fmts_size);
+		}
+		if (dhd->event_data.coex.raw_sstr) {
+			MFREE(dhd->pub.osh, dhd->event_data.coex.raw_sstr,
+					dhd->event_data.coex.raw_sstr_size);
+		}
+#endif /* COEX_CPU */
 
 		dhd->dhd_state &= ~DHD_ATTACH_LOGTRACE_INIT;
 	}
@@ -14943,6 +15112,11 @@ dhd_free(dhd_pub_t *dhdp)
 
 		dhd = (dhd_info_t *)dhdp->info;
 
+#ifdef COEX_CPU
+		if (dhdp->coex_dump) {
+			MFREE(dhdp->osh, dhdp->coex_dump, dhdp->coex_dump_length);
+		}
+#endif /* COEX_CPU */
 #ifdef CACHE_FW_IMAGES
 		if (dhdp->cached_fw) {
 			MFREE(dhdp->osh, dhdp->cached_fw, dhdp->bus->ramsize);
@@ -15002,6 +15176,11 @@ dhd_clear(dhd_pub_t *dhdp)
 
 		dhd_sta_pool_clear(dhdp, DHD_MAX_STA);
 
+#ifdef COEX_CPU
+		if (dhdp->coex_dump) {
+			MFREE(dhdp->osh, dhdp->coex_dump, dhdp->coex_dump_length);
+		}
+#endif /* COEX_CPU */
 	}
 }
 
@@ -17005,16 +17184,23 @@ int
 dhd_dev_set_rssi_monitor_cfg(struct net_device *dev, int start,
              int8 max_rssi, int8 min_rssi)
 {
-	int err;
+	int err, ifidx;
 	wl_rssi_monitor_cfg_t rssi_monitor;
 	dhd_info_t *dhd = *(dhd_info_t **)netdev_priv(dev);
+
+	ifidx = dhd_net2idx(dhd, dev);
+	if (ifidx == DHD_BAD_IF) {
+		DHD_ERROR(("%s: bad ifidx\n", __FUNCTION__));
+		err = -ENODEV;
+		return err;
+	}
 
 	rssi_monitor.version = RSSI_MONITOR_VERSION_1;
 	rssi_monitor.max_rssi = max_rssi;
 	rssi_monitor.min_rssi = min_rssi;
 	rssi_monitor.flags = start ? 0: RSSI_MONITOR_STOP;
-	err = dhd_iovar(&dhd->pub, 0, "rssi_monitor", (char *)&rssi_monitor, sizeof(rssi_monitor),
-			NULL, 0, TRUE);
+	err = dhd_iovar(&dhd->pub, ifidx, "rssi_monitor", (char *)&rssi_monitor,
+			sizeof(rssi_monitor), NULL, 0, TRUE);
 	if (err < 0 && err != BCME_UNSUPPORTED) {
 		DHD_ERROR(("%s : Failed to execute rssi_monitor %d\n", __FUNCTION__, err));
 	}
@@ -17981,7 +18167,7 @@ void dhd_net_if_unlock(struct net_device *dev)
 	dhd_net_if_unlock_local(dhd);
 }
 
-static void dhd_net_if_lock_local(dhd_info_t *dhd)
+void dhd_net_if_lock_local(dhd_info_t *dhd)
 {
 
 #if defined(OEM_ANDROID)
@@ -17991,7 +18177,7 @@ static void dhd_net_if_lock_local(dhd_info_t *dhd)
 
 }
 
-static void dhd_net_if_unlock_local(dhd_info_t *dhd)
+void dhd_net_if_unlock_local(dhd_info_t *dhd)
 {
 
 #if defined(OEM_ANDROID)
@@ -19661,6 +19847,14 @@ void dhd_schedule_memdump(dhd_pub_t *dhdp, uint8 *buf, uint32 size)
 	}
 	dump->buf = buf;
 	dump->bufsize = size;
+#ifdef COEX_CPU
+	/* TODO: wlan ram dump buffer pointer and size are passed in as parameter
+	 * even though all instances calling it are using the same dhdp->soc_ram.
+	 * For now directly populating coex tcm related info from dhdp
+	 */
+	dump->coex_buf = dhdp->coex_dump;
+	dump->coex_bufsize = dhdp->coex_dump_length;
+#endif /* COEX_CPU */
 #ifdef BCMPCIE
 	dhd_get_hscb_info(dhdp, (void*)(&dump->hscb_buf),
 			(uint32 *)(&dump->hscb_bufsize));
@@ -19875,7 +20069,7 @@ dhd_mem_dump(void *handle, void *event_info, u8 event)
 	} else {
 		if (wifi_platform_set_coredump(dhd->adapter, dump->buf,
 			dump->bufsize, dhdp->memdump_str)) {
-			DHD_ERROR(("%s: writing SoC_RAM dump failed\n", __FUNCTION__));
+			DHD_ERROR(("%s: wifi_platform_set_coredump failed\n", __FUNCTION__));
 #ifdef DHD_DEBUG_UART
 			dhd->pub.memdump_success = FALSE;
 #endif  /* DHD_DEBUG_UART */
@@ -19900,6 +20094,28 @@ dhd_mem_dump(void *handle, void *event_info, u8 event)
 	}
 #endif /* D2H_MINIDUMP */
 
+#ifdef TX_FLOW_RING_INDICES_TRACE
+	{
+		struct bcmstrbuf b;
+		struct bcmstrbuf *strbuf = &b;
+		uint32 tracebuf_size = dhd_prot_get_flow_ring_trace_len(&dhd->pub);
+		char *tracebuf = VMALLOCZ(dhd->pub.osh, tracebuf_size);
+		if (tracebuf) {
+			bcm_binit(strbuf, tracebuf, tracebuf_size);
+
+			dhd_prot_tx_flow_ring_trace_dump(&dhd->pub, strbuf);
+			if (write_dump_to_file(&dhd->pub, b.origbuf, (b.origsize - b.size),
+				"debug_dump_ring_trace")) {
+				DHD_ERROR(("%s: writing flowring_trace to file failed\n",
+					__FUNCTION__));
+			}
+			VMFREE(dhd->pub.osh, tracebuf, tracebuf_size);
+		} else {
+			DHD_ERROR(("%s: tracebuf alloc failed\n", __FUNCTION__));
+		}
+	}
+#endif /* TX_FLOW_RING_INDICES_TRACE */
+
 #ifndef BCMQT_HW
 	/* skip memdump for QT in dhd. user will collect through upload in chunks */
 	if (write_dump_to_file(&dhd->pub, dump->buf, dump->bufsize, "mem_dump")) {
@@ -19910,6 +20126,14 @@ dhd_mem_dump(void *handle, void *event_info, u8 event)
 	}
 #endif /* !BCMQT_HW */
 
+#ifdef COEX_CPU
+	if (dump->coex_buf) {
+		if (write_dump_to_file(&dhd->pub, dump->coex_buf, dump->coex_bufsize,
+					"coex_mem_dump")) {
+			DHD_ERROR(("%s: writing coex mem dump to the file failed\n", __FUNCTION__));
+		}
+	}
+#endif /* COEX_CPU */
 
 	if (dump->hscb_buf && dump->hscb_bufsize) {
 		if (write_dump_to_file(&dhd->pub, dump->hscb_buf,
@@ -20949,6 +21173,10 @@ dhd_os_get_pktlog_dump(void *dev, const void *user_buf, uint32 len)
 		DHD_ERROR(("%s(): fail to dump pktlog, err = %d\n", __FUNCTION__, ret));
 		return ret;
 	}
+
+	/* clear pktlog buffer */
+	dhd_pktlog_ring_reinit(dhdp);
+
 	return ret;
 #endif /* DHD_PKT_LOGGING_DBGRING */
 }
@@ -22845,6 +23073,9 @@ dhd_pktlog_dump(void *handle, void *event_info, u8 event)
 		DHD_ERROR(("%s: writing pktlog dump file failed\n", __FUNCTION__));
 		return;
 	}
+
+	/* clear pktlog buffer */
+	dhd_pktlog_ring_reinit(&dhd->pub);
 }
 
 void
@@ -24208,6 +24439,11 @@ dhd_schedule_cto_recovery(dhd_pub_t *dhdp)
 	if (dhdp->up == FALSE) {
 		DHD_ERROR(("%s : skip scheduling cto because dhd is not up\n",
 				__FUNCTION__));
+		return;
+	}
+
+	if (dhdp->info->scheduled_memdump) {
+		DHD_ERROR(("%s, memdump in progress\n", __FUNCTION__));
 		return;
 	}
 

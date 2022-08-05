@@ -788,6 +788,44 @@ dhd_dbg_verboselog_handler(dhd_pub_t *dhdp, prcd_event_log_hdr_t *plog_hdr,
 	dhd_dbg_verboselog_printf(dhdp, plog_hdr, raw_event_ptr, log_ptr, logset, block, FALSE);
 }
 
+#ifdef COEX_CPU
+static void
+dhd_dbg_verboselog_coex_handler(dhd_pub_t *dhdp, prcd_event_log_hdr_t *plog_hdr,
+		void *raw_event_ptr, uint32 logset, uint16 block, uint32* data)
+{
+	event_log_hdr_t *ts_hdr;
+	uint32 *log_ptr = plog_hdr->log_ptr;
+	uint32 *ts_data;
+
+	if (!raw_event_ptr) {
+		goto exit;
+	}
+
+	if (log_ptr < data) {
+		DHD_ERROR(("Invalid log pointer, logptr : %p data : %p \n", log_ptr, data));
+		goto exit;
+	}
+
+	if (log_ptr > data) {
+		/* Get time stamp if it's updated */
+		ts_hdr = (event_log_hdr_t *)((char *)log_ptr - sizeof(event_log_hdr_t));
+		if (ts_hdr->tag == EVENT_LOG_TAG_TS) {
+			ts_data = (uint32 *)ts_hdr - ts_hdr->count;
+			if (ts_data >= data) {
+				verboselog_ts_saved = (uint64)ts_data[0];
+				DHD_MSGTRACE_LOG(("EVENT_LOG_TS[0x%08x]: SYS:%08x CPU:%08x\n",
+					ts_data[ts_hdr->count - 1], ts_data[0], ts_data[1]));
+			}
+		}
+	}
+
+	/* print the message out in a logprint  */
+	dhd_dbg_verboselog_printf(dhdp, plog_hdr, raw_event_ptr, log_ptr, logset, block, TRUE);
+
+exit:
+	return;
+}
+#endif /* COEX_CPU */
 
 static void
 dhd_dbg_fw_time(dhd_pub_t *dhdp, uint32 arm_time_cycle, char *buf, uint32 len)
@@ -823,9 +861,6 @@ dhd_dbg_fw_time(dhd_pub_t *dhdp, uint32 arm_time_cycle, char *buf, uint32 len)
 				(arm_time_cycle / EL_MSEC_PER_SEC),
 				(arm_time_cycle % EL_MSEC_PER_SEC));
 			break;
-		default:
-			DHD_MSGTRACE_LOG(("%s unsupported timestamp version: %u\n",
-				__FUNCTION__, dhdp->dbg->event_log_ts_ver));
 		break;
 	}
 }
@@ -894,6 +929,15 @@ dhd_dbg_verboselog_printf(dhd_pub_t *dhdp, prcd_event_log_hdr_t *plog_hdr,
 
 	BCM_REFERENCE(arg);
 
+#ifdef COEX_CPU
+	if (coex_log) {
+		log_fmts = &raw_event->coex_fmts;
+		rammap = &raw_event->coex;
+		rommap = NULL;
+		raw_print_prefix = "CEL";
+		console_print_prefix = "CXCON_E";
+	}
+#endif /* COEX_CPU */
 
 #ifdef DHD_LOG_PRINT_RATE_LIMIT
 	if (!ts0)
@@ -1010,7 +1054,7 @@ dhd_dbg_verboselog_printf(dhd_pub_t *dhdp, prcd_event_log_hdr_t *plog_hdr,
 		/* for ecounters, don't print the error as it will flood */
 		if ((plog_hdr->fmt_num != DHD_OW_BI_EVENT_FMT_NUM) &&
 			(plog_hdr->fmt_num != DHD_TW_BI_EVENT_FMT_NUM)) {
-			DHD_ERROR(("%s: fmt number: 0x%x out of range\n",
+			DHD_ERROR_RLMT(("%s: fmt number: 0x%x out of range\n",
 				__FUNCTION__, plog_hdr->fmt_num));
 		} else {
 			DHD_INFO(("%s: fmt number: 0x%x out of range\n",
@@ -1439,6 +1483,15 @@ dhd_dbg_msgtrace_log_parser(dhd_pub_t *dhdp, void *event_data,
 		}
 #endif /* DHD_EVENT_LOG_FILTER */
 
+#ifdef COEX_CPU
+		if (logset == EVENT_LOG_SET_COEX_SHADOW_INFO ||
+			logset == EVENT_LOG_SET_COEX_SHADOW_ERR ||
+			logset == EVENT_LOG_SET_COEX_SHADOW_PRSRV) {
+			dhd_dbg_verboselog_coex_handler(dhdp, plog_hdr, raw_event_ptr,
+				logset, block, (uint32 *)data);
+			msg_processed = TRUE;
+		}
+#endif /* COEX_CPU */
 
 		if (!msg_processed) {
 			dhd_dbg_verboselog_handler(dhdp, plog_hdr, raw_event_ptr,

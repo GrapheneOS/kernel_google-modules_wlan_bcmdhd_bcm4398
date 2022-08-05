@@ -550,6 +550,9 @@ enum {
 #ifdef BCMPCIE
 	IOV_DUMP_FLOWRINGS,
 #endif
+#ifdef DHD_PKT_LOGGING
+	IOV_CLEAR_PKTLOG,
+#endif /* DHD_PKT_LOGGING */
 	IOV_LAST
 };
 
@@ -742,6 +745,9 @@ const bcm_iovar_t dhd_iovars[] = {
 #ifdef BCMPCIE
 	{"dump_flowrings", IOV_DUMP_FLOWRINGS, 0, 0, IOVT_BUFFER, DHD_IOCTL_MAXLEN_32K},
 #endif
+#ifdef DHD_PKT_LOGGING
+	{"clear_pktlog", IOV_CLEAR_PKTLOG, 0, 0, IOVT_UINT32, 0},
+#endif /* DHD_PKT_LOGGING */
 	/* --- add new iovars *ABOVE* this line --- */
 	{NULL, 0, 0, 0, 0, 0 }
 };
@@ -2059,6 +2065,7 @@ dhd_dump_txrx_stats(dhd_pub_t *dhdp, struct bcmstrbuf *strbuf)
 	bcm_bprintf(strbuf, "rx_cso_cnt %lu rx_nocso_cnt %lu\n",
 	            dhdp->rx_cso_cnt, dhdp->rx_nocso_cnt);
 #endif /* RX_CSO */
+	dhd_print_if_stats(dhdp, strbuf);
 	bcm_bprintf(strbuf, "\n");
 	/* ----------------------------------------------------- */
 }
@@ -3352,6 +3359,7 @@ dhd_doiovar(dhd_pub_t *dhd_pub, const bcm_iovar_t *vi, uint32 actionid, const ch
 #ifdef RX_CSO
 		dhd_pub->rx_cso_cnt = dhd_pub->rx_nocso_cnt = 0;
 #endif /* RX_CSO */
+		dhd_clear_if_stats(dhd_pub);
 		bzero(&dhd_pub->dstats, sizeof(dhd_pub->dstats));
 		dhd_bus_clearcounts(dhd_pub);
 #ifdef PROP_TXSTATUS
@@ -4567,6 +4575,11 @@ dhd_doiovar(dhd_pub_t *dhd_pub, const bcm_iovar_t *vi, uint32 actionid, const ch
 			bcmerror = BCME_OK;
 		break;
 #endif /* BCMPCIE */
+#ifdef DHD_PKT_LOGGING
+	case IOV_GVAL(IOV_CLEAR_PKTLOG):
+		bcmerror = dhd_pktlog_ring_reinit(dhd_pub);
+		break;
+#endif /* DHD_PKT_LOGGING */
 	default:
 		bcmerror = BCME_UNSUPPORTED;
 		break;
@@ -5232,6 +5245,47 @@ wl_show_roam_cache_update_event(const char *name, uint status,
 	}
 }
 
+static struct {
+	uint event_status;
+	const char *name_string;
+} event_cmn_status_names[] = {
+		/* format: status, "status_string"
+		 * Note: This array captures only common event status codes.
+		 * Certain events use specific status codes and they are not
+		 * covered here. so this struct is to be used for events using
+		 * common status codes.
+		 */
+		{WLC_E_STATUS_SUCCESS, "SUCCESS"},
+		{WLC_E_STATUS_FAIL, "FAILURE"},
+		{WLC_E_STATUS_TIMEOUT, "TIMEOUT"},
+		{WLC_E_STATUS_NO_NETWORKS, "NO NETWORKS"},
+		{WLC_E_STATUS_ABORT, "ABORTED"},
+		{WLC_E_STATUS_NO_ACK, "NO ACK"},
+		{WLC_E_STATUS_UNSOLICITED, "UNSOLICITED"},
+		{WLC_E_STATUS_ATTEMPT, "ATTEMPT"},
+		{WLC_E_STATUS_NOCHANS, "NO-CHANNELS"},
+		{WLC_E_STATUS_ERROR, "STATUS-ERROR"},
+};
+
+static const char *
+wl_get_event_status_name(uint32 event_type, uint32 status)
+{
+	/* Certain events uses module specific status codes. so those events needs
+	 * different handling. This is for common status codes. Also, the string
+	 * values are maintained same to avoid test script breakages.
+	 */
+	uint idx;
+	const char *def_status_str = "STATUS-STR-NOT-DEFINED";
+
+	for (idx = 0; idx < (uint)ARRAYSIZE(event_cmn_status_names); idx++) {
+		if (event_cmn_status_names[idx].event_status == status) {
+				return event_cmn_status_names[idx].name_string;
+		}
+	}
+
+	return def_status_str;
+}
+
 static void
 wl_show_host_event(dhd_pub_t *dhd_pub, wl_event_msg_t *event, void *event_data,
 	void *raw_event_ptr, char *eventmask)
@@ -5241,9 +5295,12 @@ wl_show_host_event(dhd_pub_t *dhd_pub, wl_event_msg_t *event, void *event_data,
 	bool host_data = FALSE; /* prints  event data after the case  when set */
 	const char *auth_str;
 	const char *event_name;
+	const char *status_name = NULL;
 	const uchar *buf;
 	char err_msg[256], eabuf[ETHER_ADDR_STR_LEN];
 	uint event_type, flags, auth_type, datalen;
+	uint8 ifidx;
+	uint8 bsscfgidx;
 
 	event_type = ntoh32(event->event_type);
 	flags = ntoh16(event->flags);
@@ -5252,6 +5309,8 @@ wl_show_host_event(dhd_pub_t *dhd_pub, wl_event_msg_t *event, void *event_data,
 	BCM_REFERENCE(reason);
 	auth_type = ntoh32(event->auth_type);
 	datalen = (event_data != NULL) ? ntoh32(event->datalen) : 0;
+	ifidx = event->ifidx;
+	bsscfgidx = event->bsscfgidx;
 
 	/* debug dump of event messages */
 	snprintf(eabuf, sizeof(eabuf), MACDBG, MAC2STRDBG(event->addr.octet));
@@ -5272,7 +5331,8 @@ wl_show_host_event(dhd_pub_t *dhd_pub, wl_event_msg_t *event, void *event_data,
 		break;
 	case WLC_E_DEAUTH:
 	case WLC_E_DISASSOC:
-		DHD_EVENT(("MACEVENT: %s, MAC %s\n", event_name, eabuf));
+		DHD_EVENT(("MACEVENT: %s, MAC %s ifidx %d cfgidx %d\n",
+			event_name, eabuf, ifidx, bsscfgidx));
 #ifdef REPORT_FATAL_TIMEOUTS
 		dhd_clear_join_error(dhd_pub, WLC_SSID_MASK | WLC_WPA_MASK);
 #endif /* REPORT_FATAL_TIMEOUTS */
@@ -5280,20 +5340,21 @@ wl_show_host_event(dhd_pub_t *dhd_pub, wl_event_msg_t *event, void *event_data,
 
 #ifdef WL_CLIENT_SAE
 	case WLC_E_AUTH_START:
-		DHD_EVENT(("MACEVENT: %s, MAC %s, reason %d\n", event_name,
-			eabuf, (int)reason));
+		DHD_EVENT(("MACEVENT: %s, MAC %s, reason %d ifidx %d cfgidx %d\n", event_name,
+			eabuf, (int)reason, ifidx, bsscfgidx));
 		break;
 #endif /* WL_CLIENT_SAE */
 
 	case WLC_E_BSSID:
-		DHD_EVENT(("MACEVENT: %s, MAC %s, reason %d datalen %d\n", event_name,
-			eabuf, (int)reason, datalen));
+		DHD_EVENT(("MACEVENT: %s, MAC %s, reason %d datalen %d ifidx %d cfgidx %d\n",
+			event_name, eabuf, (int)reason, datalen, ifidx, bsscfgidx));
 		break;
 
 	case WLC_E_ASSOC_IND:
 	case WLC_E_REASSOC_IND:
 
-		DHD_EVENT(("MACEVENT: %s, MAC %s\n", event_name, eabuf));
+		DHD_EVENT(("MACEVENT: %s, MAC %s ifidx %d cfgidx %d\n",
+				event_name, eabuf, ifidx, bsscfgidx));
 #ifdef REPORT_FATAL_TIMEOUTS
 		if (status != WLC_E_STATUS_SUCCESS) {
 			dhd_clear_join_error(dhd_pub, WLC_SSID_MASK | WLC_WPA_MASK);
@@ -5304,21 +5365,10 @@ wl_show_host_event(dhd_pub_t *dhd_pub, wl_event_msg_t *event, void *event_data,
 
 	case WLC_E_ASSOC:
 	case WLC_E_REASSOC:
-		if (status == WLC_E_STATUS_SUCCESS) {
-			DHD_EVENT(("MACEVENT: %s, MAC %s, SUCCESS\n", event_name, eabuf));
-		} else if (status == WLC_E_STATUS_TIMEOUT) {
-			DHD_EVENT(("MACEVENT: %s, MAC %s, TIMEOUT\n", event_name, eabuf));
-		} else if (status == WLC_E_STATUS_FAIL) {
-			DHD_EVENT(("MACEVENT: %s, MAC %s, FAILURE, status %d reason %d\n",
-			       event_name, eabuf, (int)status, (int)reason));
-		} else if (status == WLC_E_STATUS_SUPPRESS) {
-			DHD_EVENT(("MACEVENT: %s, MAC %s, SUPPRESS\n", event_name, eabuf));
-		} else if (status == WLC_E_STATUS_NO_ACK) {
-			DHD_EVENT(("MACEVENT: %s, MAC %s, NOACK\n", event_name, eabuf));
-		} else {
-			DHD_EVENT(("MACEVENT: %s, MAC %s, unexpected status %d\n",
-			       event_name, eabuf, (int)status));
-		}
+		status_name = wl_get_event_status_name(event_type, status);
+		DHD_EVENT(("MACEVENT: %s, MAC %s, %s, status %d reason %d ifidx %d cfgidx %d\n",
+			event_name, eabuf, status_name, (int)status,
+			(int)reason, ifidx, bsscfgidx));
 #ifdef REPORT_FATAL_TIMEOUTS
 		if (status != WLC_E_STATUS_SUCCESS) {
 			dhd_clear_join_error(dhd_pub, WLC_SSID_MASK | WLC_WPA_MASK);
@@ -5332,7 +5382,8 @@ wl_show_host_event(dhd_pub_t *dhd_pub, wl_event_msg_t *event, void *event_data,
 #ifdef REPORT_FATAL_TIMEOUTS
 		dhd_clear_join_error(dhd_pub, WLC_SSID_MASK | WLC_WPA_MASK);
 #endif /* REPORT_FATAL_TIMEOUTS */
-		DHD_EVENT(("MACEVENT: %s, MAC %s, reason %d\n", event_name, eabuf, (int)reason));
+		DHD_EVENT(("MACEVENT: %s, MAC %s, reason %d ifidx %d cfgidx %d\n",
+				event_name, eabuf, (int)reason, ifidx, bsscfgidx));
 		break;
 
 	case WLC_E_AUTH:
@@ -5348,27 +5399,11 @@ wl_show_host_event(dhd_pub_t *dhd_pub, wl_event_msg_t *event, void *event_data,
 			auth_str = err_msg;
 		}
 
-		if (event_type == WLC_E_AUTH_IND) {
-			DHD_EVENT(("MACEVENT: %s, MAC %s, %s\n", event_name, eabuf, auth_str));
-		} else if (status == WLC_E_STATUS_SUCCESS) {
-			DHD_EVENT(("MACEVENT: %s, MAC %s, %s, SUCCESS\n",
-				event_name, eabuf, auth_str));
-		} else if (status == WLC_E_STATUS_TIMEOUT) {
-			DHD_EVENT(("MACEVENT: %s, MAC %s, %s, TIMEOUT\n",
-				event_name, eabuf, auth_str));
-		} else if (status == WLC_E_STATUS_FAIL) {
-			DHD_EVENT(("MACEVENT: %s, MAC %s, %s, FAILURE, status %d reason %d\n",
-			       event_name, eabuf, auth_str, (int)status, (int)reason));
-		} else if (status == WLC_E_STATUS_SUPPRESS) {
-			DHD_EVENT(("MACEVENT: %s, MAC %s, %s, SUPPRESS\n",
-			       event_name, eabuf, auth_str));
-		} else if (status == WLC_E_STATUS_NO_ACK) {
-			DHD_EVENT(("MACEVENT: %s, MAC %s, %s, NOACK\n",
-			       event_name, eabuf, auth_str));
-		} else {
-			DHD_EVENT(("MACEVENT: %s, MAC %s, %s, status %d reason %d\n",
-				event_name, eabuf, auth_str, (int)status, (int)reason));
-		}
+		status_name = wl_get_event_status_name(event_type, status);
+		DHD_EVENT(("MACEVENT: %s, MAC %s, %s, %s, status %d "
+			"reason %d ifidx %d cfgidx %d\n", event_name, eabuf, auth_str,
+			status_name, (int)status, (int)reason, ifidx, bsscfgidx));
+
 		BCM_REFERENCE(auth_str);
 #ifdef REPORT_FATAL_TIMEOUTS
 		if (status != WLC_E_STATUS_SUCCESS) {
@@ -5391,9 +5426,9 @@ wl_show_host_event(dhd_pub_t *dhd_pub, wl_event_msg_t *event, void *event_data,
 				event_name, event_type, eabuf, (int)status, (int)reason,
 				(int)auth_type, (int)roam_start->rssi));
 		} else {
-			DHD_EVENT(("MACEVENT: %s %d, MAC %s, status %d, reason %d, auth %d\n",
-				event_name, event_type, eabuf, (int)status, (int)reason,
-				(int)auth_type));
+			DHD_EVENT(("MACEVENT: %s %d, MAC %s, status %d, reason %d, auth %d"
+				" ifidx %d cfgidx %d\n", event_name, event_type, eabuf,
+				(int)status, (int)reason, (int)auth_type, ifidx, bsscfgidx));
 		}
 		break;
 	case WLC_E_ROAM_PREP:
@@ -5401,13 +5436,13 @@ wl_show_host_event(dhd_pub_t *dhd_pub, wl_event_msg_t *event, void *event_data,
 			const wlc_roam_prep_event_t *roam_prep =
 				(wlc_roam_prep_event_t *)event_data;
 			DHD_EVENT(("MACEVENT: %s %d, MAC %s, status %d,"
-				" reason %d, auth %d, target bss rssi %d\n",
+				" reason %d, auth %d, target bss rssi %d ifidx %d cfgidx %d\n",
 				event_name, event_type, eabuf, (int)status, (int)reason,
-				(int)auth_type, (int)roam_prep->rssi));
+				(int)auth_type, (int)roam_prep->rssi, ifidx, bsscfgidx));
 		} else {
-			DHD_EVENT(("MACEVENT: %s %d, MAC %s, status %d, reason %d, auth %d\n",
-				event_name, event_type, eabuf, (int)status, (int)reason,
-				(int)auth_type));
+			DHD_EVENT(("MACEVENT: %s %d, MAC %s, status %d, reason %d, auth %d"
+				" ifidx %d cfgidx %d\n", event_name, event_type, eabuf, (int)status,
+				(int)reason, (int)auth_type, ifidx, bsscfgidx));
 		}
 		break;
 	case WLC_E_ROAM_CACHE_UPDATE:
@@ -5422,7 +5457,8 @@ wl_show_host_event(dhd_pub_t *dhd_pub, wl_event_msg_t *event, void *event_data,
 		dhd_clear_join_error(dhd_pub, WLC_SSID_MASK);
 #endif /* REPORT_FATAL_TIMEOUTS */
 		if (status == WLC_E_STATUS_SUCCESS) {
-			DHD_EVENT(("MACEVENT: %s, MAC %s\n", event_name, eabuf));
+			DHD_EVENT(("MACEVENT: %s, MAC %s ifidx %d cfgidx %d\n",
+					event_name, eabuf, ifidx, bsscfgidx));
 		} else {
 #ifdef REPORT_FATAL_TIMEOUTS
 			/*
@@ -5457,8 +5493,8 @@ wl_show_host_event(dhd_pub_t *dhd_pub, wl_event_msg_t *event, void *event_data,
 		break;
 
 	case WLC_E_LINK:
-		DHD_EVENT(("MACEVENT: %s %s flags:0x%x status:%d reason:%d\n",
-			event_name, link?"UP":"DOWN", flags, status, reason));
+		DHD_EVENT(("MACEVENT: %s %s flags:0x%x status:%d reason:%d ifidx %d cfgidx %d\n",
+			event_name, link?"UP":"DOWN", flags, status, reason, ifidx, bsscfgidx));
 #ifdef PCIE_FULL_DONGLE
 #ifdef REPORT_FATAL_TIMEOUTS
 		{
@@ -5494,7 +5530,8 @@ wl_show_host_event(dhd_pub_t *dhd_pub, wl_event_msg_t *event, void *event_data,
 	case WLC_E_ASSOC_REQ_IE:
 	case WLC_E_ASSOC_RESP_IE:
 	case WLC_E_PMKID_CACHE:
-		DHD_EVENT(("MACEVENT: %s\n", event_name));
+		DHD_EVENT(("MACEVENT: %s ifidx %d cfgidx %d\n",
+				event_name, ifidx, bsscfgidx));
 		break;
 
 	case WLC_E_SCAN_COMPLETE:
@@ -5525,8 +5562,8 @@ wl_show_host_event(dhd_pub_t *dhd_pub, wl_event_msg_t *event, void *event_data,
 
 	case WLC_E_PSK_SUP:
 	case WLC_E_PRUNE:
-		DHD_EVENT(("MACEVENT: %s, status %d, reason %d\n",
-		           event_name, (int)status, (int)reason));
+		DHD_EVENT(("MACEVENT: %s, status %d, reason %d ifidx %d cfgidx %d\n",
+		           event_name, (int)status, (int)reason, ifidx, bsscfgidx));
 #ifdef REPORT_FATAL_TIMEOUTS
 		dhd_clear_join_error(dhd_pub, WLC_WPA_MASK);
 #endif /* REPORT_FATAL_TIMEOUTS */
@@ -5534,14 +5571,16 @@ wl_show_host_event(dhd_pub_t *dhd_pub, wl_event_msg_t *event, void *event_data,
 
 #ifdef WIFI_ACT_FRAME
 	case WLC_E_ACTION_FRAME:
-		DHD_TRACE(("MACEVENT: %s Bssid %s\n", event_name, eabuf));
+		DHD_TRACE(("MACEVENT: %s Bssid %s ifidx %d cfgidx %d\n",
+				event_name, eabuf, ifidx, bsscfgidx));
 		break;
 	case WLC_E_ACTION_FRAME_COMPLETE:
 		if (datalen >= sizeof(uint32)) {
 			const uint32 *pktid = event_data;
 			BCM_REFERENCE(pktid);
-			DHD_EVENT(("MACEVENT: %s status %d, reason %d, pktid 0x%x\n",
-				event_name, (int)status, (int)reason, *pktid));
+			DHD_EVENT(("MACEVENT: %s status %d, reason %d, pktid 0x%x "
+				"ifidx %d cfgidx %d\n", event_name, (int)status, (int)reason,
+				*pktid, ifidx, bsscfgidx));
 		}
 		break;
 #endif /* WIFI_ACT_FRAME */
@@ -5750,6 +5789,10 @@ wl_show_host_event(dhd_pub_t *dhd_pub, wl_event_msg_t *event, void *event_data,
 		DHD_EVENT(("MACEVENT: %s, RA %s status %d Reason:%d\n",
 			event_name, eabuf, status, reason));
 		break;
+	case WLC_E_AUTHORIZED:
+		DHD_EVENT(("MACEVENT: %s, status %d Reason %d ifidx %d cfgidx %d\n",
+			event_name, status, reason, ifidx, bsscfgidx));
+		break;
 	case WLC_E_AGGR_EVENT:
 		if (datalen >= sizeof(event_aggr_data_t)) {
 			const event_aggr_data_t *aggrbuf = event_data;
@@ -5886,6 +5929,9 @@ wl_show_host_event(dhd_pub_t *dhd_pub, wl_event_msg_t *event, void *event_data,
 				"MACEVENT: %s: ULOFDMA disable reasons update: 0x%x\n",
 				event_name, upd_evt->ulmu_disable_reason));
 		}
+		break;
+	case WLC_E_OWE_INFO:
+		DHD_EVENT(("MACEVENT: %s, MAC %s type:%d\n", event_name, eabuf, reason));
 		break;
 	default:
 		DHD_INFO(("MACEVENT: %s %d, MAC %s, status %d, reason %d, auth %d\n",
@@ -11916,11 +11962,9 @@ dhd_convert_memdump_type_to_str(uint32 type, char *buf, size_t buf_len, int subs
 		case DUMP_TYPE_TRANS_ID_MISMATCH:
 			type_str = "BY_TRANS_ID_MISMATCH";
 			break;
-#ifdef DEBUG_DNGL_INIT_FAIL
 		case DUMP_TYPE_DONGLE_INIT_FAILURE:
 			type_str = "DONGLE_INIT_FAIL";
 			break;
-#endif /* DEBUG_DNGL_INIT_FAIL */
 #ifdef SUPPORT_LINKDOWN_RECOVERY
 		case DUMP_TYPE_READ_SHM_FAIL:
 			type_str = "READ_SHM_FAIL";

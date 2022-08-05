@@ -32,6 +32,7 @@
 #ifndef _dhd_h_
 #define _dhd_h_
 
+
 #if defined(__linux__)
 #include <linux/init.h>
 #include <linux/firmware.h>
@@ -499,7 +500,7 @@ enum dhd_op_flags {
  * the NVRAM data. That is the size of the buffer pointed by bus->vars
  * This also needs to be increased if NVRAM files size increases
  */
-#define MAX_NVRAMBUF_SIZE	(32 * 1024) /* max nvram buf size */
+#define MAX_NVRAMBUF_SIZE	(48 * 1024) /* max nvram buf size */
 #define MAX_CLM_BUF_SIZE	(64 * 1024) /* max clm blob size */
 #define MAX_TXCAP_BUF_SIZE	(16 * 1024) /* max txcap blob size */
 #ifdef DHD_DEBUG
@@ -1602,6 +1603,10 @@ typedef struct dhd_pub {
 	uint32 coredump_len;
 	char memdump_str[DHD_MEMDUMP_LONGSTR_LEN];
 #endif /* DHD_COREDUMP */
+#ifdef COEX_CPU
+	uint8 *coex_dump;
+	uint32 coex_dump_length;
+#endif /* COEX_CPU */
 #ifdef DHD_RND_DEBUG
 	uint8 *rnd_buf;
 	uint32 rnd_len;
@@ -2894,10 +2899,16 @@ typedef struct dhd_event_log_map {
 typedef struct dhd_event_log {
 	dhd_event_log_fmt_t wlan_fmts;	/* wlan logstrs context */
 
+#ifdef COEX_CPU
+	dhd_event_log_fmt_t coex_fmts;	/* coex logstrs context */
+#endif /* COEX_CPU */
 
 	dhd_event_log_map_t ram;	/* wlan ram static string context */
 	dhd_event_log_map_t rom;	/* wlan rom static string context */
 
+#ifdef COEX_CPU
+	dhd_event_log_map_t coex;	/* coex static string context */
+#endif /* COEX_CPU */
 
 } dhd_event_log_t;
 #else /* __linux__ || DHD_EFI */
@@ -2920,6 +2931,21 @@ typedef struct {
 } dhd_event_log_t;
 #endif /* __linux__ || DHD_EFI */
 #endif /* SHOW_LOGTRACE */
+
+#ifdef WL_MLO
+#define MAX_MLO_LINK 3
+
+typedef struct dhd_mlo_peer_link {
+	struct ether_addr link_addr;
+	chanspec_t chspec;
+} dhd_mlo_peer_link_t;
+
+typedef struct dhd_mlo_peer_info {
+	u8 num_links;
+	struct ether_addr mld_addr;
+	dhd_mlo_peer_link_t link_info[MAX_MLO_LINK];
+} dhd_mlo_peer_info_t;
+#endif /* WL_MLO */
 
 #if defined(APF)
 /*
@@ -2989,6 +3015,16 @@ extern void dhd_vif_add(struct dhd_info *dhd, int ifidx, char * name);
 extern void dhd_vif_del(struct dhd_info *dhd, int ifidx);
 extern void dhd_event(struct dhd_info *dhd, char *evpkt, int evlen, int ifidx);
 extern void dhd_vif_sendup(struct dhd_info *dhd, int ifidx, uchar *cp, int len);
+#if defined(LINUX) || defined(linux)
+void dhd_print_if_stats(dhd_pub_t *dhdp, struct bcmstrbuf *strbuf);
+void dhd_clear_if_stats(dhd_pub_t *dhdp);
+#else
+static INLINE void dhd_print_if_stats(dhd_pub_t *dhdp, struct bcmstrbuf *strbuf)
+{
+	printf("%s: NOT IMPLEMENTED\n", __FUNCTION__);
+}
+static INLINE void dhd_clear_if_stats(dhd_pub_t *dhdp) { return; }
+#endif
 
 #ifdef WL_NATOE
 extern int dhd_natoe_ct_event(dhd_pub_t *dhd, char *data);
@@ -3127,6 +3163,10 @@ extern void dhd_del_all_sta(void *pub, int ifidx);
 extern void dhd_del_sta(void *pub, int ifidx, void *ea);
 extern void dhd_update_sta_chanspec_info(void *pub, int ifidx, const uint8 *ea,
 	chanspec_t chanspec);
+#ifdef WL_MLO
+extern void dhd_update_mlo_peer_info(void *pub, int ifidx, const uint8 *ea,
+	dhd_mlo_peer_info_t *peer_info);
+#endif /* WL_MLO */
 extern bool dhd_is_sta_htput(void *pub, int ifidx, void *ea);
 extern int dhd_get_ap_isolate(dhd_pub_t *dhdp, uint32 idx);
 extern int dhd_set_ap_isolate(dhd_pub_t *dhdp, uint32 idx, int val);
@@ -3141,6 +3181,10 @@ static INLINE void dhd_del_all_sta(void *pub, int ifidx) { }
 static INLINE void dhd_del_sta(void *pub, int ifidx, void *ea) { }
 static INLINE void dhd_update_sta_chanspec_info(void *pub, int ifidx, const uint8 *ea,
 	chanspec_t chanspec) {}
+#ifdef WL_MLO
+static INLINE void dhd_update_mlo_peer_info(void *pub, int ifidx, const uint8 *ea,
+	dhd_mlo_peer_info_t *peer_info) {}
+#endif /* WL_MLO */
 static INLINE bool dhd_is_sta_htput(void *pub, int ifidx, void *ea) { return FALSE; }
 static INLINE int dhd_get_ap_isolate(dhd_pub_t *dhdp, uint32 idx) { return 0; }
 static INLINE int dhd_set_ap_isolate(dhd_pub_t *dhdp, uint32 idx, int val) { return 0; }
@@ -4123,8 +4167,9 @@ extern uint dhd_sssr_mac_xmtdata(dhd_pub_t *dhdp, uint8 core_idx);
 #endif /* DHD_SSSR_DUMP */
 
 #ifdef DHD_COREDUMP
-#define WLAN_DHD_MEMDUMP_SIZE	(5u * 1024u * 1024u)
-#define DHD_MEMDUMP_BUFFER_SIZE	(WLAN_DHD_MEMDUMP_SIZE + DHD_SSSR_MEMPOOL_SIZE)
+/* socram size + TLVs */
+#define WLAN_DHD_COREDUMP_SIZE (5u * 1024u * 1024u)
+#define DHD_MEMDUMP_BUFFER_SIZE (WLAN_DHD_COREDUMP_SIZE + DHD_SSSR_MEMPOOL_SIZE)
 extern int dhd_coredump_mempool_init(dhd_pub_t *dhd);
 extern void dhd_coredump_mempool_deinit(dhd_pub_t *dhd);
 #define DHD_COREDUMP_MEMPOOL_INIT(dhdp)		dhd_coredump_mempool_init(dhdp)
@@ -4914,5 +4959,10 @@ int dhd_config_rts_in_suspend(dhd_pub_t *dhdp, bool suspend);
 #endif /* DHD_CUSTOM_CONFIG_RTS_IN_SUSPEND */
 
 extern void *dhd_irq_to_desc(unsigned int irq);
+
+#ifdef TX_FLOW_RING_INDICES_TRACE
+uint32 dhd_prot_get_flow_ring_trace_len(dhd_pub_t *dhdp);
+void dhd_prot_tx_flow_ring_trace_dump(dhd_pub_t *dhdp, struct bcmstrbuf *strbuf);
+#endif /* TX_FLOW_RING_INDICES_TRACE */
 
 #endif /* _dhd_h_ */

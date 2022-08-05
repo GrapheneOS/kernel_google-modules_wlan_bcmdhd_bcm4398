@@ -2013,7 +2013,7 @@ BCMPOSTTRAPFN(nci_core_reset_enable)(const si_t *sih, uint32 bits, uint32 resetb
 	int32 iface_idx = 0u;
 	nci_info_t *nci = sii->nci_info;
 	nci_cores_t *core = &nci->cores[sii->curidx];
-	uint32 dmp_mask = 0xffffffffu;
+	uint32 dmp_mask = ~(SICF_FGC | SICF_CLOCK_EN);
 
 	if (SRPWR_ENAB() && core->domain != DOMAIN_AAON) {
 		si_srpwr_request(sih, 1u << core->domain, 1u << core->domain);
@@ -2022,7 +2022,12 @@ BCMPOSTTRAPFN(nci_core_reset_enable)(const si_t *sih, uint32 bits, uint32 resetb
 	NCI_INFO(("nci_core_reset_enable coreid.unit 0x%x.%d bits=0x%x resetbits=0x%x enable %d\n",
 			core->coreid, core->coreunit, bits, resetbits, enable));
 
-	nci_core_cflags(sih, dmp_mask, bits | resetbits | SICF_FGC | SICF_CLOCK_EN);
+	/* Remove Clock enable and force gated clock ON before setting reset bit */
+	nci_core_cflags(sih, SICF_FGC | SICF_CLOCK_EN, 0u);
+
+	OSL_DELAY(1u);
+	/* Set the core specific DMP flags */
+	nci_core_cflags(sih, dmp_mask, bits | resetbits);
 
 	/* If Wrapper is of NIC400, then call AI functionality */
 	for (iface_idx = core->iface_cnt-1; iface_idx >= 0; iface_idx--) {
@@ -2041,6 +2046,16 @@ BCMPOSTTRAPFN(nci_core_reset_enable)(const si_t *sih, uint32 bits, uint32 resetb
 		}
 	}
 
+	/* Force the clock enable. */
+	nci_core_cflags(sih, SICF_CLOCK_EN, SICF_CLOCK_EN);
+	/* Set force clock gated ON. */
+	nci_core_cflags(sih, SICF_FGC, SICF_FGC);
+
+	OSL_DELAY(1u);
+
+	/* Remove Clock enable and force gated clock ON before taking core out of reset */
+	nci_core_cflags(sih, SICF_FGC | SICF_CLOCK_EN, 0u);
+
 	if (enable) {
 		for (iface_idx = core->iface_cnt-1; iface_idx >= 0; iface_idx--) {
 			if (core->desc[iface_idx].is_shared_pmni ||
@@ -2051,10 +2066,16 @@ BCMPOSTTRAPFN(nci_core_reset_enable)(const si_t *sih, uint32 bits, uint32 resetb
 			nci_core_reset_iface(sih, bits, resetbits, iface_idx, TRUE);
 
 		}
+		/* Force the clock enable. */
+		nci_core_cflags(sih, SICF_CLOCK_EN, SICF_CLOCK_EN);
+		/* Set force clock gated ON. */
+		nci_core_cflags(sih, SICF_FGC, SICF_FGC);
+
+		OSL_DELAY(1u);
+
+		/* Remove the force gated Clock */
+		nci_core_cflags(sih, SICF_FGC, 0);
 	}
-
-	nci_core_cflags(sih, dmp_mask, bits | SICF_CLOCK_EN);
-
 }
 
 static int32
@@ -3016,8 +3037,10 @@ BCMATTACHFN(nci_wrapper_dump_buf_size)(const si_t *sih)
 	uint8 i = 0;
 
 	for (i = 0; i < nci->num_cores; i++) {
-		core_info = &nci->cores[i];
-		wrapper_count += core_info->iface_cnt;
+		if (!nci_is_dump_err_disabled(sih, &nci->cores[i])) {
+			core_info = &nci->cores[i];
+			wrapper_count += core_info->iface_cnt;
+		}
 	}
 
 	if (wrapper_count == 0) {
@@ -3026,7 +3049,7 @@ BCMATTACHFN(nci_wrapper_dump_buf_size)(const si_t *sih)
 
 	/* cnt indicates how many registers, tag_id 0 will say these are address/value */
 	/* address/value pairs */
-	buf_size += 2 * (nci_get_sizeof_wrapper_offsets_to_dump() * wrapper_count);
+	buf_size = 2 * sizeof(uint32) * (nci_get_sizeof_wrapper_offsets_to_dump() * wrapper_count);
 
 	return buf_size;
 }

@@ -278,7 +278,7 @@ int wifi_platform_set_coredump(wifi_adapter_info_t *adapter, const char *buf,
 {
 	struct wifi_platform_data *plat_data;
 
-	DHD_PRINT(("%s\n", __FUNCTION__));
+	DHD_PRINT(("%s: len = %u\n", __FUNCTION__, buf_len));
 	if (!buf || !adapter || !adapter->wifi_plat_data)
 		return -EINVAL;
 	plat_data = adapter->wifi_plat_data;

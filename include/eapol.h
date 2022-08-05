@@ -225,18 +225,6 @@ typedef eapol_wpa_key_header_v2_t eapol_wpa_key_header_t;
 /* 802.11i/WPA2-only KEY KEY_INFO bits */
 #define WPA_KEY_ENCRYPTED_DATA	0x1000
 
-#define NAN_IDENTITY_KEY_LENGTH	16u
-/* NIK KDE */
-typedef BWL_PRE_PACKED_STRUCT struct {
-	uint8	cipher;
-	uint8	nik[];
-} BWL_PRE_PACKED_STRUCT nan_identity_key_t;
-
-/* NIK Lifetime KDE */
-typedef BWL_PRE_PACKED_STRUCT struct {
-	uint32	nik_lifetime;
-} BWL_PRE_PACKED_STRUCT nan_identity_key_lifetime_t;
-
 /* Key Data encapsulation */
 /* this is really just a vendor-specific info element.  should define
  * this in 802.11.h

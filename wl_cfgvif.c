@@ -130,6 +130,10 @@
 _Pragma("GCC diagnostic pop")
 #endif
 
+#if defined(WL_MLO) && defined(WL_MLO_AP)
+uint mlo_ap_enable = false;
+module_param(mlo_ap_enable, uint, 0660);
+#endif /* defined(WL_MLO) && defined(WL_MLO_AP) */
 
 /* SoftAP related parameters */
 #define DEFAULT_2G_SOFTAP_CHANNEL	1
@@ -140,6 +144,9 @@ _Pragma("GCC diagnostic pop")
 #define VNDR_OUI_STR_LEN	10u
 #define DOT11_DISCONNECT_RC     2u
 
+#if defined(WL_MLO) && defined(WL_MLO_AP)
+static void wl_start_mlo_ap(struct bcm_cfg80211 *cfg, struct net_device *dev);
+#endif /* WL_MLO && WL_MLO_AP */
 
 s32 wl_cfg80211_set_scb_timings(struct bcm_cfg80211 *cfg, struct net_device *dev);
 
@@ -1707,7 +1714,6 @@ wl_cfg80211_set_channel(struct wiphy *wiphy, struct net_device *dev,
 			}
 		}
 	}
-
 #ifdef NOT_YET
 	switch (channel_type) {
 		case NL80211_CHAN_HT40MINUS:
@@ -1774,21 +1780,38 @@ wl_cfg80211_set_channel(struct wiphy *wiphy, struct net_device *dev,
 				bw = WL_CHANSPEC_BW_20;
 				goto set_channel;
 			}
+#ifdef WL_UNII4_CHAN
+			if (IS_5G_UNII4_165_CHANNEL(chspec)) {
+#ifndef WL_UNII4_CHAN_SCC
+				/* 165/20 SCC is allowed only if STA connnection is 165/20.
+				 *  For other BW, downgrade Softap.
+				 */
+				if (!CHSPEC_IS20(*sta_chanspec)) {
+					/* Downgrade to 2g def */
+					chspec = DEFAULT_2G_SOFTAP_CHANSPEC;
+					WL_INFORM_MEM(("target chspec updated: 0x%x\n", chspec));
+				}
+#else
+				/* Handle 165 channel as special case, keep it to 20MHz */
+				bw = WL_CHANSPEC_BW_20;
+#endif /* !WL_UNII4_CHAN_SCC */
+			}
+#endif /* WL_UNII4_CHAN */
 		}
 	}
 
-	if (
-#ifdef WL_UNII4_CHAN
-	/* Handle 165/20 channel as special case to not upgrade the bw */
-	(!IS_5G_UNII4_165_CHANNEL(chspec)) &&
-#endif /* WL_UNII4_CHAN */
-	true) {
-		err = wl_get_bandwidth_cap(dev, CHSPEC_BAND(chspec), &bw);
-		if (err < 0) {
-			WL_ERR(("Failed to get bandwidth information, err=%d\n", err));
-			return err;
-		}
+	err = wl_get_bandwidth_cap(dev, CHSPEC_BAND(chspec), &bw);
+	if (err < 0) {
+		WL_ERR(("Failed to get bandwidth information, err=%d\n", err));
+		return err;
 	}
+
+#ifdef WL_UNII4_CHAN
+	if (IS_5G_UNII4_165_CHANNEL(chspec)) {
+		/* Handle 165 channel as special case, keep it to 20MHz */
+		bw = WL_CHANSPEC_BW_20;
+	}
+#endif /* WL_UNII4_CHAN */
 
 #if defined(SUPPORT_AP_INIT_BWCONF)
 	/* Update BW for 5G and 6G SoftAP if BW is configured */
@@ -1803,15 +1826,6 @@ wl_cfg80211_set_channel(struct wiphy *wiphy, struct net_device *dev,
 			bw == WL_CHANSPEC_BW_320)) {
 		bw = WL_CHANSPEC_BW_80;
 	}
-
-#ifdef WL_UNII4_CHAN
-	/* Handle 165/20 channel as special case to not upgrade the bw */
-	if (IS_5G_UNII4_165_CHANNEL(chspec) && (bw != WL_CHANSPEC_BW_20)) {
-		/* Change to 2g def only if bw is not 20MHz for 165 channel */
-		chspec = DEFAULT_2G_SOFTAP_CHANSPEC;
-		WL_INFORM_MEM(("target chspec updated: 0x%x\n", chspec));
-	}
-#endif /* WL_UNII4_CHAN */
 
 #ifdef WL_CELLULAR_CHAN_AVOID
 	if (!CHSPEC_IS6G(chspec)) {
@@ -2203,6 +2217,11 @@ wl_validate_wpa2ie(struct net_device *dev, const bcm_tlv_t *wpa2ie, s32 bssidx)
 				break;
 #endif /* WL_SAE || WL_CLIENT_SAE */
 #endif /* MFP */
+#if defined(WL_OWE) && (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 2, 0))
+			case RSN_AKM_OWE:
+				wpa_auth |= WPA3_AUTH_OWE;
+				break;
+#endif /* WL_OWE && LINUX_VERSION_CODE >= KERNEL_VERSION(5, 2, 0) */
 			default:
 				WL_ERR(("No Key Mgmt Info\n"));
 			}
@@ -2811,7 +2830,8 @@ wl_cfg80211_bcn_validate_sec(
 	struct parsed_ies *ies,
 	u32 dev_role,
 	s32 bssidx,
-	bool privacy)
+	bool privacy,
+	struct cfg80211_crypto_settings *crypto)
 {
 	struct bcm_cfg80211 *cfg = wl_get_cfg(dev);
 	wl_cfgbss_t *bss = wl_get_cfgbss_by_wdev(cfg, dev->ieee80211_ptr);
@@ -2849,10 +2869,44 @@ wl_cfg80211_bcn_validate_sec(
 			return BCME_ERROR;
 		}
 
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 13, 0)) && defined(WL_IDAUTH)
+		if (cfg->idauth_enabled &&
+			(sec->fw_wpa_auth & WPA2_AUTH_PSK) && crypto && crypto->psk) {
+			wsec_pmk_t pmk = {0};
+			s32 err = BCME_OK;
+
+			pmk.key_len = WL_SUPP_PMK_LEN;
+			if (pmk.key_len > sizeof(pmk.key)) {
+				return -EINVAL;
+			}
+
+			pmk.flags = 0;
+			err = memcpy_s(&pmk.key, sizeof(pmk.key), crypto->psk, pmk.key_len);
+			if (err) {
+				return -EINVAL;
+			}
+
+			err = wldev_ioctl_set(dev, WLC_SET_WSEC_PMK, &pmk, sizeof(pmk));
+			if (err) {
+				WL_ERR(("pmk set with WLC_SET_WSEC_PMK failed, error:%d\n", err));
+				return err;
+			} else {
+				WL_INFORM(("pmk added succesfully\n"));
+			}
+		}
+#endif /* (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 13, 0)) && WL_IDAUTH */
+
 		BCM_REFERENCE(wl_set_ap_passphrase);
 #ifdef WL_SAE
 		/* Set SAE passphrase */
 		if (sec->fw_wpa_auth & WPA3_AUTH_SAE_PSK) {
+#ifdef WL_SAE_OFFLOAD
+			if (cfg->idauth_enabled &&
+				crypto && crypto->sae_pwd) {
+				wl_cfg80211_set_netinfo_passphrase(cfg, dev, crypto->sae_pwd,
+					crypto->sae_pwd_len);
+			}
+#endif /* WL_SAE_OFFLOAD */
 			wl_set_ap_passphrase(dev);
 		}
 #endif /* WL_SAE */
@@ -3142,6 +3196,16 @@ wl_cfg80211_ap_timeout_work(struct work_struct *work)
 	dhdpcie_runtime_bus_wake(dhdp, CAN_SLEEP(), __builtin_return_address(0));
 #endif /* DHD_PCIE_RUNTIMEPM */
 
+#if defined(WL_MLO) && defined(WL_MLO_AP)
+	if (cfg->mlo.ap.config_in_progress) {
+		WL_INFORM_MEM(("[MLO_AP] MLO AP configuration timeout!!"));
+		/* MLO_TODO: attempt AP with single configuration if possible */
+	} else if (cfg->mlo.ap.num_links_configured) {
+		if (cfg->mlo.ap.num_links_configured != cfg->mlo.ap.num_links_up) {
+			WL_INFORM_MEM(("[MLO_AP] MLO AP LINK UP timeout\n"));
+		}
+	}
+#endif /* WL_MLO && WL_MLO_AP */
 
 	dhdp->iface_op_failed = TRUE;
 
@@ -3206,6 +3270,16 @@ wl_cfg80211_bcn_bringup_ap(
 	/* Do abort scan before creating GO */
 	wl_cfgscan_cancel_scan(cfg);
 
+#if defined(WL_MLO) && defined(WL_MLO_AP)
+	/* MLO_TODO: Hostapd conf needs to be checked before attempting mlo config */
+	if (cfg->mlo.supported && mlo_ap_enable) {
+		wl_start_mlo_ap(cfg, dev);
+	}
+	if (cfg->mlo.ap.config_in_progress) {
+		/* MLO config logic will handle the timeouts */
+		WL_INFORM_MEM(("[MLO_AP] skipping regular AP config timeouts\n"));
+	} else
+#endif /* WL_MLO && WL_MLO_AP */
 	{
 		/* Schedule delayed work to handle link time out. schedule
 		 * before ssid iovar. Sometimes before iovar context should
@@ -3357,6 +3431,9 @@ wl_cfg80211_bcn_bringup_ap(
 			goto exit;
 		}
 
+#if defined(WL_MLO) && defined(WL_MLO_AP)
+		if (cfg->mlo.ap.config_in_progress == FALSE)
+#endif /* WL_MLO && WL_MLO_AP */
 		{
 			bzero(&join_params, sizeof(join_params));
 			/* join parameters starts with ssid */
@@ -3808,6 +3885,242 @@ wl_cfg80211_set_scb_timings(
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 4, 0)) || \
 	defined(WL_COMPAT_WIRELESS)
 
+#if defined(WL_MLO) && defined(WL_MLO_AP)
+static s32
+wl_apply_ap_mlo_config(struct bcm_cfg80211 *cfg,
+		struct net_device *dev, bool mlo_enable)
+{
+	wl_mlo_config_v1_t *mlo_config = NULL;
+	u8 ioctl_buf[WLC_IOCTL_MEDLEN] = {0};
+	u8 *rem = ioctl_buf;
+	u16 rem_len = WLC_IOCTL_MEDLEN;
+	u32 mlo_config_size;
+	s32 ret;
+	u32 num_links = cfg->mlo.ap.num_links;
+	u32 i;
+	u8 chan_5g6g = 0;
+
+	WL_DBG_MEM(("[MLO_AP] Enter\n"));
+
+	/* Apply MLO config from connect context if chip supports it. */
+	if (!cfg->mlo.supported) {
+		WL_DBG(("[MLO_AP] MLO not supported\n"));
+		return BCME_OK;
+	}
+
+	if (!cfg->mlo.ap.mld_dev || !num_links) {
+		WL_ERR(("wrong args. mld_dev:%p num_links:%d\n",
+			cfg->mlo.ap.mld_dev, num_links));
+		return -EINVAL;
+	}
+
+	/* Create link config and apply. The firmware would create ML
+	 * links based on actual target AP.
+	 */
+	mlo_config_size = sizeof(*mlo_config) + num_links * sizeof(wl_mlo_link_config_v1_t);
+	mlo_config = MALLOCZ(cfg->osh, mlo_config_size);
+	if (!mlo_config) {
+		WL_ERR(("mlo_config alloc failed\n"));
+		return -ENOMEM;
+	}
+
+	mlo_config->version = WL_MLO_CONFIG_VER_1;
+	mlo_config->length = mlo_config_size;
+
+	if (mlo_enable == FALSE) {
+		mlo_config->mode = WL_MLO_MODE_INVALID;
+		mlo_config->num_links = 0;
+	} else {
+		mlo_config->mode = MLO_STR;
+		mlo_config->flags = WL_MLO_LINK_INTERFACES;
+
+		/* use ndev on which connect command recieved as MLD interface */
+		eacopy(cfg->mlo.ap.mld_dev->dev_addr, mlo_config->mld_addr.octet);
+
+		for (i = 0; i < MAX_MLO_LINK; i++) {
+			/* Copy link specific detail if valid chspec is found */
+			if (cfg->mlo.ap.link[i].chspec) {
+				chanspec_t in_band = CHSPEC_TO_WLC_BAND(cfg->mlo.ap.link[i].chspec);
+				eacopy(cfg->mlo.ap.link[i].link_dev->dev_addr,
+						mlo_config->link_config[i].link_addr.octet);
+
+				mlo_config->link_config[i].chspec = cfg->mlo.ap.link[i].chspec;
+				WL_INFORM_MEM(("link[%d] chspec:0x%x " MACDBG "\n",
+					i, cfg->mlo.ap.link[i].chspec,
+					MAC2STRDBG(cfg->mlo.ap.link[i].link_dev->dev_addr)));
+				mlo_config->num_links++;
+				if ((in_band == WLC_BAND_5G) || (in_band == WLC_BAND_6G)) {
+					chan_5g6g++;
+				}
+			}
+		}
+
+		if (chan_5g6g > 1) {
+			WL_ERR(("5g/6g EMLSR not supported\n"));
+			ret = BCME_UNSUPPORTED;
+			goto fail;
+		}
+
+		if (mlo_config->num_links > cfg->mlo.max_mlo_links) {
+			WL_ERR(("MLO links not matching. num_ifaces:%d max_mlo_links:%d\n",
+					mlo_config->num_links, cfg->mlo.max_mlo_links));
+			ret = BCME_UNSUPPORTED;
+			goto fail;
+		}
+
+		if (mlo_config->num_links) {
+			mlo_config->flags |= WL_MLO_UPDATE_CHANNELS;
+		}
+	}
+	ret = bcm_pack_xtlv_entry(&rem, &rem_len, WL_MLO_CMD_CONFIG,
+			mlo_config_size, (uint8 *)mlo_config, BCM_XTLV_OPTION_ALIGN32);
+	if (unlikely(ret)) {
+		goto fail;
+	}
+
+	ret = wldev_iovar_setbuf(dev, "mlo", ioctl_buf, (sizeof(ioctl_buf) - rem_len),
+		cfg->ioctl_buf, WLC_IOCTL_MAXLEN, &cfg->ioctl_buf_sync);
+	if (unlikely(ret)) {
+		WL_ERR(("mlo_config set error (%d)\n", ret));
+	} else {
+		WL_INFORM_MEM(("[MLO_AP] mlo_config applied. "
+				"mode:%d links:%d\n", mlo_config->mode, mlo_config->num_links));
+	}
+
+fail:
+	if (mlo_config) {
+		MFREE(cfg->osh, mlo_config, mlo_config_size);
+	}
+
+	return ret;
+}
+
+static void
+wl_start_mlo_ap(struct bcm_cfg80211 *cfg, struct net_device *dev)
+{
+	struct net_info *iter, *next;
+	u32 i;
+
+	WL_INFORM_MEM(("[MLO_AP] (%s) Enter\n", dev->name));
+	if (!cfg->mlo.ap.config_in_progress) {
+		/* clear previous mlo AP configs */
+		bzero(&cfg->mlo.ap, sizeof(wl_mlo_ap_cfg_t));
+
+		/* Find the AP interfaces available */
+		GCC_DIAGNOSTIC_PUSH_SUPPRESS_CAST();
+		for_each_ndev(cfg, iter, next) {
+			GCC_DIAGNOSTIC_POP();
+			if (iter->ndev &&
+				iter->ndev->ieee80211_ptr->iftype == NL80211_IFTYPE_AP) {
+				/* If any AP interface is already initialized, skip MLO */
+				if (wl_get_drv_status(cfg, AP_CREATED, iter->ndev)) {
+					/* Already an AP operational - non MLO case */
+					WL_INFORM_MEM(("non mlo AP case\n"));
+					cfg->mlo.ap.num_links = 0;
+					return;
+				}
+
+				/* Store details for MLO linking */
+				if (iter->ndev == dev) {
+					/* store first AP ndev that is being configured as MLD */
+					cfg->mlo.ap.mld_dev = dev;
+					WL_DBG_MEM(("[MLO_AP] candidate MLD_DEV: %s\n", dev->name));
+				}
+				WL_DBG_MEM(("[MLO_AP] candidate LINK_DEV: %s\n", dev->name));
+				cfg->mlo.ap.link[cfg->mlo.ap.num_links].link_dev = iter->ndev;
+				cfg->mlo.ap.num_links++;
+			}
+		}
+
+		if (cfg->mlo.ap.num_links > cfg->mlo.max_mlo_links) {
+			/* unexected no of links. Don't attempt MLO */
+			WL_ERR(("unexpected num of AP interfaces\n"));
+			bzero(&cfg->mlo.ap, sizeof(wl_mlo_ap_cfg_t));
+			return;
+		}
+
+		/* If this is multiAP config, track configurations per interface */
+		if (cfg->mlo.ap.num_links > 1) {
+			cfg->mlo.ap.config_in_progress = TRUE;
+			/* start delayed worker thread to handle config timeout */
+			if (schedule_delayed_work(&cfg->ap_work,
+				msecs_to_jiffies((const unsigned int)MAX_AP_LINK_WAIT_TIME))) {
+				WL_INFORM_MEM(("[MLO_AP] AP config timeout work scheduled\n"));
+			}
+		} else {
+			/* Single link AP case. Attempt legacy path. */
+			return;
+		}
+	}
+
+	/* Keep track of the configs done along with the channel */
+	cfg->mlo.ap.num_links_configured++;
+	for (i = 0; i < MAX_MLO_LINK; i++) {
+		if (cfg->mlo.ap.link[i].link_dev == dev) {
+			cfg->mlo.ap.link[i].chspec = cfg->ap_oper_channel;
+			WL_INFORM_MEM(("[MLO_AP] cache chspec:0x%x for %s\n",
+				cfg->ap_oper_channel, dev->name));
+		}
+	}
+
+	if (cfg->mlo.ap.num_links_configured == cfg->mlo.ap.num_links) {
+		/* If number of startap invocations matches, the AP interfaces,
+		 * cancel the work scheduled to track configurations from user space.
+		 */
+		if (delayed_work_pending(&cfg->ap_work)) {
+			cancel_delayed_work_sync(&cfg->ap_work);
+			WL_INFORM_MEM(("cancelled ap_work\n"));
+		}
+
+		/* Host is done with configuration for all links, apply mlo_config */
+		WL_INFORM_MEM(("[MLO_AP] Applying mlo_config\n"));
+		if (wl_apply_ap_mlo_config(cfg, dev, TRUE) == BCME_OK) {
+			cfg->mlo.ap.config_in_progress = FALSE;
+			if (schedule_delayed_work(&cfg->ap_work,
+				msecs_to_jiffies((const unsigned int)MAX_AP_LINK_WAIT_TIME))) {
+				WL_ERR(("[MLO_AP] MLO Link up tracker work scheduled\n"));
+			}
+		}
+	} else {
+		WL_INFORM_MEM(("[MLO_AP] num_links:%d configured_links:%d\n",
+			cfg->mlo.ap.num_links, cfg->mlo.ap.num_links_configured));
+	}
+}
+
+static s32
+wl_stop_mlo_ap(struct bcm_cfg80211 *cfg, struct net_device *dev)
+{
+	s32 i;
+	bool mlo_link = FALSE;
+	s32 err = BCME_OK;
+
+	/* If cfg80211 stop AP ndev matches any of MLO links, turn off MLO */
+
+	if (!cfg->mlo.ap.num_links_configured) {
+		WL_INFORM(("non-mlo ap\n"));
+		return BCME_OK;
+	}
+
+	for (i = 0; i < MAX_MLO_LINK; i++) {
+		if (cfg->mlo.ap.link[i].link_dev == dev) {
+			WL_INFORM_MEM(("[MLO_AP] cache chspec:0x%x for %s\n",
+				cfg->mlo.ap.link[i].chspec, dev->name));
+			mlo_link = TRUE;
+		}
+	}
+
+	if (mlo_link) {
+		/* Disable MLO */
+		if ((err = wl_apply_ap_mlo_config(cfg, dev, FALSE)) != BCME_OK) {
+			WL_ERR(("mlo_config disable failed. err:%d\n", err));
+		}
+		bzero(&cfg->mlo.ap, sizeof(wl_mlo_ap_cfg_t));
+	}
+
+	return err;
+}
+
+#endif /* WL_MLO && WL_MLO_AP */
 
 s32
 wl_cfg80211_start_ap(
@@ -3916,7 +4229,7 @@ wl_cfg80211_start_ap(
 	}
 
 	if ((err = wl_cfg80211_bcn_validate_sec(dev, &ies,
-		dev_role, bssidx, info->privacy)) < 0)
+		dev_role, bssidx, info->privacy, &info->crypto)) < 0)
 	{
 		WL_ERR(("Beacon set security failed \n"));
 		goto fail;
@@ -4105,6 +4418,14 @@ wl_cfg80211_stop_ap(
 	if ((err = wl_cfg80211_bss_up(cfg, dev, bssidx, 0)) < 0) {
 		WL_ERR(("bss down error %d\n", err));
 	}
+
+#if defined(WL_MLO) && defined(WL_MLO_AP)
+	if (cfg->mlo.supported && mlo_ap_enable) {
+		if ((err = wl_stop_mlo_ap(cfg, dev)) != BCME_OK) {
+			WL_ERR(("mlo stop ap failed. error %d\n", err));
+		}
+	}
+#endif /* WL_MLO && WL_MLO_AP */
 
 #ifdef BCMDONGLEHOST
 	/* Enable packet filter */
@@ -4410,7 +4731,7 @@ wl_cfg80211_add_set_beacon(struct wiphy *wiphy, struct net_device *dev,
 	privacy = 0;
 #endif
 	if (!is_bss_up &&
-		(wl_cfg80211_bcn_validate_sec(dev, &ies, dev_role, bssidx, privacy) < 0))
+		(wl_cfg80211_bcn_validate_sec(dev, &ies, dev_role, bssidx, privacy, NULL) < 0))
 	{
 		WL_ERR(("Beacon set security failed \n"));
 		err = -EINVAL;
@@ -4692,6 +5013,115 @@ exit:
 }
 #endif /* WL_CFG80211_STA_EVENT || KERNEL_VER < 3.2 */
 
+#ifdef WL_MLO
+static void
+wl_update_mlo_peer_info(struct bcm_cfg80211 *cfg, struct net_device *ndev, const u8 *addr)
+{
+	dhd_pub_t *dhdp = (dhd_pub_t *)(cfg->pub);
+	dhd_mlo_peer_info_t mlo_peer_info;
+	u8 *iovar_buf = NULL;
+	u16 iovar_buf_len = WLC_IOCTL_MEDLEN;
+	wlcfg_sta_info_t *sta;
+	u8 ioctl_buf[WLC_IOCTL_SMLEN] = {0};
+	u8 *rem = ioctl_buf;
+	u16 rem_len = sizeof(ioctl_buf);
+	wl_mlo_status_v2_t mst;
+	wl_mlo_status_v2_t *mst_resp;
+	wl_mlo_link_status_v2_t *mst_link;
+	wl_mlo_link_peer_info_v2_t *peer_info;
+	s32 ifidx;
+	s32 ret;
+	u32 mlo_status_len = sizeof(wl_mlo_status_v2_t);
+	u32 i, j;
+
+	/* Apply MLO config from connect context if chip supports it. */
+	if (!cfg->mlo.supported) {
+		return;
+	}
+
+	ifidx = dhd_net2idx(dhdp->info, ndev);
+	if (ifidx < 0) {
+		WL_ERR(("invalid ifidx\n"));
+		return;
+	}
+
+	bzero(&mlo_peer_info, sizeof(dhd_mlo_peer_info_t));
+	bzero(&mst, mlo_status_len);
+	mst.version = WL_MLO_STATUS_VER_2;
+	mst.length = mlo_status_len;
+
+	iovar_buf = MALLOCZ(cfg->osh, iovar_buf_len);
+	if (!iovar_buf) {
+		WL_ERR(("no memory\n"));
+		goto exit;
+	}
+
+	ret = bcm_pack_xtlv_entry(&rem, &rem_len, WL_MLO_CMD_STATUS,
+		mlo_status_len, (uint8 *)&mst, BCM_XTLV_OPTION_ALIGN32);
+	if (ret != BCME_OK) {
+		WL_ERR(("xtlv entry failed for MLO CMD status\n"));
+		goto exit;
+	}
+
+	ret = wldev_iovar_getbuf(ndev, "mlo", ioctl_buf, mlo_status_len,
+		iovar_buf, iovar_buf_len, NULL);
+	if (unlikely(ret)) {
+		WL_ERR(("mlo_status get error (%d)\n", ret));
+		goto exit;
+	}
+
+	mst_resp = (wl_mlo_status_v2_t *)iovar_buf;
+
+	/* Search for link_addr corresponding to the mld_dev addr */
+	for (i = 0; i < mst_resp->num_links_operative; i++) {
+		mst_link = (wl_mlo_link_status_v2_t *)&mst_resp->link_status[i];
+
+		/* Iterate through the peers per link for mld dev address */
+		for (j = 0; j < mst_link->num_peers; j++) {
+			peer_info = (wl_mlo_link_peer_info_v2_t *)&mst_link->pi[j];
+			if (!memcmp(&peer_info->mld_addr, addr, ETHER_ADDR_LEN)) {
+				/* Update the mld address */
+				eacopy(addr, &mlo_peer_info.mld_addr);
+				/* Update the link address */
+				eacopy(&peer_info->link_addr,
+				&mlo_peer_info.link_info[mlo_peer_info.num_links].link_addr);
+				/* Update chanspec */
+				bzero(iovar_buf, iovar_buf_len);
+				ret = wldev_iovar_getbuf(ndev, "sta_info",
+					&mlo_peer_info.link_info[mlo_peer_info.num_links].link_addr,
+					ETHER_ADDR_LEN, iovar_buf, iovar_buf_len, NULL);
+				if (ret < 0) {
+					WL_ERR(("get sta_info error %d\n", ret));
+				} else {
+					sta = (wlcfg_sta_info_t *)iovar_buf;
+					if (!IS_STA_INFO_VER(sta)) {
+						WL_ERR(("Unsupported sta info ver:%d\n",
+							dtoh16(sta->ver)));
+						goto exit;
+					}
+					mlo_peer_info.link_info[mlo_peer_info.num_links].chspec =
+						dtoh16(sta->chanspec);
+				}
+				WL_INFORM_MEM((
+				"Updating link_addr " MACDBG " chanspec 0x%x\n",
+				MAC2STRDBG(
+				&mlo_peer_info.link_info[mlo_peer_info.num_links].link_addr),
+				mlo_peer_info.link_info[mlo_peer_info.num_links].chspec));
+				mlo_peer_info.num_links++;
+			}
+		}
+	}
+
+	/* Update mlo peer info in sta info */
+	dhd_update_mlo_peer_info(dhdp, ifidx, addr, &mlo_peer_info);
+
+exit:
+	if (iovar_buf) {
+		MFREE(cfg->osh, iovar_buf, iovar_buf_len);
+	}
+}
+#endif /* WL_MLO */
+
 static void
 wl_update_sta_chanspec_info(struct bcm_cfg80211 *cfg, struct net_device *ndev, const u8 *addr)
 {
@@ -4755,6 +5185,9 @@ wl_notify_connect_status_ap(struct bcm_cfg80211 *cfg, struct net_device *ndev,
 #ifdef BIGDATA_SOFTAP
 	dhd_pub_t *dhdp;
 #endif /* BIGDATA_SOFTAP */
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 2, 0))
+	struct cfg80211_update_owe_info owe_info;
+#endif /* LINUX_VERSION_CODE >= KERNEL_VERSION(5, 2, 0) */
 	bool cancel_timeout = FALSE;
 
 	WL_INFORM_MEM(("[%s] Mode AP/GO. Event:%d status:%d reason:%d\n",
@@ -4814,6 +5247,23 @@ wl_notify_connect_status_ap(struct bcm_cfg80211 *cfg, struct net_device *ndev,
 			WL_INFORM_MEM(("** AP/GO Link up for dev:%s **\n", ndev->name));
 			wl_set_drv_status(cfg, AP_CREATED, ndev);
 
+#if defined(WL_MLO) && defined(WL_MLO_AP)
+			if (cfg->mlo.ap.num_links_configured) {
+				u32 i;
+				for (i = 0; i < MAX_MLO_LINK; i++) {
+					if (cfg->mlo.ap.link[i].link_dev == ndev) {
+						cfg->mlo.ap.num_links_up++;
+						WL_INFORM_MEM(("[MLO_AP] ML LINK UP num:%d\n",
+							cfg->mlo.ap.num_links_up));
+					}
+				}
+				if (cfg->mlo.ap.num_links_up == cfg->mlo.ap.num_links_configured)
+				{
+					/* Expected link UP event recieved. cancel ap_work */
+					cancel_timeout = TRUE;
+				}
+			} else
+#endif /* WL_MLO && WL_MLO_AP */
 			{
 				/* Expected link UP event recieved. cancel ap_work */
 				cancel_timeout = TRUE;
@@ -4864,6 +5314,14 @@ wl_notify_connect_status_ap(struct bcm_cfg80211 *cfg, struct net_device *ndev,
 			return -EINVAL;
 		}
 
+#ifdef WL_MLO
+		/* The call to update mlo peer info will be made based on MLO
+		 * STA client which will be indicated as part of ASSOC_IND flag.
+		 * For non MLO clients wl_update_sta_chanspec_info will be
+		 * called.
+		 */
+		wl_update_mlo_peer_info(cfg, ndev, e->addr.octet);
+#endif /* WL_MLO */
 		wl_update_sta_chanspec_info(cfg, ndev, e->addr.octet);
 
 		sinfo.assoc_req_ies = data;
@@ -4893,8 +5351,24 @@ wl_notify_connect_status_ap(struct bcm_cfg80211 *cfg, struct net_device *ndev,
 		wl_wps_session_update(ndev, WPS_STATE_LINKDOWN, e->addr.octet);
 #endif /* WL_WPS_SYNC */
 	}
-
 #endif /* LINUX_VERSION < VERSION(3,2,0) && !WL_CFG80211_STA_EVENT && !WL_COMPAT_WIRELESS */
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 2, 0))
+	else if (event == WLC_E_OWE_INFO) {
+		if (!data) {
+			WL_ERR(("No DH-IEs present in ASSOC/REASSOC_IND"));
+			return -EINVAL;
+		}
+		if (wl_dbg_level & WL_DBG_DBG) {
+			prhex("FW-OWEIE ", (uint8 *)data, len);
+		}
+		eacopy(e->addr.octet, owe_info.peer);
+		owe_info.ie = data;
+		owe_info.ie_len = len;
+		WL_INFORM_MEM(("Recieved owe_info. Mac addr" MACDBG "\n",
+			MAC2STRDBG((const u8*)(&e->addr))));
+		cfg80211_update_owe_info_event(ndev, &owe_info, GFP_ATOMIC);
+	}
+#endif /* LINUX_VERSION_CODE >= KERNEL_VERSION(5, 2, 0) */
 	return err;
 }
 
@@ -7118,6 +7592,13 @@ wl_cfgvif_roam_config(struct bcm_cfg80211 *cfg, struct net_device *dev,
 		return;
 	}
 
+#ifdef WL_MLO
+	/* MLO_TODO: disable roam config logic till STA roam issues are fixed */
+	if (cfg->mlo.supported) {
+		WL_INFORM_MEM(("[MLO][WAR] ignore roam_config for time being\n"));
+		return;
+	}
+#endif /* WL_MLO */
 
 	WL_DBG_MEM(("Enter. state:%d stas:%d\n", state, cfg->stas_associated));
 
@@ -7482,3 +7963,26 @@ wl_cfg80211_set_softap_bw(struct bcm_cfg80211 *cfg, uint32 band, uint32 limit)
 	return BCME_OK;
 }
 #endif /* LIMIT_AP_BW */
+
+#ifdef WL_IDAUTH
+s32
+wl_cfgvif_scb_authorized(struct bcm_cfg80211 *cfg, bcm_struct_cfgdev *cfgdev,
+	const wl_event_msg_t *event, void *data)
+{
+	s32 err = BCME_OK;
+	u32 status = ntoh32(event->status);
+	const u8 *sta_addr = (const u8 *)event->addr.octet;
+
+	if (cfg->idauth_enabled && (status == WLC_E_AUTHORIZED)) {
+		WL_INFORM_MEM(("Sending port authorized event for STA " MACDBG "\n",
+			MAC2STRDBG(sta_addr)));
+		err = wl_cfgvendor_send_async_event(bcmcfg_to_wiphy(cfg), cfgdev_to_ndev(cfgdev),
+			BRCM_VENDOR_EVENT_PORT_AUTHORIZED, sta_addr, ETHER_ADDR_LEN);
+		if (unlikely(err)) {
+			WL_ERR(("Failed to send port authorized event err = %d\n", err));
+		}
+	}
+
+	return err;
+}
+#endif /* WL_IDAUTH */
