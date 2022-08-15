@@ -3939,8 +3939,8 @@ wl_apply_ap_mlo_config(struct bcm_cfg80211 *cfg,
 		struct net_device *dev, bool mlo_enable)
 {
 	wl_mlo_config_v1_t *mlo_config = NULL;
-	u8 ioctl_buf[WLC_IOCTL_MEDLEN] = {0};
-	u8 *rem = ioctl_buf;
+	u8 *ioctl_buf = NULL;
+	u8 *rem;
 	u16 rem_len = WLC_IOCTL_MEDLEN;
 	u32 mlo_config_size;
 	s32 ret;
@@ -4020,6 +4020,14 @@ wl_apply_ap_mlo_config(struct bcm_cfg80211 *cfg,
 			mlo_config->flags |= WL_MLO_UPDATE_CHANNELS;
 		}
 	}
+
+	ret = -ENOMEM;
+	ioctl_buf = kzalloc(WLC_IOCTL_MEDLEN, GFP_KERNEL);
+	if (!ioctl_buf)
+		goto fail;
+
+	rem = ioctl_buf;
+
 	ret = bcm_pack_xtlv_entry(&rem, &rem_len, WL_MLO_CMD_CONFIG,
 			mlo_config_size, (uint8 *)mlo_config, BCM_XTLV_OPTION_ALIGN32);
 	if (unlikely(ret)) {
@@ -4036,6 +4044,7 @@ wl_apply_ap_mlo_config(struct bcm_cfg80211 *cfg,
 	}
 
 fail:
+	kfree(ioctl_buf);
 	if (mlo_config) {
 		MFREE(cfg->osh, mlo_config, mlo_config_size);
 	}
