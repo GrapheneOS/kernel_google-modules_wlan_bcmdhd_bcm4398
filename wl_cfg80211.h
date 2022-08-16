@@ -2655,28 +2655,35 @@ wl_delete_all_netinfo(struct bcm_cfg80211 *cfg)
 		if (bss->wpa_ie) {
 			MFREE(cfg->osh, bss->wpa_ie, bss->wpa_ie[1]
 				+ WPA_RSN_IE_TAG_FIXED_LEN);
-			bss->wpa_ie = NULL;
 		}
 
 		if (bss->rsn_ie) {
 			MFREE(cfg->osh, bss->rsn_ie, bss->rsn_ie[1]
 				+ WPA_RSN_IE_TAG_FIXED_LEN);
-			bss->rsn_ie = NULL;
 		}
 
 		if (bss->wps_ie) {
 			MFREE(cfg->osh, bss->wps_ie, bss->wps_ie[1] + 2);
-			bss->wps_ie = NULL;
 		}
 
 		if (bss->fils_ind_ie) {
 			MFREE(cfg->osh, bss->fils_ind_ie, bss->fils_ind_ie[1]
 				+ FILS_INDICATION_IE_TAG_FIXED_LEN);
-			bss->fils_ind_ie = NULL;
+		}
+		if (_net_info->passphrase_cfg) {
+			MFREE(cfg->osh, _net_info->passphrase_cfg, _net_info->passphrase_cfg_len);
+		}
+		if (_net_info->qos_up_table) {
+			MFREE(cfg->osh, _net_info->qos_up_table, UP_TABLE_MAX);
 		}
 		list_del(&_net_info->list);
+		cfg->iface_cnt--;
 		if (_net_info->wdev) {
 			MFREE(cfg->osh, _net_info->wdev, sizeof(struct wireless_dev));
+			if (_net_info->wdev == cfg->wdev) {
+				/* On primary ndev clean up, mark it as null */
+				cfg->wdev = NULL;
+			}
 		}
 		MFREE(cfg->osh, _net_info, sizeof(struct net_info));
 	}
