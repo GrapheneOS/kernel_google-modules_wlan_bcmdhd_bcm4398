@@ -4021,10 +4021,11 @@ wl_apply_ap_mlo_config(struct bcm_cfg80211 *cfg,
 		}
 	}
 
-	ret = -ENOMEM;
-	ioctl_buf = kzalloc(WLC_IOCTL_MEDLEN, GFP_KERNEL);
-	if (!ioctl_buf)
+	ioctl_buf = MALLOCZ(cfg->osh, WLC_IOCTL_MEDLEN);
+	if (!ioctl_buf) {
+		ret = -ENOMEM;
 		goto fail;
+	}
 
 	rem = ioctl_buf;
 
@@ -4044,7 +4045,9 @@ wl_apply_ap_mlo_config(struct bcm_cfg80211 *cfg,
 	}
 
 fail:
-	kfree(ioctl_buf);
+	if (ioctl_buf) {
+		MFREE(cfg->osh, ioctl_buf, WLC_IOCTL_MEDLEN);
+	}
 	if (mlo_config) {
 		MFREE(cfg->osh, mlo_config, mlo_config_size);
 	}
