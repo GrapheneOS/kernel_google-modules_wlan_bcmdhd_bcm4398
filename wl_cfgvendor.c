@@ -8902,7 +8902,7 @@ static void wl_cfgvendor_dbg_ring_send_evt(void *ctx,
 
 	/* If wifi hal is not start, don't send event to wifi hal */
 	if (!cfg->hal_started) {
-		WL_CONS_ONLY(("Hal is not started id:%d\n", ring_id));
+		WL_CONS_ONLY_RLMT(("Hal is not started id:%d\n", ring_id));
 		return;
 	}
 	/* Alloc the SKB for vendor_event */

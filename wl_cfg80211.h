@@ -471,6 +471,23 @@ do {	\
 #define WL_CONS_ONLY(args) do { printf args; } while (0)
 #endif /* defined(CUSTOMER_DBG_PREFIX_ENABLE) */
 
+#define WL_CONS_ONLY_RLMT(args) \
+do {    \
+	static uint64 __err_ts = 0; \
+	static uint32 __err_cnt = 0; \
+	uint64 __cur_ts = 0; \
+	__cur_ts = OSL_SYSUPTIME_US(); \
+	if (__err_ts == 0 || (__cur_ts > __err_ts && \
+		(__cur_ts - __err_ts > WL_PRINT_RATE_LIMIT_PERIOD))) { \
+		__err_ts = __cur_ts; \
+		WL_CONS_ONLY(args);        \
+		WL_CONS_ONLY(("[Repeats %u times]\n", __err_cnt)); \
+		__err_cnt = 0; \
+	} else { \
+		++__err_cnt; \
+	} \
+} while (0)
+
 #ifdef DBG_PRINT_SSID
 #define SSID_DBG(_ssid_) _ssid_
 #else /* DBG_PNO_SSID */
