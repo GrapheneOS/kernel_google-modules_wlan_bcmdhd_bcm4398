@@ -6233,7 +6233,7 @@ static int dhd_siocdevprivate(struct net_device *net, struct ifreq *ifr,
 #if defined(WL_STATIC_IF)
 	/* skip for static ndev when it is down */
 	if (dhd_is_static_ndev(&dhd->pub, net) && !(net->flags & IFF_UP)) {
-		DHD_ERROR(("%s: exit: static ndev\n", __func__));
+		DHD_INFO(("%s: exit: static ndev\n", __func__));
 		ret = -1;
 		goto done;
 	}
@@ -19907,7 +19907,10 @@ void dhd_schedule_memdump(dhd_pub_t *dhdp, uint8 *buf, uint32 size)
 		dhd_info->scheduled_memdump = FALSE;
 		dhd_mem_dump((void *)dhdp->info, (void *)dump, 0);
 #ifdef DHD_LOG_DUMP
-		if ((dhdp->memdump_type != DUMP_TYPE_DONGLE_INIT_FAILURE) &&
+		if (OSL_ATOMIC_READ(dhdp->osh, &reboot_in_progress) >= 0) {
+			DHD_PRINT(("%s: reboot in progress, "
+				"don't collect debug_dump\n", __FUNCTION__));
+		} else if ((dhdp->memdump_type != DUMP_TYPE_DONGLE_INIT_FAILURE) &&
 			(dhdp->memdump_type != DUMP_TYPE_DONGLE_TRAP_DURING_WIFI_ONOFF)) {
 			log_dump_type_t *flush_type = NULL;
 			/* for dongle init fail cases, 'dhd_mem_dump' does
@@ -20054,7 +20057,7 @@ dhd_mem_dump(void *handle, void *event_info, u8 event)
 #if defined(DHD_FILE_DUMP_EVENT)
 	ret = dhd_wait_for_file_dump(dhdp);
 	if (ret) {
-		DHD_ERROR(("%s: file_dump failed.\n", __FUNCTION__));
+		DHD_ERROR(("%s: file_dump event not recd.\n", __FUNCTION__));
 #ifdef BOARD_HIKEY
 		/* For Hikey do force kernel write of socram if HAL dump fails */
 		if (write_dump_to_file(&dhd->pub, dump->buf, dump->bufsize, "mem_dump")) {
@@ -24871,3 +24874,11 @@ dhd_reset_clm_map_path(dhd_info_t *dhdinfo)
 #endif /* DHD_LINUX_STD_FW_API */
 }
 #endif /* SUPPORT_MULTIPLE_REVISION */
+
+int
+dhd_get_reboot_status(struct dhd_pub *dhdp)
+{
+	int restart_in_progress = 0;
+	restart_in_progress = OSL_ATOMIC_READ(dhdp->osh, &reboot_in_progress);
+	return restart_in_progress;
+}

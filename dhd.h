@@ -4967,4 +4967,10 @@ uint32 dhd_prot_get_flow_ring_trace_len(dhd_pub_t *dhdp);
 void dhd_prot_tx_flow_ring_trace_dump(dhd_pub_t *dhdp, struct bcmstrbuf *strbuf);
 #endif /* TX_FLOW_RING_INDICES_TRACE */
 
+#if defined(__linux__)
+int dhd_get_reboot_status(struct dhd_pub *dhdp);
+#else
+static INLINE int dhd_get_reboot_status(struct dhd_pub *dhdp) { return 0; }
+#endif /* __linux__ */
+
 #endif /* _dhd_h_ */

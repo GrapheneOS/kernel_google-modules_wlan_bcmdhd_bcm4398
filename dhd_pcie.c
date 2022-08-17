@@ -5900,6 +5900,12 @@ dhdpcie_mem_dump(dhd_bus_t *bus)
 		goto exit;
 	}
 
+	if (dhd_get_reboot_status(dhdp) >= 0) {
+		DHD_PRINT(("%s: reboot in progress, don't collect memdump\n", __FUNCTION__));
+		ret = BCME_BUSY;
+		goto exit;
+	}
+
 	/* Induce DB7 trap for below non-trap cases */
 	switch (dhdp->memdump_type) {
 		case DUMP_TYPE_RESUMED_ON_TIMEOUT:
