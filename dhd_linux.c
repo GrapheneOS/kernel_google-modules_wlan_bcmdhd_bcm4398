@@ -5735,7 +5735,7 @@ dhd_add_monitor_if(dhd_info_t *dhd)
 	 * So, register_netdev() shouldn't be called. It leads to deadlock.
 	 * To avoid deadlock due to rtnl_lock(), register_netdevice() should be used.
 	 */
-	ret = dhd_register_net(dev, false);
+	ret = register_netdevice(dev);
 	if (ret) {
 		DHD_ERROR(("%s, register_netdev failed for %s\n",
 			__FUNCTION__, dev->name));
@@ -5813,7 +5813,11 @@ dhd_del_monitor_if(dhd_info_t *dhd)
 		if (dhd->monitor_dev->reg_state == NETREG_UNINITIALIZED) {
 			free_netdev(dhd->monitor_dev);
 		} else {
-			dhd_unregister_net(dhd->monitor_dev, !rtnl_is_locked());
+			if (!rtnl_is_locked()) {
+				unregister_netdev(dhd->monitor_dev);
+			} else {
+				unregister_netdevice(dhd->monitor_dev);
+			}
 		}
 		dhd->monitor_dev = NULL;
 	}
