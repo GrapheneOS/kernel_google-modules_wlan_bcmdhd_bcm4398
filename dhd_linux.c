@@ -3369,7 +3369,13 @@ dhd_ndev_upd_features_handler(void *handle, void *event_info, u8 event)
 		DHD_ERROR(("%s: event data is null \n", __FUNCTION__));
 		return;
 	}
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 15, 0))
+	rtnl_lock();
+#endif /* (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 15, 0)) */
 	netdev_update_features(net);
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 15, 0))
+	rtnl_unlock();
+#endif /* (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 15, 0)) */
 }
 
 static void
