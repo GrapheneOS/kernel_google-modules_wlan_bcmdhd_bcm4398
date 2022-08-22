@@ -1104,10 +1104,6 @@ static int dhd_suspend_resume_helper(struct dhd_info *dhd, int val, int force);
 static void dhd_dump_proc(struct work_struct *work_data);
 #endif /* DHD_FILE_DUMP_EVENT && DHD_FW_COREDUMP */
 
-#if defined(SUPPORT_MULTIPLE_REVISION)
-static void dhd_reset_clm_map_path(dhd_info_t *dhdinfo);
-#endif /* SUPPORT_MULTIPLE_REVISION */
-
 #ifdef CUSTOM_EVENT_PM_WAKE
 void
 dhd_set_excess_pm_awake(dhd_pub_t *dhd, bool suspend)
@@ -7235,10 +7231,6 @@ dhd_open(struct net_device *net)
 
 exit:
 	mutex_unlock(&dhd->pub.ndev_op_sync);
-
-#if defined(SUPPORT_MULTIPLE_REVISION)
-	dhd_reset_clm_map_path(dhd);
-#endif /* SUPPORT_MULTIPLE_REVISION */
 
 	if (dhd_query_bus_erros(&dhd->pub)) {
 		ret = BCME_ERROR;
@@ -24861,10 +24853,9 @@ static void dhd_dump_proc(struct work_struct *work_data)
 #endif /* DHD_FILE_DUMP_EVENT && DHD_FW_COREDUMP */
 
 #if defined(SUPPORT_MULTIPLE_REVISION)
-static void
-dhd_reset_clm_map_path(dhd_info_t *dhdinfo)
+void
+dhd_reset_clm_map_path(void)
 {
-	BCM_REFERENCE(dhdinfo);
 #ifdef DHD_COREDUMP
 	bzero(map_path, PATH_MAX);
 #ifdef DHD_LINUX_STD_FW_API

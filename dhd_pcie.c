@@ -4302,6 +4302,9 @@ dhd_get_chiprev(struct dhd_bus *bus)
 		return 0xffff;
 	}
 }
+#if defined(SUPPORT_MULTIPLE_REVISION)
+void dhd_reset_clm_map_path(void);
+#endif /* SUPPORT_MULTIPLE_REVISION */
 
 /**
  * Loads firmware given by caller supplied path and nvram image into PCIe dongle.
@@ -4322,6 +4325,7 @@ dhd_bus_download_firmware(struct dhd_bus *bus, osl_t *osh,
 	bus->nv_path = pnv_path;
 
 #if defined(SUPPORT_MULTIPLE_REVISION)
+	dhd_reset_clm_map_path();
 	if (concate_revision(bus, bus->fw_path, bus->nv_path) != 0) {
 		DHD_ERROR(("%s: fail to concatnate revison \n",
 			__FUNCTION__));
