@@ -14008,6 +14008,13 @@ static int dhd_wait_for_file_dump(dhd_pub_t *dhdp)
 #endif /* DHD_MAP_PKTID_LOGGING */
 		dhd_dbg_send_urgent_evt(dhdp, NULL, 0);
 
+		if (OSL_ATOMIC_READ(dhdp->osh, &reboot_in_progress) >= 0) {
+			DHD_PRINT(("%s: reboot in progress, "
+				"don't wait for file dump event\n", __FUNCTION__));
+			ret = BCME_ERROR;
+			goto exit;
+		}
+
 		DHD_PRINT(("%s: wait to clear dhd_bus_busy_state: 0x%x\n",
 			__FUNCTION__, dhdp->dhd_bus_busy_state));
 		timeleft = dhd_os_busbusy_wait_bitmask(dhdp,
@@ -14016,13 +14023,14 @@ static int dhd_wait_for_file_dump(dhd_pub_t *dhdp)
 			DHD_ERROR(("%s: Timed out(%d) dhd_bus_busy_state=0x%x\n",
 					__FUNCTION__, timeleft, dhdp->dhd_bus_busy_state));
 			dhd_set_dump_status(dhdp, DUMP_FAILURE);
-			ret = BCME_ERROR;
+			ret = BCME_BUSY;
 		}
 	} else {
 		DHD_ERROR(("[DUMP] %s: HAL Not started. skip urgent event\n", __FUNCTION__));
 		ret = BCME_ERROR;
 	}
 
+exit:
 	DHD_OS_WAKE_UNLOCK(dhdp);
 	/* In case of dhd_os_busbusy_wait_bitmask() timeout,
 	 * hal dump bit will not be cleared. Hence clearing it here.
@@ -20062,6 +20070,12 @@ dhd_mem_dump(void *handle, void *event_info, u8 event)
 	ret = dhd_wait_for_file_dump(dhdp);
 	if (ret) {
 		DHD_ERROR(("%s: file_dump event not recd.\n", __FUNCTION__));
+		if (OSL_ATOMIC_READ(dhdp->osh, &reboot_in_progress) >= 0) {
+			DHD_PRINT(("%s: file dump event timed out"
+				" due to reboot in progress, don't collect dumps.\n",
+				__FUNCTION__));
+			goto exit;
+		}
 #ifdef BOARD_HIKEY
 		/* For Hikey do force kernel write of socram if HAL dump fails */
 		if (write_dump_to_file(&dhd->pub, dump->buf, dump->bufsize, "mem_dump")) {
