@@ -353,11 +353,13 @@ typedef struct dhd_info {
 	uint32 *txc_hist[HIST_BIN_SIZE];
 	uint32 *rxc_hist[HIST_BIN_SIZE];
 	struct kobject dhd_lb_kobj;
+	bool dhd_lb_kobj_inited;
 	bool dhd_lb_candidacy_override;
 #endif /* DHD_LB */
 
 	/* DPC bounds sysfs */
 	struct kobject dhd_dpc_bounds_kobj;
+	bool dhd_dpc_bounds_kobj_inited;
 
 #if defined(DNGL_AXI_ERROR_LOGGING) && defined(DHD_USE_WQ_FOR_DNGL_AXI_ERROR)
 	struct work_struct	  axi_error_dispatcher_work;
@@ -380,6 +382,7 @@ typedef struct dhd_info {
 	bool wl_accel_force_reg_on;
 #endif /* WLAN_ACCEL_BOOT */
 	struct kobject dhd_kobj;
+	bool dhd_kobj_inited;
 	timer_list_compat_t timesync_timer;
 #if defined(BT_OVER_SDIO)
     char btfw_path[PATH_MAX];
@@ -453,6 +456,21 @@ typedef struct dhd_info {
 	osl_atomic_t dump_status;
 	struct work_struct dhd_dump_proc_work;
 #endif /* DHD_FILE_DUMP_EVENT && DHD_FW_COREDUMP */
+#ifdef DEBUGABILITY
+	struct proc_dir_entry *dhd_trace_proc;
+#endif /* DEBUGABILITY */
+#ifdef EWP_ECNTRS_LOGGING
+	struct proc_dir_entry *dhd_ecounters_proc;
+#endif /* EWP_ECNTRS_LOGGING */
+#ifdef EWP_RTT_LOGGING
+	struct proc_dir_entry *dhd_rtt_proc;
+#endif /* EWP_RTT_LOGGING */
+#ifdef EWP_EVENTTS_LOG
+	struct proc_dir_entry *dhd_eventts_proc;
+#endif /* EWP_EVENTTS_LOG */
+#ifdef DHD_PCIE_WRAPPER_DUMP
+	struct proc_dir_entry *dhd_wrapper_dump_proc;
+#endif /* DHD_PCIE_WRAPPER_DUMP */
 } dhd_info_t;
 
 /** priv_link is the link between netdev and the dhdif and dhd_info structs. */
