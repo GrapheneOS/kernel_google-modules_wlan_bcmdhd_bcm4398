@@ -741,7 +741,7 @@ DHDCFLAGS += -DWL_RAV_MSCS_NEG_IN_ASSOC
 DHDCFLAGS += -DMAX_PFN_LIST_COUNT=16
 
 # Enable idsup for 4-way HS offload
-#DHDCFLAGS += -DBCMSUP_4WAY_HANDSHAKE -DWL_ENABLE_IDSUP
+DHDCFLAGS += -DBCMSUP_4WAY_HANDSHAKE -DWL_ENABLE_IDSUP
 
 # Softap authentication offload - configurable by module param. Disabled by default.
 DHDCFLAGS += -DWL_IDAUTH
