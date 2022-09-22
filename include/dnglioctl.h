@@ -61,8 +61,9 @@
 #define RTEDEVVIFDEL		0x891A  /* Delete virtual cfgs */
 #define RTEQUIESCEFORCE		0x891B	/* Force D11 core into quiesce */
 #define RTEPTMENABLE		0x891C	/* Start/stop PTM time stamping in TX/RX status */
+#define RTEMACSUSPEND		0x891D	/* Suspend MAC cores */
 /* Ensure last RTE IOCTL define val is assigned to RTEIOCTLEND */
-#define RTEIOCTLEND		0x891C  /* LAST RTE IOCTL value */
+#define RTEIOCTLEND		0x891D  /* LAST RTE IOCTL value */
 
 #define RTE_IOCTL_QUERY		0x00
 #define RTE_IOCTL_SET		0x01

@@ -194,7 +194,7 @@ wl_cellavoid_deinit(struct bcm_cfg80211 *cfg)
 		return;
 	}
 
-	cancel_delayed_work(&cfg->csa_delayed_work);
+	dhd_cancel_delayed_work(&cfg->csa_delayed_work);
 
 	mutex_lock(&cellavoid_info->sync);
 	wl_cellavoid_free_csa_info_list(cellavoid_info);
@@ -251,7 +251,7 @@ wl_cellavoid_reinit(struct bcm_cfg80211 *cfg)
 		return ret;
 	}
 
-	cancel_delayed_work_sync(&cfg->csa_delayed_work);
+	dhd_cancel_delayed_work_sync(&cfg->csa_delayed_work);
 
 	mutex_lock(&cellavoid_info->sync);
 

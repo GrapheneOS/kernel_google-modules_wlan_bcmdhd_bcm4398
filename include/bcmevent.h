@@ -437,6 +437,7 @@ typedef enum wlc_roam_cache_update_reason {
 #define WLC_E_STATUS_RXBCN_ABORT	20	/* Rx Beacon abort event for FAKEAP feature */
 #define WLC_E_STATUS_LOWPOWER_ON_LOWSPAN	21	/* LOWPOWER scan request during LOWSPAN */
 #define WLC_E_STATUS_WAIT_RXBCN_TIMEOUT	22	/* Time out happened waiting of beacon  */
+#define WLC_E_STATUS_6G_NO_TPE		23	/* No tpe in the fw cache for 6g channels  */
 #define WLC_E_STATUS_INVALID 0xff  /* Invalid status code to init variables. */
 
 /* 4-way handshake event type */
@@ -531,7 +532,8 @@ typedef struct wl_event_sdb_trans {
 #define WLC_E_REASON_REASSOC		19	/* roamed due to reassoc iovar */
 #define WLC_E_REASON_CCA		20	/* roamed due to better AP from cca measurement */
 #define WLC_E_REASON_BTCX_ROAM		21	/* roamed due to Btcx roam */
-#define WLC_E_REASON_LAST		22	/* NOTE: increment this as you add reasons above */
+#define WLC_E_REASON_MLD_REASSOC	22	/* MLD reassoc */
+#define WLC_E_REASON_LAST		23	/* NOTE: increment this as you add reasons above */
 
 
 /* prune reason codes */

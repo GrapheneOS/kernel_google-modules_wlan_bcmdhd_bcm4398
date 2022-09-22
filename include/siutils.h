@@ -793,8 +793,6 @@ extern uint32 si_gci_chipcontrol_rd_api(si_t *sih,
 #define PLL_DIV2_MASK		(0x37 << PLL_DIV2_BIT_START)
 #define PLL_DIV2_DIS_OP		(0x37 << PLL_DIV2_BIT_START)
 
-// TODO Temporary ifndef until hal_dngl_bp.h has all the functionality siutils provides
-#ifndef DNGL_BP_NCI
 #define pmu_corereg(si, cc_idx, member, mask, val) \
 	si_pmu_corereg(si, si_findcoreidx(si, PMU_CORE_ID, 0), \
 		PMU_REG_OFF(member), mask, val)
@@ -811,7 +809,6 @@ extern uint32 si_gci_chipcontrol_rd_api(si_t *sih,
 
 #define CHIPC_REG(si, member, mask, val) \
 	si_corereg(si, SI_CC_IDX, CC_REG_OFF(member), mask, val)
-#endif  /* DNGL_BP_NCI */
 
 #define CC_SR_REG_OFF(regname)	SR_ENG_REG_OFF(regname)
 

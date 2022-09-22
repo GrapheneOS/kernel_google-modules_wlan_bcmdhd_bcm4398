@@ -29,9 +29,6 @@
 
 #include <typedefs.h>
 
-/* Use error codes from this file only if BCMUTILS_ERR_CODES is defined. */
-#ifdef BCMUTILS_ERR_CODES
-
 /* NOTE re: Module specific error codes.
  *
  * BCME_.. error codes are extended by various features - e.g. FTM, NAN, SAE etc.
@@ -55,7 +52,6 @@ typedef int bcmerror_t;
  * please update errorstring table with the related error string and
  * update osl files with os specific errorcode map
 */
-
 #define BCME_OK				0	/* Success */
 #define BCME_ERROR			-1	/* Error generic */
 #define BCME_BADARG			-2	/* Bad Argument */
@@ -104,6 +100,7 @@ typedef int bcmerror_t;
 #define BCME_IOCTL_ERROR		-45	/* WLCMD ioctl error */
 #define BCME_SERIAL_PORT_ERR		-46	/* RWL serial port error */
 #define BCME_DISABLED			-47	/* Disabled in this build */
+#define BCME_NOTENABLED			BCME_DISABLED
 #define BCME_DECERR			-48	/* Decrypt error */
 #define BCME_ENCERR			-49	/* Encrypt error */
 #define BCME_MICERR			-50	/* Integrity/MIC error */
@@ -138,9 +135,7 @@ typedef int bcmerror_t;
 #define BCME_6GCH_EPERM			-79	/* 6G channel is not permitted */
 #define BCME_6G_NO_TPE			-80	/* TPE for a 6G channel does not exist */
 
-#define BCME_LAST			BCME_6G_NO_TPE
-
-#define BCME_NOTENABLED BCME_DISABLED
+#define BCME_LAST			BCME_6G_NO_TPE /* add new one above and update this */
 
 /* This error code is *internal* to the driver, and is not propogated to users. It should
  * only be used by IOCTL patch handlers as an indication that it did not handle the IOCTL.
@@ -239,7 +234,8 @@ typedef int bcmerror_t;
 
 /* FTM error codes [-1024, -2047] */
 enum {
-	WL_FTM_E_LAST			= -1085,
+	WL_FTM_E_LAST			= -1086,
+	WL_FTM_E_KDK_NOT_READY		= -1086,
 	WL_FTM_E_INVALID_SLTF_COUNTER	= -1085,
 	WL_FTM_E_BAD_KEY_INFO_IDX	= -1084,
 	WL_FTM_E_VALID_SAC_GEN_FAIL	= -1083,
@@ -306,6 +302,8 @@ enum {
 };
 typedef int32 wl_ftm_status_t;
 
+/* TODO: remove another copy in wlioctl.h */
+#ifdef BCMUTILS_ERR_CODES
 /* begin proxd codes compatible w/ ftm above - obsolete  DO NOT extend */
 enum {
 	WL_PROXD_E_LAST			= -1058,
@@ -508,6 +506,7 @@ enum {
 	/* SAE-PK validation failed */
 	WL_SAE_E_AUTH_PK_VALIDATION		= -3098
 };
+#endif /* BCMUTILS_ERR_CODES */
 
 /*
  * Bootloader error code range: -4096...-5119
@@ -689,6 +688,8 @@ enum {
 
 typedef int32 bl_status_t;
 
+/* TODO: remove another copy in wlioctl.h */
+#ifdef BCMUTILS_ERR_CODES
 /* PMK manager block. Event codes from -5120 to -6143 */
 /* PSK hashing event codes */
 enum {
@@ -716,6 +717,7 @@ enum {
 	/* Failure to get NAF3 params */
 	WL_SOE_E_NAF3_PARAMS_GET_ERROR		= -6147
 };
+#endif /* BCMUTILS_ERR_CODES */
 
 /* BCM crypto ASN.1 status codes. */
 /* Reserved range is from -7168 to -8191 */
@@ -889,8 +891,6 @@ typedef enum {
 
 	BCMSM_MAX			= -12287
 } bcmsm_status_t;
-
-#endif	/* BCMUTILS_ERR_CODES */
 
 /*
 * 6G scan error code [-12288 .. -13311] (1K)

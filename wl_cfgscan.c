@@ -809,7 +809,7 @@ wl_escan_handler(struct bcm_cfg80211 *cfg, bcm_struct_cfgdev *cfgdev,
 		/* Listen in progress */
 		if ((status == WLC_E_STATUS_SUCCESS) || (status == WLC_E_STATUS_ABORT)) {
 			if (delayed_work_pending(&cfg->loc.work)) {
-				cancel_delayed_work_sync(&cfg->loc.work);
+				dhd_cancel_delayed_work_sync(&cfg->loc.work);
 			}
 			err = wl_cfgscan_notify_listen_complete(cfg);
 			goto exit;
@@ -3998,7 +3998,7 @@ wl_cfg80211_sched_scan_stop(struct wiphy *wiphy, struct net_device *dev)
 	pri_ndev = bcmcfg_to_prmry_ndev(cfg);
 	wl_cfg80211_stop_pno(cfg, dev);
 
-	cancel_delayed_work(&cfg->sched_scan_stop_work);
+	dhd_cancel_delayed_work(&cfg->sched_scan_stop_work);
 
 	mutex_lock(&cfg->scan_sync);
 	if (cfg->sched_scan_req) {
@@ -4039,8 +4039,8 @@ wl_cfgscan_sched_scan_stop_work(struct work_struct *work)
 		/* Indicate sched scan stopped so that user space
 		 * can do a full scan incase found match is empty.
 		 */
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 11, 0))
-		cfg80211_sched_scan_stopped(wiphy, cfg->sched_scan_req->reqid);
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 12, 0))
+		cfg80211_sched_scan_stopped_locked(wiphy, cfg->sched_scan_req->reqid);
 #elif (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 12, 0))
 		cfg80211_sched_scan_stopped_rtnl(wiphy, cfg->sched_scan_req->reqid);
 #else
@@ -5181,7 +5181,7 @@ wl_cfgscan_cancel_listen_on_channel(struct bcm_cfg80211 *cfg, bool notify_user)
 	}
 
 	if (delayed_work_pending(&cfg->loc.work)) {
-		cancel_delayed_work_sync(&cfg->loc.work);
+		dhd_cancel_delayed_work_sync(&cfg->loc.work);
 	}
 
 	/* abort scan listen */
@@ -6905,7 +6905,7 @@ wl_cfgscan_acs(struct wiphy *wiphy,
 					break;
 				}
 			}
-			cancel_delayed_work_sync(&delay_work_acs.acs_delay_work);
+			dhd_cancel_delayed_work_sync(&delay_work_acs.acs_delay_work);
 			delay_work_acs.ndev = net;
 			delay_work_acs.ch_chosen = ch_chosen;
 			schedule_delayed_work(&delay_work_acs.acs_delay_work,

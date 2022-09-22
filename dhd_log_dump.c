@@ -789,13 +789,19 @@ dhd_get_flowring_len(void *ndev, dhd_pub_t *dhdp)
 		dhdp = &dhd_info->pub;
 	}
 
-	if (!dhdp)
+	if (!dhdp) {
 		return length;
+	}
 
+	max_tx_flowrings = dhd_get_max_flow_rings(dhdp);
+	if (!max_tx_flowrings) {
+		DHD_ERROR(("%s() error: zero max_tx_flowrings\n", __FUNCTION__));
+		return length;
+	}
 	length += (uint32) strlen(RING_DUMP_HDR);
 	length += (uint32) sizeof(sec_hdr);
 	length += (uint32) sizeof(max_tx_flowrings);
-	max_tx_flowrings = dhd_get_max_flow_rings(dhdp);
+
 	/* max_item and item_size value which is of 4bytes is dumped at
 	 * start of each ring dump, so adding 4bytes to total length.
 	 */
@@ -1299,6 +1305,10 @@ dhd_print_flowring_data(void *dev, dhd_pub_t *dhdp, const void *user_buf,
 		goto exit;
 
 	max_tx_flowrings =  dhd_get_max_flow_rings(dhdp);
+	if (!max_tx_flowrings) {
+		DHD_ERROR(("%s() error: zero max_tx_flowrings\n", __FUNCTION__));
+		goto exit;
+	}
 	/* write the number of max_tx_flowrings after section header */
 	ret = dhd_export_debug_data((char *)&max_tx_flowrings, fp, user_buf,
 		sizeof(max_tx_flowrings), pos);
@@ -2127,6 +2137,24 @@ dhd_log_dump_get_timestamp(void)
 		(unsigned long)ts_nsec, rem_nsec / NSEC_PER_USEC);
 
 	return buf;
+}
+
+void
+dhd_log_dump_vendor_trigger(dhd_pub_t *dhd_pub)
+{
+	unsigned long flags = 0;
+	DHD_GENERAL_LOCK(dhd_pub, flags);
+	DHD_BUS_BUSY_SET_IN_DUMP_DONGLE_MEM(dhd_pub);
+	DHD_GENERAL_UNLOCK(dhd_pub, flags);
+
+	dhd_log_dump_trigger(dhd_pub, CMD_DEFAULT);
+
+	DHD_GENERAL_LOCK(dhd_pub, flags);
+	DHD_BUS_BUSY_CLEAR_IN_DUMP_DONGLE_MEM(dhd_pub);
+	dhd_os_busbusy_wake(dhd_pub);
+	DHD_GENERAL_UNLOCK(dhd_pub, flags);
+
+	return;
 }
 
 void

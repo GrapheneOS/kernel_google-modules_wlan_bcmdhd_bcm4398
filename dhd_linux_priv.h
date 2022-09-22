@@ -355,6 +355,7 @@ typedef struct dhd_info {
 	struct kobject dhd_lb_kobj;
 	bool dhd_lb_kobj_inited;
 	bool dhd_lb_candidacy_override;
+	enum cpuhp_state dhd_cpuhp_state;
 #endif /* DHD_LB */
 
 	/* DPC bounds sysfs */

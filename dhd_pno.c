@@ -4636,7 +4636,7 @@ int dhd_pno_deinit(dhd_pub_t *dhd)
 		/* clear resource if the BATCH MODE is on */
 		_dhd_pno_reinitialize_prof(dhd, _params, DHD_PNO_BATCH_MODE);
 	}
-	cancel_work_sync(&_pno_state->work);
+	dhd_cancel_work_sync(&_pno_state->work);
 	MFREE(dhd->osh, _pno_state, sizeof(dhd_pno_status_info_t));
 	dhd->pno_state = NULL;
 	return err;

@@ -884,7 +884,6 @@ wl_cfg80211_handle_if_role_conflict(struct bcm_cfg80211 *cfg,
 }
 #endif /* WL_IFACE_MGMT */
 
-
 s32
 wl_release_vif_macaddr(struct bcm_cfg80211 *cfg, u8 *mac_addr, u16 wl_iftype)
 {
@@ -940,7 +939,6 @@ wl_release_vif_macaddr(struct bcm_cfg80211 *cfg, u8 *mac_addr, u16 wl_iftype)
 		}
 	}
 
-	WL_INFORM_MEM(("vif deleted. vif_count:%d\n", cfg->vif_count));
 	return BCME_OK;
 }
 
@@ -989,6 +987,7 @@ wl_get_vif_macaddr(struct bcm_cfg80211 *cfg, u16 wl_iftype, u8 *mac_addr)
 		return BCME_OK;
 	}
 #endif /* WL_NAN */
+
 	if ((wl_iftype == WL_IF_TYPE_P2P_DISC) && p2p_dev_addr &&
 		ETHER_IS_LOCALADDR(p2p_dev_addr)) {
 		/* If mac address is already generated return the mac */
@@ -1054,6 +1053,25 @@ wl_get_vif_macaddr(struct bcm_cfg80211 *cfg, u16 wl_iftype, u8 *mac_addr)
 	return BCME_OK;
 }
 
+#ifdef WL_MLO
+void
+wl_mlo_update_linkaddr(wl_mlo_config_v1_t *mlo_config)
+{
+	u8 i = 0;
+	u8 mac_addr[ETH_ALEN];
+
+	(void)memcpy_s(&mac_addr, ETH_ALEN, &mlo_config->mld_addr, ETH_ALEN);
+	ETHER_SET_LOCALADDR(&mac_addr);
+	for (i = 0; i < mlo_config->num_links; i++) {
+		/* recommended logic by android mlo I/F doc */
+		mac_addr[5] = ((mlo_config->mld_addr.octet[5] + i + 1) % 256u);
+		(void)memcpy_s(&mlo_config->link_config[i].link_addr, ETH_ALEN,
+			mac_addr, ETH_ALEN);
+		WL_DBG_MEM(("%s:Mac Link addr index %d " MACDBG "\n", __FUNCTION__,
+			i, MAC2STRDBG(&mlo_config->link_config[i].link_addr)));
+	}
+}
+#endif /* WL_MLO */
 
 bcm_struct_cfgdev *
 wl_cfg80211_add_virtual_iface(struct wiphy *wiphy,
@@ -1105,7 +1123,6 @@ wl_cfg80211_add_virtual_iface(struct wiphy *wiphy,
 	return wdev_to_cfgdev(wdev);
 }
 
-
 s32
 wl_cfg80211_del_virtual_iface(struct wiphy *wiphy, bcm_struct_cfgdev *cfgdev)
 {
@@ -1140,17 +1157,6 @@ wl_cfg80211_del_virtual_iface(struct wiphy *wiphy, bcm_struct_cfgdev *cfgdev)
 		WL_ERR(("Wrong iftype: %d\n", wdev->iftype));
 		return -ENODEV;
 	}
-
-#ifdef WL_NAN
-	if (wl_iftype == WL_IF_TYPE_STA && IS_NDI_IFACE(wdev->netdev->name)) {
-		if (wl_cfgnan_is_enabled(cfg) == false) {
-			WL_INFORM_MEM(("Nan is not active, ignore NDI delete\n"));
-			return ret;
-		}
-		/* Overwrite it with NAN iftype */
-		wl_iftype = WL_IF_TYPE_NAN;
-	}
-#endif /* WL_NAN */
 
 	if ((ret = wl_cfg80211_del_if(cfg, primary_ndev,
 			wdev, NULL)) < 0) {
@@ -3539,7 +3545,7 @@ exit:
 		SUPP_LOG(("AP/GO bring up fail. err:%d\n", err));
 		/* Cancel work if scheduled */
 		if (delayed_work_pending(&cfg->ap_work)) {
-			cancel_delayed_work_sync(&cfg->ap_work);
+			dhd_cancel_delayed_work_sync(&cfg->ap_work);
 			WL_DBG(("cancelled ap_work\n"));
 		}
 	}
@@ -4020,7 +4026,6 @@ wl_apply_ap_mlo_config(struct bcm_cfg80211 *cfg,
 			mlo_config->flags |= WL_MLO_UPDATE_CHANNELS;
 		}
 	}
-
 	ioctl_buf = MALLOCZ(cfg->osh, WLC_IOCTL_MEDLEN);
 	if (!ioctl_buf) {
 		ret = -ENOMEM;
@@ -4128,7 +4133,7 @@ wl_start_mlo_ap(struct bcm_cfg80211 *cfg, struct net_device *dev)
 		 * cancel the work scheduled to track configurations from user space.
 		 */
 		if (delayed_work_pending(&cfg->ap_work)) {
-			cancel_delayed_work_sync(&cfg->ap_work);
+			dhd_cancel_delayed_work_sync(&cfg->ap_work);
 			WL_INFORM_MEM(("cancelled ap_work\n"));
 		}
 
@@ -4269,7 +4274,11 @@ wl_cfg80211_start_ap(
  */
 #if ((LINUX_VERSION_CODE >= KERNEL_VERSION(3, 6, 0)) && !defined(WL_COMPAT_WIRELESS))
 	if ((err = wl_cfg80211_set_channel(wiphy, dev,
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 20, 0)) || defined(WL_MLO_BKPORT)
 		dev->ieee80211_ptr->u.ap.preset_chandef.chan,
+#else
+		dev->ieee80211_ptr->preset_chandef.chan,
+#endif /* LINUX_VERSION_CODE > KERNEL_VERSION(5, 20, 0) || WL_MLO_BKPORT */
 		NL80211_CHAN_HT20)) < 0) {
 		WL_ERR(("Set channel failed \n"));
 		goto fail;
@@ -4350,7 +4359,11 @@ fail:
 	if (err) {
 		WL_ERR(("ADD/SET beacon failed\n"));
 		wl_flush_fw_log_buffer(dev, FW_LOGSET_MASK_ALL);
-		wl_cfg80211_stop_ap(wiphy, dev, -1);
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 20, 0)) || defined(WL_MLO_BKPORT)
+		wl_cfg80211_stop_ap(wiphy, dev, 0);
+#else
+		wl_cfg80211_stop_ap(wiphy, dev);
+#endif /* LINUX_VERSION_CODE > KERNEL_VERSION(5, 20, 0) || WL_MLO_BKPORT */
 		if (dev_role == NL80211_IFTYPE_AP) {
 #ifdef BCMDONGLEHOST
 			/* If there are no other APs active, clear the AP mode */
@@ -4387,11 +4400,18 @@ fail:
 	return err;
 }
 
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 20, 0)) || defined(WL_MLO_BKPORT)
 s32
 wl_cfg80211_stop_ap(
 	struct wiphy *wiphy,
 	struct net_device *dev,
 	unsigned int link_id)
+#else
+s32
+wl_cfg80211_stop_ap(
+	struct wiphy *wiphy,
+	struct net_device *dev)
+#endif /* LINUX_VERSION_CODE > KERNEL_VERSION(5, 20, 0) || WL_MLO_BKPORT */
 {
 	int err = 0;
 	u32 dev_role = 0;
@@ -4418,7 +4438,7 @@ wl_cfg80211_stop_ap(
 	  * immediately after wl_cfg80211_start_ap().
 	  * In this case we should cancel the work.
 	  */
-	cancel_delayed_work_sync(&cfg->ap_work);
+	dhd_cancel_delayed_work_sync(&cfg->ap_work);
 
 #if defined (BCMDONGLEHOST)
 	is_rsdb_supported = DHD_OPMODE_SUPPORTED(cfg->pub, DHD_FLAG_RSDB_MODE);
@@ -5330,7 +5350,7 @@ wl_notify_connect_status_ap(struct bcm_cfg80211 *cfg, struct net_device *ndev,
 			}
 
 			if ((cancel_timeout == TRUE) && delayed_work_pending(&cfg->ap_work)) {
-				cancel_delayed_work_sync(&cfg->ap_work);
+				dhd_cancel_delayed_work_sync(&cfg->ap_work);
 				WL_INFORM_MEM(("cancelled ap_work\n"));
 			}
 #ifdef BIGDATA_SOFTAP
@@ -6139,7 +6159,11 @@ wl_cfg80211_ch_switch_notify(struct net_device *dev, uint16 chanspec, struct wip
 	}
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION (3, 8, 0))
 	freq = chandef.chan ? chandef.chan->center_freq : chandef.center_freq1;
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 20, 0)) || defined(WL_MLO_BKPORT)
 	cfg80211_ch_switch_notify(dev, &chandef, 0);
+#else
+	cfg80211_ch_switch_notify(dev, &chandef);
+#endif /* LINUX_VERSION_CODE > KERNEL_VERSION(5, 20, 0) || WL_MLO_BKPORT */
 #elif (LINUX_VERSION_CODE >= KERNEL_VERSION (3, 5, 0) && (LINUX_VERSION_CODE <= (3, 7, 0)))
 	freq = chan_info.freq;
 	cfg80211_ch_switch_notify(dev, freq, chan_info.chan_type);
@@ -7651,14 +7675,6 @@ wl_cfgvif_roam_config(struct bcm_cfg80211 *cfg, struct net_device *dev,
 		WL_ERR(("invalid args\n"));
 		return;
 	}
-
-#ifdef WL_MLO
-	/* MLO_TODO: disable roam config logic till STA roam issues are fixed */
-	if (cfg->mlo.supported) {
-		WL_INFORM_MEM(("[MLO][WAR] ignore roam_config for time being\n"));
-		return;
-	}
-#endif /* WL_MLO */
 
 	WL_DBG_MEM(("Enter. state:%d stas:%d\n", state, cfg->stas_associated));
 

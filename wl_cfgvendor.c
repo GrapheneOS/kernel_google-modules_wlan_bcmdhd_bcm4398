@@ -1853,6 +1853,7 @@ wl_cfgvendor_stop_hal(struct wiphy *wiphy,
 	dhd_set_dump_status(dhd, DUMP_NOT_READY);
 #endif /* DHD_FILE_DUMP_EVENT */
 	WL_INFORM(("%s,[DUMP] HAL STOPPED\n", __FUNCTION__));
+
 	return BCME_OK;
 }
 #endif /* WL_CFG80211 */
@@ -5628,22 +5629,14 @@ wl_cfgvendor_nan_parse_args(struct wiphy *wiphy, const void *buf,
 				ret = -EINVAL;
 				goto exit;
 			}
-			chan = wf_mhz2channel((uint)nla_get_u32(iter), 0);
-			if (chan < 0) {
-				WL_ERR((" Instant mode Channel is not valid %d chan %d \n",
-						(uint)nla_get_u32(iter), chan));
-				ret = -EINVAL;
-				break;
-			}
-			/* 20MHz as BW */
-			cmd_data->instant_chan = wf_channel2chspec(chan, WL_CHANSPEC_BW_20);
-			if (cmd_data->instant_chan <= 0) {
+			cmd_data->instant_chspec = wl_freq_to_chanspec((int)nla_get_u32(iter));
+			if (cmd_data->instant_chspec <= 0) {
 				WL_ERR((" Instant mode Channel is not valid \n"));
 				ret = -EINVAL;
 				break;
 			}
-			WL_DBG(("valid instant mode chanspec, chanspec = 0x%04x \n",
-				cmd_data->instant_chan));
+			WL_INFORM_MEM(("[NAN Instant mode] Freq %d chanspec %x \n",
+					nla_get_u32(iter), cmd_data->instant_chspec));
 			break;
 		case NAN_ATTRIBUTE_ENABLE_MERGE:
 			if (nla_len(iter) != sizeof(uint8)) {
@@ -8788,6 +8781,7 @@ static int wl_cfgvendor_dbg_get_ring_data(struct wiphy *wiphy,
 {
 	int ret = BCME_OK, rem, type;
 	char ring_name[DBGRING_NAME_MAX] = {0};
+	int ring_id;
 	const struct nlattr *iter;
 	struct bcm_cfg80211 *cfg = wiphy_priv(wiphy);
 	dhd_pub_t *dhd_pub = cfg->pub;
@@ -8804,7 +8798,21 @@ static int wl_cfgvendor_dbg_get_ring_data(struct wiphy *wiphy,
 		}
 	}
 
-	WL_MEM(("Received GET_RING_DATA ring:%s\n", ring_name));
+	/* Moved the dump_start op */
+	ring_id = dhd_dbg_find_ring_id(dhd_pub, ring_name);
+	/* Using first ring get context to trigger ring dump event. */
+	if (ring_id == DEBUG_DUMP_RING1_ID) {
+		/*
+		 * The ring buffer data context timeout at framework is 100ms and
+		 * hence skipping memdump invocation in this path.
+		 */
+		dhd_pub->skip_memdump_map_read = true;
+		WL_MEM(("Doing dump_start op for ring_id %d ring:%s\n",
+			ring_id, ring_name));
+		dhd_log_dump_vendor_trigger(dhd_pub);
+	}
+
+	WL_DBG_MEM(("Received GET_RING_DATA ring:%s\n", ring_name));
 	ret = dhd_os_trigger_get_ring_data(dhd_pub, ring_name);
 	if (ret < 0) {
 		WL_ERR(("trigger_get_data failed ret:%d\n", ret));
@@ -10448,10 +10456,8 @@ const uint8 default_dscp_mapping_table[UP_TABLE_MAX] =
 	UNUSED_PRIO,   UNUSED_PRIO, UNUSED_PRIO,   UNUSED_PRIO		/* 60 ~ 63 */
 };
 
-static uint8 custom_dscp2priomap[UP_TABLE_MAX];
-
 static int
-wl_set_dscp_deafult_priority(uint8* table)
+wl_set_dscp_default_priority(uint8* table)
 {
 	int err = BCME_ERROR;
 
@@ -10467,7 +10473,6 @@ static int
 wl_cfgvendor_custom_mapping_of_dscp(struct wiphy *wiphy,
 	struct wireless_dev *wdev, const void  *data, int len)
 {
-	struct bcm_cfg80211 *cfg;
 	int err = BCME_OK, rem, type;
 	const struct nlattr *iter;
 	uint32 dscp_start = 0;
@@ -10476,14 +10481,27 @@ wl_cfgvendor_custom_mapping_of_dscp(struct wiphy *wiphy,
 	uint32 priority = 0;
 	uint32 dscp;
 	int32 def_dscp_pri;
+	struct bcm_cfg80211 *cfg = wiphy_priv(wiphy);
+	struct net_device *ndev = wdev_to_ndev(wdev);
+	u8 *up_table;
 
-	cfg = wl_cfg80211_get_bcmcfg();
-	if (!cfg || !cfg->wdev) {
-		 err = BCME_NOTUP;
-		 goto exit;
+	if (ndev == NULL) {
+		WL_ERR(("Invalid net device, NULL\n"));
+		err = BCME_ERROR;
+		goto exit;
 	}
-	if (!cfg->up_table) {
-		cfg->up_table = (uint8 *) custom_dscp2priomap;
+
+	up_table = wl_get_up_table_netinfo(cfg, ndev);
+	if (!up_table) {
+		up_table = (uint8 *)MALLOCZ(cfg->osh, UP_TABLE_MAX);
+		if (up_table == NULL) {
+			WL_ERR(("malloc failure for up_table\n"));
+			err = BCME_NOMEM;
+			goto exit;
+		}
+		wl_set_dscp_default_priority(up_table);
+		wl_store_up_table_netinfo(cfg, ndev, up_table);
+		WL_INFORM(("allocate dscp up_table\n"));
 	}
 
 	nla_for_each_attr(iter, data, len, rem) {
@@ -10549,10 +10567,13 @@ wl_cfgvendor_custom_mapping_of_dscp(struct wiphy *wiphy,
 	}
 
 	/* Set the custom DSCP of user priority. */
-	err = memset_s(cfg->up_table + dscp_start, UP_TABLE_MAX - dscp_start, priority,
+	err = memset_s(up_table + dscp_start, UP_TABLE_MAX - dscp_start, priority,
 			dscp_end - dscp_start + 1);
+
 	if (unlikely(err)) {
-		WL_ERR(("Fail to set table\n"));
+		WL_ERR(("Fail to set table. free table\n"));
+		MFREE(cfg->osh, up_table, UP_TABLE_MAX);
+		wl_store_up_table_netinfo(cfg, ndev, NULL);
 	}
 
 exit:
@@ -10564,19 +10585,24 @@ static int
 wl_cfgvendor_custom_mapping_of_dscp_reset(struct wiphy *wiphy,
 	struct wireless_dev *wdev, const void  *data, int len)
 {
-	struct bcm_cfg80211 *cfg;
+	struct bcm_cfg80211 *cfg = wiphy_priv(wiphy);
+	struct net_device *ndev = wdev_to_ndev(wdev);
+	u8 *up_table;
 
-	cfg = wl_cfg80211_get_bcmcfg();
-	if (!cfg || !cfg->wdev) {
-		return BCME_NOTUP;
+	if (ndev == NULL) {
+		WL_ERR(("Invalid net device, NULL\n"));
+		return BCME_ERROR;
 	}
 
-	if (!cfg->up_table) {
-		WL_INFORM(("Custom table not set yet.\n"));
-		return BCME_NOTREADY;
+	up_table = wl_get_up_table_netinfo(cfg, ndev);
+	if (!up_table) {
+		WL_ERR(("up_table is not ready\n"));
+		return BCME_ERROR;
 	}
 
-	return wl_set_dscp_deafult_priority(cfg->up_table);
+	wl_set_dscp_default_priority(up_table);
+
+	return BCME_OK;
 }
 #endif /* WL_CUSTOM_MAPPING_OF_DSCP */
 
@@ -11493,12 +11519,16 @@ wl_cfgvendor_ota_download(struct wiphy *wiphy,
 					WL_ERR(("clm length is invalid\n"));
 					goto exit;
 				}
-				memcpy_s(buf, sizeof(*buf),
+				err = memcpy_s(buf, sizeof(*buf),
 						(void *)nla_data(iter), nla_len(iter));
+				if (err) {
+					WL_ERR(("Failed to copy clm blob: %d\n", err));
+					return err;
+				}
 				ota_info->clm_buf = MALLOCZ(cfg->osh, ota_info->clm_len);
 				if (ota_info->clm_buf == NULL) {
 					err = -ENOMEM;
-					WL_ERR(("Allocte fail size [%d]\n", ota_info->clm_len));
+					WL_ERR(("Allocate fail size [%d]\n", ota_info->clm_len));
 					goto exit;
 				}
 				err = copy_from_user(ota_info->clm_buf, buf[0],
@@ -11519,12 +11549,16 @@ wl_cfgvendor_ota_download(struct wiphy *wiphy,
 					WL_ERR(("clm length is invalid\n"));
 					goto exit;
 				}
-				memcpy_s(buf, sizeof(*buf),
+				err = memcpy_s(buf, sizeof(*buf),
 						(void *)nla_data(iter), nla_len(iter));
+				if (err) {
+					WL_ERR(("Failed to copy nvram: %d\n", err));
+					return err;
+				}
 				ota_info->nvram_buf = MALLOCZ(cfg->osh, ota_info->nvram_len);
 				if (ota_info->nvram_buf  == NULL) {
 					err = -ENOMEM;
-					WL_ERR(("Allocte fail size [%d]\n", ota_info->nvram_len));
+					WL_ERR(("Allocate fail size [%d]\n", ota_info->nvram_len));
 					goto exit;
 				}
 				err = copy_from_user(ota_info->nvram_buf, buf[0],
@@ -11544,6 +11578,36 @@ wl_cfgvendor_ota_download(struct wiphy *wiphy,
 #endif /* WLAN_ACCEL_BOOT */
 				}
 				break;
+			case OTA_DOWNLOAD_TXCAP_BLOB_LENGTH_ATTR:
+				ota_info->txcap_len = nla_get_u32(iter);
+				WL_INFORM_MEM(("Set to OTA txcap length to [%d].\n",
+					ota_info->txcap_len));
+				break;
+			case OTA_DOWNLOAD_TXCAP_BLOB_ATTR:
+				if (!ota_info->txcap_len) {
+					err = -EINVAL;
+					WL_ERR(("txcap blob length is invalid\n"));
+					goto exit;
+				}
+				err = memcpy_s(buf, sizeof(*buf),
+						(void *)nla_data(iter), nla_len(iter));
+				if (err) {
+					WL_ERR(("Failed to copy txcap blob : %d\n", err));
+					return err;
+				}
+				ota_info->txcap_buf = MALLOCZ(cfg->osh, ota_info->txcap_len);
+				if (ota_info->txcap_buf == NULL) {
+					err = -ENOMEM;
+					WL_ERR(("Allocate fail size [%d]\n", ota_info->txcap_len));
+					goto exit;
+				}
+				err = copy_from_user(ota_info->txcap_buf, buf[0],
+						ota_info->txcap_len);
+				if (err) {
+					WL_ERR(("Failed copy_from_user for ota_txcap_buf.\n"));
+					goto exit;
+				}
+				break;
 			default:
 				WL_ERR(("Unknown attr type: %d\n", type));
 				err = -EINVAL;
@@ -11559,7 +11623,11 @@ exit:
 	if (ota_info->nvram_buf) {
 		MFREE(cfg->osh, ota_info->nvram_buf, ota_info->nvram_len);
 	}
+	if (ota_info->txcap_buf) {
+		MFREE(cfg->osh, ota_info->txcap_buf, ota_info->txcap_len);
+	}
 	ota_info->clm_len = 0;
+	ota_info->txcap_len = 0;
 	ota_info->nvram_len = 0;
 	return err;
 }
@@ -12251,6 +12319,8 @@ const struct nla_policy ota_update_attr_policy[OTA_UPDATE_ATTRIBUTE_MAX] = {
 	[OTA_DOWNLOAD_NVRAM_ATTR ] = { .type = NLA_BINARY },
 	[OTA_SET_FORCE_REG_ON ] = { .type = NLA_U32 },
 	[OTA_CUR_NVRAM_EXT_ATTR] = { .type = NLA_NUL_STRING },
+	[OTA_DOWNLOAD_TXCAP_BLOB_LENGTH_ATTR ] = { .type = NLA_U32 },
+	[OTA_DOWNLOAD_TXCAP_BLOB_ATTR ] = { .type = NLA_BINARY },
 };
 #endif /* SUPPORT_OTA_UPDATE */
 
@@ -13648,9 +13718,6 @@ int wl_cfgvendor_attach(struct wiphy *wiphy, dhd_pub_t *dhd)
 #ifdef DHD_LOG_DUMP
 	dhd_os_dbg_register_urgent_notifier(dhd, wl_cfgvendor_dbg_send_file_dump_evt);
 #endif /* DHD_LOG_DUMP */
-#ifdef WL_CUSTOM_MAPPING_OF_DSCP
-	(void)wl_set_dscp_deafult_priority(custom_dscp2priomap);
-#endif
 #ifdef SUPPORT_OTA_UPDATE
 	(void)wl_set_ota_nvram_ext(dhd);
 #endif /* SUPPORT_OTA_UPDATE */

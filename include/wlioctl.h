@@ -83,6 +83,11 @@
 
 /* 11ax trigger frame format - versioning info */
 #define TRIG_FRAME_FORMAT_11AX_DRAFT_1P1 0
+#define TRIG_FRAME_INFO_VER2		1 // support 11AX and 11BE triggers
+
+#define TRIGGER_FRAME_SPEC_11AX		0
+#define TRIGGER_FRAME_SPEC_11BE		1
+
 #define WL_NAN_REKEY WL_NAN_CMD_CFG_REKEY
 typedef struct {
 	uint32 num;
@@ -9243,7 +9248,7 @@ typedef struct wl_pkteng_ru_v4 {
 typedef wl_pkteng_ru_v3_t wl_pkteng_ru_fill_t;
 #endif
 
-typedef struct wl_trig_frame_info {
+typedef struct wl_trig_frame_info_v1 {
 	/* Structure versioning and structure length params */
 	uint16 version;
 	uint16 length;
@@ -9275,7 +9280,58 @@ typedef struct wl_trig_frame_info {
 	uint16 ss_alloc;
 	uint16 tgt_rssi;
 	uint16 usr_info_rsvd;
-} wl_trig_frame_info_t;
+} wl_trig_frame_info_v1_t;
+
+typedef struct wl_trig_frame_info_v2 {
+	/* Structure versioning and structure length params */
+	uint16 version;
+	uint16 length;
+	/* Below params are the fields related to trigger frame contents */
+	/* Common Info Params Figure 9-52d - 11ax Draft 1.1 */
+	uint16 lsig_len;
+	uint16 trigger_type;
+	uint16 cascade_indication;
+	uint16 cs_req;
+	uint16 bw;
+	uint16 cp_ltf_type;
+	uint16 mu_mimo_ltf_mode;
+	uint16 num_he_ltf_syms;
+	uint16 stbc;
+	uint16 ldpc_extra_symb;
+	uint16 ap_tx_pwr;
+	uint16 afactor;
+	uint16 pe_disambiguity;
+	uint16 spatial_resuse;
+	uint16 doppler;
+	uint16 he_siga_rsvd;
+	uint16 cmn_info_rsvd;
+	/* User Info Params Figure 9-52e - 11ax Draft 1.1 */
+	uint16 aid12;
+	uint16 ru_alloc;
+	uint16 coding_type;
+	uint16 mcs;
+	uint16 dcm;
+	uint16 ss_alloc;
+	uint16 tgt_rssi;
+	uint16 usr_info_rsvd;
+	uint16 trigger_spec; // 0: AX trigger, 1: BE trigger
+	/* 11BE additional Common Info fields */
+	uint16 p160;
+	uint16 susrinfoflg;
+	/* 11BE additional User Info fields */
+	uint16 ps160;
+	/* 11BE Special User Info fields */
+	uint16 bwext;
+	uint16 eht_spatial_reuse1;
+	uint16 eht_spatial_reuse2;
+	uint16 PAD;
+} wl_trig_frame_info_v2_t;
+
+#ifdef WL11BE
+typedef wl_trig_frame_info_v2_t wl_trig_frame_info_t;
+#else
+typedef wl_trig_frame_info_v1_t wl_trig_frame_info_t;
+#endif
 
 /* wl pkteng_stats related definitions */
 #define WL_PKTENG_STATS_V1 (1)
@@ -11897,7 +11953,7 @@ typedef struct phy_phycal_core_v2 {
 	uint8	rxms_vpoff;
 	uint8	rxms_ipoff;
 	uint8	ccktxgain_offset;
-	uint8	mppc_gain_offset_qdB[TXCAL_MAX_PA_MODE];
+	int8	mppc_gain_offset_qdB[TXCAL_MAX_PA_MODE];
 
 	/* Misc general purpose debug counters (will be used for future debugging) */
 	uint8	debug_01;
@@ -11971,7 +12027,7 @@ typedef struct phy_phycal_core_v255 {
 	uint8	rxms_vpoff;
 	uint8	rxms_ipoff;
 	uint8	ccktxgain_offset;
-	uint8	mppc_gain_offset_qdB[TXCAL_MAX_PA_MODE];
+	int8	mppc_gain_offset_qdB[TXCAL_MAX_PA_MODE];
 
 	/* Misc general purpose debug counters (will be used for future debugging) */
 	uint8	debug_01;
@@ -18646,7 +18702,27 @@ typedef enum wl_gpaio_option {
 	GPAIO_RX_TIA_FINAL_CM_V2,
 	GPAIO_PA5G_GM_BIAS_V,
 	GPAIO_PA5G_GM_DRAIN_V,
-	GPAIO_PA5G_CAS_BIAS_V
+	GPAIO_PA5G_CAS_BIAS_V,
+	GPAIO_PMU_LOGENLDO1,
+	GPAIO_PMU_RX5G_RF_LDO,
+	GPAIO_PMU_LPF_LDO,
+	GPAIO_VCO_LDO_TX,
+	GPAIO_VCO_LDO_RX,
+	GPAIO_RX_PD_LDO,
+	GPAIO_RX_MMD_LDO,
+	GPAIO_DTX_DIG_LDO,
+	GPAIO_DTX_RF_LDO,
+	GPAIO_RX_LDO_LOGIC,
+	GPAIO_RX_LDO_BB,
+	GPAIO_PMU_PLL_VCO_LDO,
+	GPAIO_PMU_PLL_RO_LDO,
+	GPAIO_PMU_BTVCO_LDO,
+	GPAIO_PMU_BTPLL_LDO,
+	GPAIO_PMU_PLLMMD_LDO,
+	GPAIO_PMU_BBLDO,
+	GPAIO_PMU_IF_LDO,
+	GPAIO_AFEDIV_LDO_OUT,
+	GPAIO_WBADC_REF_LDO_OUT
 } wl_gpaio_option_t;
 
 /** IO Var Operations - the Value of iov_op In wlc_ap_doiovar */
@@ -19780,6 +19856,21 @@ typedef enum {
 	WL_PROXD_TLV_ID_RI_RR			= 36,	/* RI_RR */
 	WL_PROXD_TLV_ID_TUNE			= 37,	/* wl_proxd_pararms_tof_tune_t */
 	WL_PROXD_TLV_ID_CUR_ETHER_ADDR		= 38,	/* Source Address used for Tx */
+	WL_PROXD_TLV_ID_RESERVED_ID39		= 39,	/* ftm component only */
+	WL_PROXD_TLV_ID_RESERVED_ID40		= 40,	/* ftm component only */
+	WL_PROXD_TLV_ID_RESERVED_ID41		= 41,	/* ftm component only */
+	WL_PROXD_TLV_ID_RESERVED_ID42		= 42,	/* ftm component only */
+	WL_PROXD_TLV_ID_RESERVED_ID43		= 43,	/* ftm component only */
+	WL_PROXD_TLV_ID_RESERVED_ID44		= 44,	/* ftm component only */
+	WL_PROXD_TLV_ID_RESERVED_ID45		= 45,	/* ftm component only */
+	WL_PROXD_TLV_ID_RESERVED_ID46		= 46,	/* ftm component only */
+	WL_PROXD_TLV_ID_RESERVED_ID47		= 47,	/* ftm component only */
+	WL_PROXD_TLV_ID_RESERVED_ID48		= 48,	/* ftm component only */
+	WL_PROXD_TLV_ID_RESERVED_ID49		= 49,	/* ftm component only */
+	WL_PROXD_TLV_ID_RESERVED_ID50		= 50,	/* ftm component only */
+	WL_PROXD_TLV_ID_RESERVED_ID51		= 51,	/* ftm component only */
+	WL_PROXD_TLV_ID_RESERVED_ID52		= 52,	/* ftm component only */
+	WL_PROXD_TLV_ID_RESERVED_ID53		= 53,	/* ftm component only */
 
 	/* output - 512 + x */
 	WL_PROXD_TLV_ID_STATUS			= 512,
@@ -19792,6 +19883,11 @@ typedef enum {
 	WL_PROXD_TLV_ID_SESSION_ID_LIST		= 519,
 	WL_PROXD_TLV_ID_RTT_RESULT_V2		= 520,
 	WL_PROXD_TLV_ID_RTT_RESULT_V3		= 521,
+	WL_PROXD_TLV_ID_RESERVED_ID522		= 522,	/* ftm component only */
+	WL_PROXD_TLV_ID_RESERVED_ID523		= 523,	/* ftm component only */
+	WL_PROXD_TLV_ID_RESERVED_ID524		= 524,	/* ftm component only */
+	WL_PROXD_TLV_ID_RESERVED_ID525		= 525,	/* ftm component only */
+	WL_PROXD_TLV_ID_RESERVED_ID526		= 526,	/* ftm component only */
 
 	/* debug tlvs can be added starting 1024 */
 	WL_PROXD_TLV_ID_DEBUG_MASK		= 1024,
@@ -19896,9 +19992,11 @@ enum {
 	WL_PROXD_EVENT_COLLECT			= 17,
 	WL_PROXD_EVENT_START_WAIT		= 18,	/* waiting to start */
 	WL_PROXD_EVENT_MF_STATS			= 19,	/* mf stats event */
-	WL_PROXD_EVENT_RES_WAIT                 = 20,	/* waiting to resources */
-	WL_PROXD_EVENT_SESSION_READY            = 21,	/* ready to burst */
-	WL_PROXD_EVENT_CIS_DUMP			= 22,	/* dump RAW CSI data for debug */
+	WL_PROXD_EVENT_RES_WAIT			= 20,	/* waiting to resources */
+	WL_PROXD_EVENT_SESSION_READY		= 21,	/* ready to burst */
+	WL_PROXD_EVENT_RESERVED22		= 22,	/* reserved by ftm */
+	WL_PROXD_EVENT_RESERVED23		= 23,	/* reserved by ftm */
+	WL_PROXD_EVENT_RESERVED24		= 24,	/* reserved by ftm */
 	WL_PROXD_EVENT_MAX
 };
 typedef int16 wl_proxd_event_type_t;
@@ -21018,8 +21116,20 @@ typedef enum {
 	SAR_CAP_S6_BAND48	= (1u << 12u),
 	SAR_CAP_S6_BAND66	= (1u << 13u),
 	SAR_CAP_S6_BAND77	= (1u << 14u),
-	SAR_CAP_FLIP		= (1u << 15u)
+	SAR_CAP_FLIP		= (1u << 15u),
+	SAR_CAP_MAX		= SAR_CAP_FLIP
 } sar_caps;
+
+#define SAR_DISABLE_PWR_BIT		(1u << 31u)
+#define SAR_ALL_MODE_CAP_MASK (SAR_CAP_HEAD | SAR_CAP_GRIP | SAR_CAP_NRMW | SAR_CAP_NRS6 |\
+					SAR_CAP_BT | SAR_CAP_HS | SAR_CAP_MHS | SAR_CAP_FLIP)
+
+#define SAR_ABS_CAP_MASK	(SAR_CAP_HEAD | SAR_CAP_GRIP | SAR_CAP_BT | SAR_CAP_HS |\
+					SAR_CAP_MHS | SAR_CAP_FLIP)
+#define SAR_COND_CAP_MASK	(SAR_CAP_NRMW | SAR_CAP_NRS6)
+#define SAR_OFFSET_CAP_MASK	(SAR_CAP_NRMW | SAR_CAP_NRS6)
+#define SAR_SUB6_BAND_CAP_MASK	(SAR_CAP_S6_BAND2 | SAR_CAP_S6_BAND25 | SAR_CAP_S6_BAND41 | \
+					SAR_CAP_S6_BAND48 | SAR_CAP_S6_BAND66 | SAR_CAP_S6_BAND77)
 
 #define TXPWRCAP_SAR_STATE_SU		0u
 #define TXPWRCAP_SAR_MAX_STATES_SU_V3	1u
@@ -23556,6 +23666,7 @@ enum {
 	WL_HE_CMD_TRIG_PREFERRED_AC_ENAB	= 20u,
 	WL_HE_CMD_ULMU_DISABLE_NS_TXPWR		= 21u,
 	WL_HE_CMD_ULMU_FAKE_NS_TXPWR		= 22u,
+	WL_HE_CMD_RXMPDU_MAXLEN_4K_ENAB		= 23u,
 	WL_HE_CMD_LAST
 };
 
@@ -24386,19 +24497,74 @@ typedef struct wl_mlo_tid_map_v2 {
 	wl_mlo_link_tid_map_v1_t link_tid_map[];	/* TID map per link */
 } wl_mlo_tid_map_v2_t;
 
+#define WL_MLO_TID_MAP_VER_3	(3u)
+
+typedef struct wl_mlo_tid_map_v3 {
+	uint16	version;
+	uint16	length;
+	uint16	control;
+	/* Control bitmap definition:
+	 * bit 0: default mapping (0/1)
+	 * - when set wl_mlo_link_tid_map_v1_t is not incliuded
+	 * bits 1-2: direction (0-DL, 1-UL, 2-BOTH)
+	 * bits 3-5: number of links (0-7)
+	 * bit 6: negotiate(d) TID-to-link mapping
+	 * bit 7: advertise(d) TID-to-link mapping
+	 * - when set wl_mlo_tid_map_adv_v1_t is included after the control field
+	 * bit 8:
+	 * set - negotiate preferred mapping if indicated by the AP
+	 * get - negotiated mapping is AP's preferred
+	 * bit 9: configure TID-to-link mapping (0/1)
+	 * - when set wl_mlo_tid_map_cfg_v1_t is included after the control field
+	 */
+	uint8	status;	/* status of the TID-to-link mapping (wl_mlo_tid_map_sts) */
+	uint8	pad[1];
+	/* optional params based on the control flags */
+	uint8	params[];
+	/* wl_mlo_tid_map_adv_v1_t	Advertised TID-to-link mapping params */
+	/* wl_mlo_tid_map_cfg_v1_t	TID-to-link mapping config */
+	/* wl_mlo_link_tid_map_v1_t	TID map per link[] */
+} wl_mlo_tid_map_v3_t;
+
+/* TID-to-link mapping status */
+enum wl_mlo_tid_map_sts {
+	WL_MLO_TID_MAP_STS_IDLE	= 0,
+	WL_MLO_TID_MAP_STS_EST	= 1,
+	WL_MLO_TID_MAP_STS_FAIL	= 2,
+	WL_MLO_TID_MAP_STS_PREF	= 3,
+	WL_MLO_TID_MAP_STS_DENY	= 4
+};
+
 /* MLO tid_map control definitions */
-#define WL_MLO_TID_MAP_DIR_MASK		(0x03u)
-#define WL_MLO_TID_MAP_LINK_NUM_MASK	(0x0Cu)
-#define WL_MLO_TID_MAP_NEG_MASK		(0x10u)
-#define WL_MLO_TID_MAP_LINK_NUM_SHIFT	(2u)
-#define WL_MLO_TID_MAP_NEG_SHIFT	(4u)
+#define WL_MLO_TID_MAP_DEF_MASK			(0x1u)
+#define WL_MLO_TID_MAP_DEF_SHIFT		(0u)
+#define WL_MLO_TID_MAP_DIR_MASK			(0x06u)
+#define WL_MLO_TID_MAP_DIR_SHIFT		(1u)
+#define WL_MLO_TID_MAP_LINK_NUM_MASK		(0x38u)
+#define WL_MLO_TID_MAP_LINK_NUM_SHIFT		(3u)
+#define WL_MLO_TID_MAP_NEG_MASK			(0x40u)
+#define WL_MLO_TID_MAP_NEG_SHIFT		(6u)
+#define WL_MLO_TID_MAP_ADV_MASK			(0x80u)
+#define WL_MLO_TID_MAP_ADV_SHIFT		(7u)
+#define WL_MLO_TID_MAP_NEG_PREF_MASK		(0x100u)
+#define WL_MLO_TID_MAP_NEG_PREF_SHIFT		(8u)
+#define WL_MLO_TID_MAP_CFG_MASK			(0x200u)
+#define WL_MLO_TID_MAP_CFG_SHIFT		(9u)
+
+#define WL_MLO_TID_MAP_DEF_GET(tidmap) \
+	((tidmap)->control & WL_MLO_TID_MAP_DEF_MASK)
+
+#define WL_MLO_TID_MAP_DEF_SET(tidmap, val) \
+	((tidmap)->control = ((tidmap)->control & ~WL_MLO_TID_MAP_DEF_MASK) | \
+		((val) << WL_MLO_TID_MAP_DEF_SHIFT))
 
 #define WL_MLO_TID_MAP_DIR_GET(tidmap) \
-	((tidmap)->control & WL_MLO_TID_MAP_DIR_MASK)
+	(((tidmap)->control & WL_MLO_TID_MAP_DIR_MASK) >> \
+		WL_MLO_TID_MAP_DIR_SHIFT)
 
 #define WL_MLO_TID_MAP_DIR_SET(tidmap, val) \
 	((tidmap)->control = ((tidmap)->control & ~WL_MLO_TID_MAP_DIR_MASK) | \
-		(val))
+		((val) << WL_MLO_TID_MAP_DIR_SHIFT))
 
 #define WL_MLO_TID_MAP_LINK_NUM_GET(tidmap) \
 	(((tidmap)->control & WL_MLO_TID_MAP_LINK_NUM_MASK) >> \
@@ -24406,7 +24572,7 @@ typedef struct wl_mlo_tid_map_v2 {
 
 #define WL_MLO_TID_MAP_LINK_NUM_SET(tidmap, val) \
 	((tidmap)->control = ((tidmap)->control & ~WL_MLO_TID_MAP_LINK_NUM_MASK) | \
-		(val << WL_MLO_TID_MAP_LINK_NUM_SHIFT))
+		((val) << WL_MLO_TID_MAP_LINK_NUM_SHIFT))
 
 #define WL_MLO_TID_MAP_NEG_GET(tidmap) \
 	(((tidmap)->control & WL_MLO_TID_MAP_NEG_MASK) >> \
@@ -24414,7 +24580,70 @@ typedef struct wl_mlo_tid_map_v2 {
 
 #define WL_MLO_TID_MAP_NEG_SET(tidmap, val) \
 	((tidmap)->control = ((tidmap)->control & ~WL_MLO_TID_MAP_NEG_MASK) | \
-		(val << WL_MLO_TID_MAP_NEG_SHIFT))
+		((val) << WL_MLO_TID_MAP_NEG_SHIFT))
+
+#define WL_MLO_TID_MAP_ADV_GET(tidmap) \
+	(((tidmap)->control & WL_MLO_TID_MAP_ADV_MASK) >> \
+		WL_MLO_TID_MAP_ADV_SHIFT)
+
+#define WL_MLO_TID_MAP_ADV_SET(tidmap, val) \
+	((tidmap)->control = ((tidmap)->control & ~WL_MLO_TID_MAP_ADV_MASK) | \
+		((val) << WL_MLO_TID_MAP_ADV_SHIFT))
+
+#define WL_MLO_TID_MAP_NEG_PREF_GET(tidmap) \
+	(((tidmap)->control & WL_MLO_TID_MAP_NEG_PREF_MASK) >> \
+		WL_MLO_TID_MAP_NEG_PREF_SHIFT)
+
+#define WL_MLO_TID_MAP_NEG_PREF_SET(tidmap, val) \
+	((tidmap)->control = ((tidmap)->control & ~WL_MLO_TID_MAP_NEG_PREF_MASK) | \
+		((val) << WL_MLO_TID_MAP_NEG_PREF_SHIFT))
+
+#define WL_MLO_TID_MAP_CFG_GET(tidmap) \
+	(((tidmap)->control & WL_MLO_TID_MAP_CFG_MASK) >> \
+		WL_MLO_TID_MAP_CFG_SHIFT)
+
+#define WL_MLO_TID_MAP_CFG_SET(tidmap, val) \
+	((tidmap)->control = ((tidmap)->control & ~WL_MLO_TID_MAP_CFG_MASK) | \
+		((val) << WL_MLO_TID_MAP_CFG_SHIFT))
+
+/* TID-to-link mapping configuration */
+typedef struct wl_mlo_tid_map_cfg_v1 {
+	uint32	flags;	/* configuration flags */
+} wl_mlo_tid_map_cfg_v1_t;
+
+/* TID-To-Link Mapping Negotiation Supported */
+#define WL_MLO_TID_MAP_CFG_NEG_SUPPORT_MASK		(0x03u)
+
+#define WL_MLO_TID_MAP_CFG_NEG_SUPPORT_GET(tidmapcfg) \
+	((tidmapcfg)->flags & WL_MLO_TID_MAP_CFG_NEG_SUPPORT_MASK)
+
+#define WL_MLO_TID_MAP_CFG_NEG_SUPPORT_SET(tidmapcfg, val) \
+	((tidmapcfg)->flags = ((tidmapcfg)->flags & ~WL_MLO_TID_MAP_CFG_NEG_SUPPORT_MASK) | \
+		(val))
+
+typedef struct wl_mlo_tid_map_adv_v1 {
+	uint16	bcn_cnt;	/* num of beacons until TID-to-link mapping establishment  */
+	uint8	pad[2];
+	uint32	duration;	/* duration in ms the established mapping will be effective */
+} wl_mlo_tid_map_adv_v1_t;
+
+#define WL_MLO_TID_MAP_SIZE_V3(tidmap) \
+	(OFFSETOF(wl_mlo_tid_map_v3_t, params) + \
+	(WL_MLO_TID_MAP_ADV_GET(tidmap) ? sizeof(wl_mlo_tid_map_adv_v1_t) : 0u) + \
+	(WL_MLO_TID_MAP_CFG_GET(tidmap) ? sizeof(wl_mlo_tid_map_cfg_v1_t) : 0u) + \
+	(sizeof(wl_mlo_link_tid_map_v1_t) * WL_MLO_TID_MAP_LINK_NUM_GET(tidmap)))
+
+#define WL_MLO_TID_MAP_ADV_OFFSET_V3(tidmap) \
+	(OFFSETOF(wl_mlo_tid_map_v3_t, params))
+
+#define WL_MLO_TID_MAP_CFG_OFFSET_V3(tidmap) \
+	(OFFSETOF(wl_mlo_tid_map_v3_t, params) + \
+	(WL_MLO_TID_MAP_ADV_GET(tidmap) ? sizeof(wl_mlo_tid_map_adv_v1_t) : 0u))
+
+#define WL_MLO_LINK_TID_MAP_OFFSET_V3(tidmap) \
+	(OFFSETOF(wl_mlo_tid_map_v3_t, params) + \
+	(WL_MLO_TID_MAP_ADV_GET(tidmap) ? sizeof(wl_mlo_tid_map_adv_v1_t) : 0u) + \
+	(WL_MLO_TID_MAP_CFG_GET(tidmap) ? sizeof(wl_mlo_tid_map_cfg_v1_t) : 0u))
 
 /* MLO emlsr ctrl shift definition */
 #define WL_MLO_EMLSR_CTRL_FLAGS_MURTS_EN_SHIFT	(0u)
@@ -27514,6 +27743,11 @@ typedef struct wl_ulmu_disable_stats {
 	uint16 avg_latency;	/* Avg latency by AP to re-act for UL OFDMA disable request (ms) */
 } wl_ulmu_disable_stats_v1_t;
 
+/* Bits for configuring the feature for setting max Rx MPDU size to 4K for 160MHz
+ * association with BRCM AP
+ */
+#define WL_RXMPDU_MAXLEN_4K_EN		0x1u  /* Enable/disable the feature */
+#define WL_RXMPDU_MAXLEN_4K_ACTIVE	0x2u  /* Status to indicate if the feature is active */
 
 #define WL_TPE_TXPWR_CONFIG_VERSION_1	1u
 #define WL_TPE_TXPWR_MAX_LEN		8u
@@ -28219,7 +28453,8 @@ typedef enum wl_rffe_cmd_type {
 	WL_RFFE_CMD_ELNABYP_MODE	= 1,
 	WL_RFFE_CMD_REG			= 2,
 	WL_RFFE_CMD_ELNA_VDD_MODE	= 3,
-	WL_RFFE_CMD_DRV_STRENGTH	= 4,
+	WL_RFFE_CMD_DRV_STRENGTH        = 4,
+	WL_RFFE_CMD_RX_MODE             = 5,
 	WL_RFFE_CMD_LAST
 } wl_rffe_cmd_type_t;
 
@@ -28235,6 +28470,27 @@ typedef struct {
 	uint32	slaveid;	/**< rFEM SlaveID */
 	uint32	ds_val;		/**< drive strength code */
 } rffe_drv_strength_t;
+
+/* subcommand ids for srcb */
+enum wl_srcb_cmd_type {
+	WL_SRCB_CMD_REG = 0u,	/* get/set registers */
+	WL_SRCB_CMD_LAST
+};
+
+#define WL_SRCB_REG_VERSION_1	1u
+
+typedef struct wl_srcb_reg_v1 {
+	uint32 address;		/* address */
+	uint32 value;		/* value */
+} wl_srcb_reg_v1_t;
+
+typedef struct wl_srcb_v1 {
+	uint16  subcmd_version;		/* Version of the sub-command */
+	uint16  length;			/* Length of the particular struct being used in union */
+	union {
+		wl_srcb_reg_v1_t reg_v1;	/* reg data */
+	} u;
+} wl_srcb_v1_t;
 
 #ifndef BCMUTILS_ERR_CODES
 
@@ -29676,6 +29932,7 @@ enum wl_tpc_subcmd_ids {
 	WL_TPC_SUBCMD_VMID = 1u,		/* VMID */
 	WL_TPC_SUBCMD_VER_CHECK = 2u,		/* VER CHECK */
 	WL_TPC_SUBCMD_PACAL = 3u,		/* VER CHECK */
+	WL_TPC_SUBCMD_TXPWRINDEX = 4u	/* PHY TX BASEINDEX */
 };
 
 typedef struct wl_tpc_avvmid_info_v1 {
@@ -29719,6 +29976,8 @@ typedef struct wl_tpc_cmd_v2 {
 #define WL_TPC_CMD_IOV_VER_2		2u
 #define WL_TPC_AVVMID_IOV_VER_1		1u
 #define WL_TPC_PACAL_IOV_VER_1		1u
+#define WL_TPC_TXPWRINDEX_IOV_VER_1	1u
+
 
 /* PTM */
 #define WL_PTM_IOV_MAJOR_VER_1		1u
@@ -30468,6 +30727,9 @@ typedef struct wl_c2c_status {
  */
 #define	WL_C2C_CTRL_ENAB		0x0002u
 #define WL_C2C_CTRL_ALLOWED_MASK	(WL_C2C_CTRL_C2C_SCAN | WL_C2C_CTRL_ENAB)
+
+#define WL_C2C_CTRL_IS_C2C_SCAN(_ctrl)	(((_ctrl) & WL_C2C_CTRL_C2C_SCAN) != 0)
+#define WL_C2C_CTRL_IS_ENAB(_ctrl)	(((_ctrl) & WL_C2C_CTRL_ENAB) != 0)
 
 typedef uint32 wl_c2c_ctrl_t;		/* c2c control bit masks */
 

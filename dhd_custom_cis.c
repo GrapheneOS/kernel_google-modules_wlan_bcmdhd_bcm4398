@@ -123,13 +123,18 @@ vid_info_t vid_naming_table_4398[] = {
 	{ 3, { 0x33, 0x0a, }, { "_4398_refcard" } },
 	{ 3, { 0x51, 0x0a, }, { "_4398_refcard" } },
 
-	/* 4398b0/c0 */
+	/* 4398b0 */
 	{ 3, { 0x51, 0x97, }, { "_USI_G5BB_9751_V11" } },
 	{ 3, { 0x50, 0x97, }, { "_USI_G5BB_9750_V10" } },
 	{ 3, { 0x51, 0x98, }, { "_USI_G5RN_9851_V11" } },
 	{ 3, { 0x50, 0x98, }, { "_USI_G5RN_9850_V10" } },
 	{ 3, { 0x51, 0x99, }, { "_USI_G5SN_9951_V11" } },
 	{ 3, { 0x50, 0x99, }, { "_USI_G5SN_9950_V10" } },
+
+	/* 4398c0 */
+	{ 3, { 0x53, 0x99, }, { "_USI_G5SN_9953_V13" } },
+	{ 3, { 0x53, 0x98, }, { "_USI_G5RN_9853_V13" } },
+	{ 3, { 0x53, 0x97, }, { "_USI_G5BB_9753_V13" } },
 };
 
 #ifdef DHD_USE_CISINFO
@@ -736,19 +741,18 @@ dhd_find_naming_info_by_cid(dhd_pub_t *dhdp, char *cid_info)
  * BCME_OK on success, BCME_xxx error code on failure
  */
 int
-dhd_get_clm_name(dhd_pub_t *dhdp, char *clm_path)
+dhd_get_complete_blob_name(dhd_pub_t *dhdp, char *blob_path, char *blob_name)
 {
-	char clm_fname[MAX_FILE_LEN] = {0};
-	char clm_ext[MAX_EXTENSION] = {0};
+	char blob_fname[MAX_FILE_LEN] = {0};
+	char blob_ext[MAX_EXTENSION] = {0};
 	char chip_revstr[MAX_REVSTRING] = {0};
 	bool chiprev_found = FALSE;
 	uint chipid = si_chipid(dhdp->bus->sih);
 	uint chiprev = dhdp->bus->sih->chiprev;
-	const struct firmware *fw = NULL;
 	int i = 0, len = 0;
 
-	if (!clm_path) {
-		DHD_ERROR(("%s: null clm_path !\n", __FUNCTION__));
+	if (!blob_path) {
+		DHD_ERROR(("%s: null blob_path !\n", __FUNCTION__));
 		return BCME_BADARG;
 	}
 	if (chiprev >= MAX_REVS) {
@@ -766,34 +770,31 @@ dhd_get_clm_name(dhd_pub_t *dhdp, char *clm_path)
 		}
 	}
 
-#ifdef DHD_LINUX_STD_FW_API
-	strncpy(clm_fname, DHD_CLM_NAME, strlen(DHD_CLM_NAME));
-#else
-	strncpy(clm_fname, VENDOR_PATH CONFIG_BCMDHD_CLM_PATH, MAX_FILE_LEN);
-#endif /* DHD_LINUX_STD_FW_API */
-	len = strlen(clm_fname);
+	strncpy(blob_fname, blob_name, strlen(blob_name));
+	len = strlen(blob_fname);
 
 	if (chiprev_found) {
-		snprintf(clm_ext, MAX_EXTENSION, "_%x_%s", chipid, chip_revstr);
-		strncpy(clm_path, clm_fname, strlen(clm_fname));
-		strncat(clm_path, clm_ext, strlen(clm_ext));
+		snprintf(blob_ext, MAX_EXTENSION, "_%x_%s", chipid, chip_revstr);
+		strncpy(blob_path, blob_fname, strlen(blob_fname));
+		strncat(blob_path, blob_ext, strlen(blob_ext));
 		/* check file existence */
-		if (dhd_os_get_img_fwreq(&fw, clm_path) < 0) {
-			DHD_ERROR(("%s: %s not found, Fallback to default CLM name\n",
-				__FUNCTION__, clm_path));
-			strncpy(clm_path, clm_fname, strlen(clm_fname));
-			clm_path[len] = '\0';
+#ifdef DHD_LINUX_STD_FW_API
+		if (dhd_os_check_image_exists(dhdp, blob_path) == FALSE) {
+			DHD_ERROR(("%s: %s not found, Fallback to default BLOB name\n",
+				__FUNCTION__, blob_path));
+			strncpy(blob_path, blob_fname, strlen(blob_fname));
+			blob_path[len] = '\0';
 		}
-		dhd_os_close_img_fwreq(fw);
+#endif /* DHD_LINUX_STD_FW_API */
 	} else {
 		DHD_ERROR(("%s:failed to get chip rev str for chip id 0x%x and rev %u."
-			" Fallback to default CLM name\n",
+			" Fallback to default BLOB name\n",
 			__FUNCTION__, chipid, chiprev));
-		strncpy(clm_path, clm_fname, strlen(clm_fname));
-		clm_path[len] = '\0';
+		strncpy(blob_path, blob_fname, strlen(blob_fname));
+		blob_path[len] = '\0';
 	}
 
-	DHD_PRINT(("%s: clm path = %s\n", __FUNCTION__, clm_path));
+	DHD_PRINT(("%s: blob path = %s\n", __FUNCTION__, blob_path));
 	return BCME_OK;
 }
 
@@ -830,7 +831,6 @@ dhd_get_fw_nvram_names(dhd_pub_t *dhdp, uint chipid, uint chiprev,
 	char orig_fw_path[MAX_FILE_LEN] = {0};
 	char orig_nv_path[MAX_FILE_LEN] = {0};
 	char orig_map_path[MAX_FILE_LEN] = {0};
-	const struct firmware *fw = NULL;
 	int nvlen = 0, fwlen = 0, maplen = 0;
 
 	if (!fw_path || !nv_path || !map_path) {
@@ -910,31 +910,29 @@ dhd_get_fw_nvram_names(dhd_pub_t *dhdp, uint chipid, uint chiprev,
 			 * if not present again fall back to nvram name
 			 * with "_chipid_rev" as extension
 			 */
-			if (dhd_os_get_img_fwreq(&fw, nv_path) < 0) {
+			if (dhd_os_check_image_exists(dhdp, nv_path) == FALSE) {
 				DHD_ERROR(("%s: '%s' not found \n", __FUNCTION__, nv_path));
 				strncpy(nv_path, orig_nv_path, strlen(orig_nv_path));
 				nv_path[nvlen] = '\0';
 				strncat(nv_path, nv_ext, strlen(nv_ext));
 				DHD_ERROR(("%s: try nvram '%s'\n", __FUNCTION__, nv_path));
 			}
-			dhd_os_close_img_fwreq(fw);
 		}
 	}
 
 	/* check file existence - second level fallback to default nvram name */
-	if (dhd_os_get_img_fwreq(&fw, nv_path) < 0) {
+	if (dhd_os_check_image_exists(dhdp, nv_path) == FALSE) {
 		DHD_ERROR(("%s: '%s' not found, Fallback to default NVRAM name '%s'\n",
 			__FUNCTION__, nv_path, orig_nv_path));
 		strncpy(nv_path, orig_nv_path, strlen(orig_nv_path));
 		nv_path[nvlen] = '\0';
 	}
-	dhd_os_close_img_fwreq(fw);
 
 	if (chiprev_found) {
 		strncat(fw_path, fw_ext, strlen(fw_ext));
 		strncat(map_path, fw_ext, strlen(fw_ext));
 		/* check file existence */
-		if (dhd_os_get_img_fwreq(&fw, fw_path) < 0) {
+		if (dhd_os_check_image_exists(dhdp, fw_path) == FALSE) {
 			DHD_ERROR(("%s: '%s' not found, Fallback to default FW name '%s'\n",
 				__FUNCTION__, fw_path, orig_fw_path));
 			strncpy(fw_path, orig_fw_path, strlen(orig_fw_path));
@@ -942,7 +940,6 @@ dhd_get_fw_nvram_names(dhd_pub_t *dhdp, uint chipid, uint chiprev,
 			strncpy(map_path, orig_map_path, strlen(orig_map_path));
 			map_path[maplen] = '\0';
 		}
-		dhd_os_close_img_fwreq(fw);
 	} else {
 		DHD_ERROR(("%s:failed to get chip rev str for chip id 0x%x and rev %u."
 			" Fallback to default FW name\n",
@@ -1077,14 +1074,7 @@ concate_nvram_by_vid(dhd_pub_t *dhdp, char *nv_path, char *chipstr)
 #define MAC_BUF_SIZE 20
 #define MAC_CUSTOM_FORMAT	"%02X:%02X:%02X:%02X:%02X:%02X"
 
-/* Definitions for CIS information */
-#if defined(BCM4359_CHIP) || defined(BCM4361_CHIP) || defined(BCM4375_CHIP) || \
-	defined(BCM4389_CHIP_DEF) || defined(BCM4398_CHIP_DEF)
 #define CIS_BUF_SIZE            1280
-#else
-#define CIS_BUF_SIZE            512
-#endif /* BCM4359_CHIP */
-
 #define DUMP_CIS_SIZE	48
 
 #define CIS_TUPLE_TAG_START		0x80

@@ -2179,7 +2179,6 @@ typedef struct phy_periodic_log_cmn_v255 {
 	uint8	ofdm_desense;		/* OFDM desense */
 
 	uint8	slice;
-	uint8	dbgfw_ver;		/* version of fw/ucode for debug purposes */
 	uint8	bphy_desense;		/* BPHY desense */
 	uint8	pll_lockstatus;		/* PLL Lock status */
 
@@ -2193,7 +2192,6 @@ typedef struct phy_periodic_log_cmn_v255 {
 
 	uint8	gbd_bphy_sleep_counter;	/* gbd sleep counter */
 	uint8	gbd_ofdm_sleep_counter;	/* gbd sleep counter */
-	uint8	curr_home_channel;	/* gbd input channel from cca */
 
 	/* desense data */
 	int8	btcx_mode;		/* btcoex desense mode */
@@ -2203,10 +2201,8 @@ typedef struct phy_periodic_log_cmn_v255 {
 	uint8	current_elna_bypass;	/* init gain desense: elna bypass */
 	uint8	current_tia_idx;	/* init gain desense: tia index */
 	uint8	current_lpf_idx;	/* init gain desense: lpf index */
-	uint8	crs_auto_thresh;	/* crs auto threshold after desense */
 
 	int8	weakest_rssi;		/* weakest link RSSI */
-	uint8	noise_cal_mode;		/* noisecal mode */
 
 	bool	phycal_disable;		/* Set if calibration is disabled */
 	bool	hwpwrctrlen;		/* tx hwpwrctrl enable */
@@ -2276,6 +2272,7 @@ typedef struct phy_periodic_log_cmn_v255 {
 	int16	last_cal_temp;
 	uint8	cal_reason;		/* reason for the cal */
 	uint8	cal_suppressed_cntr_ed;	/* counter including ss, mp cals, MSB is current state */
+	uint8	noise_cal_mode;		/* noisecal mode */
 
 	/* Misc general purpose debug counters (will be used for future debugging) */
 	uint8	debug_06;
@@ -2283,16 +2280,15 @@ typedef struct phy_periodic_log_cmn_v255 {
 	uint8	debug_08;
 	uint8	debug_09;
 	uint8	debug_10;
-	uint8	debug_11;
 
 	uint32	interference_mode;	/* interference mitigation mode */
 	uint32	power_mode;		/* LP/VLP logging */
 
 	/* Misc general purpose debug counters (will be used for future debugging) */
+	uint32	debug_11;
 	uint32	debug_12;
 	uint32	debug_13;
 	uint32	debug_14;
-	uint32	debug_15;
 } phy_periodic_log_cmn_v255_t;
 
 typedef struct phy_periodic_log_core {
@@ -2745,7 +2741,13 @@ typedef struct phy_periodic_obss_stats_v255 {
 	uint16	obss_mmt_no_result_cnt;			/* mmt with no result */
 	uint16	obss_mmt_intr_err_cnt;			/* obss reg mismatch between ucode and fw */
 	uint8	obss_last_rec_bw;			/* last recommended bw to wlc-Sent to SW */
-	uint8	debug01;
+
+	/* Misc general purpose debug counters (will be used for future debugging) */
+	uint8	debug_01;
+	uint16	debug_02;
+	uint16	debug_03;
+	uint16	debug_04;
+	uint16	debug_05;
 } phy_periodic_obss_stats_v255_t;
 
 /* SmartCCA related PHY Logging */

@@ -2481,6 +2481,7 @@ dhd_update_chip_specific_tunables(dhd_pub_t *dhd)
 {
 	dhd_bus_t *bus = dhd->bus;
 	uint16 chipid = si_chipid(bus->sih);
+	uint set_ring_size_version;
 
 	dhd->htput_support = FALSE;
 #ifdef FLOW_RING_PREALLOC
@@ -2488,7 +2489,7 @@ dhd_update_chip_specific_tunables(dhd_pub_t *dhd)
 #endif /* FLOW_RING_PREALLOC */
 
 	dhd->htput_support = FALSE;
-	ring_size_alloc_version = 1;
+	set_ring_size_version = 1;
 
 	switch (chipid) {
 		/* Enable htput support for all 160Mhz chips */
@@ -2496,17 +2497,16 @@ dhd_update_chip_specific_tunables(dhd_pub_t *dhd)
 		case BCM4389_CHIP_ID:
 		case BCM4390_CHIP_GRPID:
 			dhd->htput_support = TRUE;
-			ring_size_alloc_version = 2;
+			set_ring_size_version = 2;
 #ifdef FLOW_RING_PREALLOC
 			dhd->max_prealloc_flowrings = MAX_FLOW_RINGS_V2;
 #endif /* FLOW_RING_PREALLOC */
 			break;
 		case BCM4397_CHIP_GRPID:
 			dhd->htput_support = TRUE;
-			/* For 4397/4398 use ring size version 2(2gbps) and
-			 * for next chiprev use 3(5gbps)
+			/* For 4397/4398 use ring size version 3(2.5gbps)
 			 */
-			ring_size_alloc_version = (bus->sih->chiprev == 0) ? 2 : 3;
+			set_ring_size_version = 3;
 			break;
 		default:
 			break;
@@ -2517,6 +2517,11 @@ dhd_update_chip_specific_tunables(dhd_pub_t *dhd)
 		dhd->htput_client_flowrings = HTPUT_NUM_CLIENT_FLOW_RINGS;
 		dhd->htput_total_flowrings =
 			dhd->htput_sta_flowrings + dhd->htput_client_flowrings;
+	}
+
+	/* Change ring size version only if it is 0 (not overridden by module parameter) */
+	if (!ring_size_alloc_version) {
+		ring_size_alloc_version = set_ring_size_version;
 	}
 
 	DHD_PRINT(("%s: htput_support:%d ring_size_alloc_version:%d\n",
@@ -4303,7 +4308,7 @@ dhd_get_chiprev(struct dhd_bus *bus)
 	}
 }
 #if defined(SUPPORT_MULTIPLE_REVISION)
-void dhd_reset_clm_map_path(void);
+void dhd_reset_clm_map_txcap_path(void);
 #endif /* SUPPORT_MULTIPLE_REVISION */
 
 /**
@@ -4325,7 +4330,7 @@ dhd_bus_download_firmware(struct dhd_bus *bus, osl_t *osh,
 	bus->nv_path = pnv_path;
 
 #if defined(SUPPORT_MULTIPLE_REVISION)
-	dhd_reset_clm_map_path();
+	dhd_reset_clm_map_txcap_path();
 	if (concate_revision(bus, bus->fw_path, bus->nv_path) != 0) {
 		DHD_ERROR(("%s: fail to concatnate revison \n",
 			__FUNCTION__));
@@ -5864,7 +5869,7 @@ static int
 dhdpcie_mem_dump(dhd_bus_t *bus)
 {
 	dhd_pub_t *dhdp;
-	int ret;
+	int ret = BCME_OK;
 	uint32 dhd_console_ms_prev = 0;
 	bool timeout = FALSE;
 
@@ -6001,11 +6006,15 @@ dhdpcie_mem_dump(dhd_bus_t *bus)
 		return BCME_ERROR;
 #endif /* DHD_PCIE_NATIVE_RUNTIMEPM */
 
-	ret = dhdpcie_get_mem_dump(bus);
-	if (ret) {
-		DHD_ERROR(("%s: failed to get mem dump, err=%d\n",
-			__FUNCTION__, ret));
-		goto exit;
+	if (dhdp->skip_memdump_map_read == FALSE) {
+		ret = dhdpcie_get_mem_dump(bus);
+		if (ret) {
+			DHD_ERROR(("%s: failed to get mem dump, err=%d\n", __FUNCTION__, ret));
+			goto exit;
+		}
+	} else {
+		DHD_ERROR(("%s: Skipped to get mem dump, err=%d\n", __FUNCTION__, ret));
+		dhdp->skip_memdump_map_read = FALSE;
 	}
 #ifdef DHD_DEBUG_UART
 	bus->dhd->memdump_success = TRUE;
@@ -20985,35 +20994,8 @@ dhd_pcie_debug_info_dump(dhd_pub_t *dhd)
 
 	DHD_PRINT(("\n ------- DUMPING PCIE core Registers ------- \r\n"));
 
-	DHD_PRINT(("ClkReq0(0x%x)=0x%x ClkReq1(0x%x)=0x%x ClkReq2(0x%x)=0x%x "
-		"ClkReq3(0x%x)=0x%x\n", PCIECFGREG_PHY_DBG_CLKREQ0,
-		dhd_pcie_corereg_read(dhd->bus->sih, PCIECFGREG_PHY_DBG_CLKREQ0),
-		PCIECFGREG_PHY_DBG_CLKREQ1,
-		dhd_pcie_corereg_read(dhd->bus->sih, PCIECFGREG_PHY_DBG_CLKREQ1),
-		PCIECFGREG_PHY_DBG_CLKREQ2,
-		dhd_pcie_corereg_read(dhd->bus->sih, PCIECFGREG_PHY_DBG_CLKREQ2),
-		PCIECFGREG_PHY_DBG_CLKREQ3,
-		dhd_pcie_corereg_read(dhd->bus->sih, PCIECFGREG_PHY_DBG_CLKREQ3)));
-
 #ifdef EXTENDED_PCIE_DEBUG_DUMP
 	if (dhd->bus->sih->buscorerev >= 24) {
-
-		DHD_PRINT(("ltssm_hist_0(0x%x)=0x%x ltssm_hist_1(0x%x)=0x%x "
-			"ltssm_hist_2(0x%x)=0x%x "
-			"ltssm_hist_3(0x%x)=0x%x\n", PCIECFGREG_PHY_LTSSM_HIST_0,
-			dhd_pcie_corereg_read(dhd->bus->sih, PCIECFGREG_PHY_LTSSM_HIST_0),
-			PCIECFGREG_PHY_LTSSM_HIST_1,
-			dhd_pcie_corereg_read(dhd->bus->sih, PCIECFGREG_PHY_LTSSM_HIST_1),
-			PCIECFGREG_PHY_LTSSM_HIST_2,
-			dhd_pcie_corereg_read(dhd->bus->sih, PCIECFGREG_PHY_LTSSM_HIST_2),
-			PCIECFGREG_PHY_LTSSM_HIST_3,
-			dhd_pcie_corereg_read(dhd->bus->sih, PCIECFGREG_PHY_LTSSM_HIST_3)));
-
-		DHD_PRINT(("trefup(0x%x)=0x%x trefup_ext(0x%x)=0x%x\n",
-			PCIECFGREG_TREFUP,
-			dhd_pcie_corereg_read(dhd->bus->sih, PCIECFGREG_TREFUP),
-			PCIECFGREG_TREFUP_EXT,
-			dhd_pcie_corereg_read(dhd->bus->sih, PCIECFGREG_TREFUP_EXT)));
 		DHD_PRINT(("errlog(0x%x)=0x%x errlog_addr(0x%x)=0x%x "
 			"Function_Intstatus(0x%x)=0x%x "
 			"Function_Intmask(0x%x)=0x%x Power_Intstatus(0x%x)=0x%x "

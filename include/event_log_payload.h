@@ -1507,12 +1507,12 @@ typedef struct wlc_rx_fifo_overflow_info_v1 {
 
 	uint32 rxfill[WLC_RX_FIFO_DMA_NUM];
 	uint32 dma_stall_check_rxfill[WLC_RX_FIFO_DMA_NUM];
-	uint32 rx_dma_fill_success_time[WLC_RX_FIFO_DMA_NUM];
-	uint32 rx_dma_fill_fail_time[WLC_RX_FIFO_DMA_NUM];
+	uint64 rx_dma_fill_success_time[WLC_RX_FIFO_DMA_NUM];	/* in ns */
+	uint64 rx_dma_fill_fail_time[WLC_RX_FIFO_DMA_NUM];	/* in ns */
 
 	uint32 rxposts[WLC_RX_FIFO_DMA_NUM];
 	uint32 dma_stall_check_rxposts[WLC_RX_FIFO_DMA_NUM];
-	uint32 rx_dma_posts_success_time[WLC_RX_FIFO_DMA_NUM];
+	uint64 rx_dma_posts_success_time[WLC_RX_FIFO_DMA_NUM];	/* in ns */
 
 	uint32 rx_dma_desc_count[WLC_RX_FIFO_DMA_NUM];
 } wlc_rx_fifo_overflow_info_v1_t;

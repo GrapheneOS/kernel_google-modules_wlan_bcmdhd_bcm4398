@@ -1754,6 +1754,15 @@ typedef enum clm_ru_rates {
 
 /* Number of OFDMA rate codes */
 #define WL_RU_NUMRATES 342
+#if defined(WL_ULTPC_CACHE) && !defined(WL_ULTPC_CACHE_DISABLED)
+#ifdef WL11BE
+#define PPR_HE_RUS_NUM_SHMS_PER_RATE		8u
+#define PPR_HE_RUS_MAX_NUM_SHMS_PER_RATE	8u
+#else
+#define PPR_HE_RUS_NUM_SHMS_PER_RATE		4u
+#define PPR_HE_RUS_MAX_NUM_SHMS_PER_RATE	4u
+#endif
+#endif /* WL_ULTPC_CACHE */
 
 /* MCS rates */
 #define WLC_MAX_VHT_MCS		11u	/**< Std VHT MCS 0-9 + prop VHT MCS 10-11 */

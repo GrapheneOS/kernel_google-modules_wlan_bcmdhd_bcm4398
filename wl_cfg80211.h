@@ -478,7 +478,7 @@ do {    \
 	uint64 __cur_ts = 0; \
 	__cur_ts = OSL_SYSUPTIME_US(); \
 	if (__err_ts == 0 || (__cur_ts > __err_ts && \
-		(__cur_ts - __err_ts > WL_PRINT_RATE_LIMIT_PERIOD))) { \
+	(__cur_ts - __err_ts > WL_PRINT_RATE_LIMIT_PERIOD))) { \
 		__err_ts = __cur_ts; \
 		WL_CONS_ONLY(args);        \
 		WL_CONS_ONLY(("[Repeats %u times]\n", __err_cnt)); \
@@ -2688,7 +2688,8 @@ wl_delete_all_netinfo(struct bcm_cfg80211 *cfg)
 				+ FILS_INDICATION_IE_TAG_FIXED_LEN);
 		}
 		if (_net_info->passphrase_cfg) {
-			MFREE(cfg->osh, _net_info->passphrase_cfg, _net_info->passphrase_cfg_len);
+			MFREE(cfg->osh, _net_info->passphrase_cfg,
+				_net_info->passphrase_cfg_len);
 		}
 		if (_net_info->qos_up_table) {
 			MFREE(cfg->osh, _net_info->qos_up_table, UP_TABLE_MAX);
@@ -3249,6 +3250,20 @@ wl_iftype_to_str(int wl_iftype)
 #endif /* LINUX_VERSION_CODE >= 4, 13, 0 && BCMSUP_4WAY_HANDSHAKE */
 #define WL_SUPP_PMK_LEN				32u
 
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 20, 0)) || defined(WL_MLO_BKPORT)
+#define WDEV_SSID(wdev)	wdev->u.client.ssid
+#define WDEV_SSID_LEN(wdev)	wdev->u.client.ssid_len
+#else
+#define WDEV_SSID(wdev)	wdev->ssid
+#define WDEV_SSID_LEN(wdev)	wdev->ssid_len
+#endif /* (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 20, 0)) || WL_MLO_BKPORT */
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 18, 0)) || defined(WL_MLO_BKPORT)
+#define EHT_PHY_CAP_BFE_SS_80MHZ_SUP_VAL	7
+#define EHT_PHY_CAP_BFE_SS_160MHZ_SUP_VAL	7
+#define EHT_PHY_CAP_MAX_NC_SUP_VAL	1
+#define EHT_PHY_CAP_MAX_EHT_LTF_SUP_VAL	9
+#endif /* (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 18, 0)) || WL_MLO_BKPORT */
+
 extern s32 wl_cfg80211_attach(struct net_device *ndev, void *context);
 extern void wl_cfg80211_detach(struct bcm_cfg80211 *cfg);
 
@@ -3777,6 +3792,10 @@ int wl_cfg80211_set_roam_params(struct net_device *dev, uint32 *data, uint16 dat
 
 extern void wl_cfg80211_wdev_lock(struct wireless_dev *wdev);
 extern void wl_cfg80211_wdev_unlock(struct wireless_dev *wdev);
+
+extern u8 *wl_get_up_table_netinfo(struct bcm_cfg80211 *cfg, struct net_device *ndev);
+extern void wl_store_up_table_netinfo(struct bcm_cfg80211 *cfg,
+	struct net_device *ndev, u8 *uptable);
 
 /* Added wl_reassoc_params_cvt_v1 due to mis-sync between DHD and FW
  * Because Dongle use wl_reassoc_params_v1_t for WLC_REASSOC

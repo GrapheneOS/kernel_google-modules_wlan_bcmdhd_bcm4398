@@ -493,19 +493,21 @@ typedef BWL_PRE_PACKED_STRUCT struct he_cap_ie {
 } BWL_POST_PACKED_STRUCT he_cap_ie_t;
 
 /* Multiple BSSID element */
-typedef BWL_PRE_PACKED_STRUCT struct nontrans_BSSID_cap {
+typedef BWL_PRE_PACKED_STRUCT struct nontrans_bssid_cap {
 	uint8 id; /* 83 */
 	uint8 len;
 	uint16 capability;
-} BWL_POST_PACKED_STRUCT nontrans_BSSID_cap_t;
+} BWL_POST_PACKED_STRUCT nontrans_bssid_cap_t;
+typedef nontrans_bssid_cap_t nontrans_BSSID_cap_t;
 
-typedef BWL_PRE_PACKED_STRUCT struct multi_BSSID_index {
+typedef BWL_PRE_PACKED_STRUCT struct multi_bssid_index {
 	uint8 id; /* 85 */
 	uint8 len; /* 3 in beacon, 1 in probe response */
 	uint8 bssid_index; /* between 1 and 2^n - 1 */
 	uint8 dtim_period; /* only valid in beacon */
 	uint8 dtim_count; /* only valid in beacon */
-} BWL_POST_PACKED_STRUCT multi_BSSID_index_t;
+} BWL_POST_PACKED_STRUCT multi_bssid_index_t;
+typedef multi_bssid_index_t multi_BSSID_index_t;
 
 typedef BWL_PRE_PACKED_STRUCT struct fms_descriptor {
 	uint8 id; /* 86 */
@@ -515,18 +517,22 @@ typedef BWL_PRE_PACKED_STRUCT struct fms_descriptor {
 	uint8 *FMSID;
 } BWL_POST_PACKED_STRUCT fms_descriptor_t;
 
-typedef BWL_PRE_PACKED_STRUCT struct nontrans_BSSID_profile_subie {
+typedef BWL_PRE_PACKED_STRUCT struct nontrans_bssid_profile_subie {
 	uint8 subie_id; /* 0 */
 	uint8 subie_len;
 	uint8 moreie[BCM_FLEX_ARRAY];
-} BWL_POST_PACKED_STRUCT nontrans_BSSID_profile_subie_t;
+} BWL_POST_PACKED_STRUCT nontrans_bssid_profile_subie_t;
+typedef nontrans_bssid_profile_subie_t nontrans_BSSID_profile_subie_t;
 
-typedef BWL_PRE_PACKED_STRUCT struct multi_BSSID_ie {
+#define maxBSSID_indicator maxbssid_indicator
+
+typedef BWL_PRE_PACKED_STRUCT struct multi_bssid_ie {
 	uint8 id;
 	uint8 len;
-	uint8 maxBSSID_indicator;
-	nontrans_BSSID_profile_subie_t profile[BCM_FLEX_ARRAY];
-} BWL_POST_PACKED_STRUCT multi_BSSID_ie_t;
+	uint8 maxbssid_indicator;
+	nontrans_bssid_profile_subie_t profile[BCM_FLEX_ARRAY];
+} BWL_POST_PACKED_STRUCT multi_bssid_ie_t;
+typedef multi_bssid_ie_t multi_BSSID_ie_t;
 
 #define DOT11_MULTIPLE_BSSID_PROFILE_SUBID 0
 

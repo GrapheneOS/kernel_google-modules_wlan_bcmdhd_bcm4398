@@ -128,8 +128,14 @@ dhd_ring_proc_read(struct file *file, char __user *buffer, size_t tt, loff_t *lo
 	trace_buf_info = (trace_buf_info_t *)MALLOCZ(g_dhd_pub->osh, sizeof(trace_buf_info_t));
 	if (trace_buf_info) {
 		dhd_dbg_read_ring_into_trace_buf(ring, trace_buf_info);
-		if (copy_to_user(buffer, (void*)trace_buf_info->buf, MIN(trace_buf_info->size, tt)))
-		{
+		if (!buffer || (MIN(trace_buf_info->size, tt) > TRACE_LOG_BUF_MAX_SIZE)) {
+			DHD_ERROR(("%s: size %lu tt %lu trace_buf_sz %d\n", __FUNCTION__,
+				MIN(trace_buf_info->size, tt), tt, trace_buf_info->size));
+			ret = -ENOMEM;
+			goto exit;
+		}
+		if (copy_to_user(buffer, (void*)trace_buf_info->buf,
+				MIN(trace_buf_info->size, tt))) {
 			ret = -EFAULT;
 			goto exit;
 		}
@@ -138,7 +144,7 @@ dhd_ring_proc_read(struct file *file, char __user *buffer, size_t tt, loff_t *lo
 		else
 			ret = trace_buf_info->size;
 	} else
-		DHD_ERROR(("Memory allocation Failed\n"));
+		DHD_ERROR(("%s: Memory allocation Failed\n", __FUNCTION__));
 
 exit:
 	if (trace_buf_info) {
@@ -2752,24 +2758,7 @@ static ssize_t
 trigger_dhd_dump_start_command(struct dhd_info *dhd, char *buf)
 {
 	ssize_t ret = 0;
-	dhd_pub_t *dhdp;
-	unsigned long flags = 0;
-
-	dhdp = &dhd->pub;
-
-	DHD_PRINT(("%s: dump_start command delivered.\n", __FUNCTION__));
-	DHD_GENERAL_LOCK(dhdp, flags);
-	DHD_BUS_BUSY_SET_IN_DUMP_DONGLE_MEM(&dhd->pub);
-	DHD_GENERAL_UNLOCK(dhdp, flags);
-
-	dhd_log_dump_trigger(dhdp, CMD_DEFAULT);
-
-	DHD_GENERAL_LOCK(dhdp, flags);
-	DHD_BUS_BUSY_CLEAR_IN_DUMP_DONGLE_MEM(&dhd->pub);
-	dhd_os_busbusy_wake(dhdp);
-	DHD_GENERAL_UNLOCK(dhdp, flags);
-
-	ret = scnprintf(buf, PAGE_SIZE -1, "%u\n", 0);
+	DHD_ERROR(("%s: dump_start command delivered.\n", __FUNCTION__));
 	return ret;
 }
 
@@ -2807,6 +2796,54 @@ static struct dhd_attr dhd_att_ptm_sync_periodic =
 __ATTR(ptm_sync_periodic, 0660, show_ptm_sync_periodic,
 		set_ptm_sync_periodic);
 #endif /* PCIE_FULL_DONGLE */
+
+/* show the logger_qdump debug level */
+static ssize_t
+show_log_qdump(struct dhd_info *dev, char *buf)
+{
+	dhd_info_t *dhd = (dhd_info_t *)dev;
+	dhd_pub_t *dhdp;
+	ssize_t ret = 0;
+	unsigned long val;
+
+	if (!dhd) {
+		DHD_ERROR(("%s: dhd is NULL\n", __FUNCTION__));
+		return -EINVAL;
+	}
+	dhdp = &dhd->pub;
+
+	val = dhd_log_get_qdump(dhdp->logger);
+	ret = scnprintf(buf, PAGE_SIZE - 1, "%lu \n", val);
+	return ret;
+}
+
+/* set the logger_qdump debug level */
+static ssize_t
+set_log_qdump(struct dhd_info *dev, const char *buf, size_t count)
+{
+	dhd_info_t *dhd = (dhd_info_t *)dev;
+	dhd_pub_t *dhdp;
+	int val;
+
+	if (!dhd) {
+		DHD_ERROR(("%s: dhd is NULL\n", __FUNCTION__));
+		return -EINVAL;
+	}
+
+	dhdp = &dhd->pub;
+	val = (uint32)bcm_atoi(buf);
+	if (val <= 0)
+	{
+		DHD_ERROR(("%s : invalid log qdump %u\n",
+			__FUNCTION__, val));
+		return count;
+	}
+
+	dhd_log_set_qdump(dhdp->logger, val);
+	return count;
+}
+static struct dhd_attr dhd_att_log_qdump =
+__ATTR(logger_qdump, 0660, show_log_qdump, set_log_qdump);
 
 extern bool arp_print_enabled;
 static ssize_t
@@ -2956,6 +2993,7 @@ static struct attribute *default_file_attrs[] = {
 #ifdef PCIE_FULL_DONGLE
 	&dhd_att_ptm_sync_periodic.attr,
 #endif /* PCIE_FULL_DONGLE */
+	&dhd_att_log_qdump.attr,
 	&dhd_attr_tcm_test_mode.attr,
 	&dhd_attr_arp_print.attr,
 	NULL

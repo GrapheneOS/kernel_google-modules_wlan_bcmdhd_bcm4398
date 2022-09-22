@@ -32,7 +32,6 @@
 #ifndef _dhd_h_
 #define _dhd_h_
 
-
 #if defined(__linux__)
 #include <linux/init.h>
 #include <linux/firmware.h>
@@ -100,7 +99,6 @@ int get_scheduler_policy(struct task_struct *p);
 #ifdef WL_CFGVENDOR_SEND_HANG_EVENT
 #include <dnglioctl.h>
 #endif /* WL_CFGVENDOR_SEND_HANG_EVENT */
-
 #ifdef DHD_ERPOM
 #include <pom.h>
 #ifdef PCIE_OOB
@@ -116,6 +114,7 @@ int get_scheduler_policy(struct task_struct *p);
 #include <dngl_stats.h>
 #include <hnd_pktq.h>
 
+#include <dhd_logger.h>
 #ifdef DEBUG_DPC_THREAD_WATCHDOG
 #define MAX_RESCHED_CNT 600
 #endif /* DEBUG_DPC_THREAD_WATCHDOG */
@@ -146,6 +145,9 @@ struct dhd_ts;
 #ifdef DNGL_AXI_ERROR_LOGGING
 struct dhd_axi_error_dump;
 #endif /* DNGL_AXI_ERROR_LOGGING */
+
+/* module param */
+extern int dhd_logger;
 
 /* The level of bus communication with the dongle */
 enum dhd_bus_state {
@@ -525,7 +527,28 @@ enum dhd_op_flags {
 #define CONFIG_BCMDHD_CLM_PATH ""
 #endif /* OEM_ANDROID */
 #endif /* CONFIG_BCMDHD_CLM_PATH */
+
+#ifndef CONFIG_BCMDHD_TXCAP_PATH
+#define CONFIG_BCMDHD_TXCAP_PATH "/etc/wifi/bcmdhd_txcap.blob"
+#endif /* CONFIG_BCMDHD_TXCAP_PATH */
+
 #define WL_CCODE_NULL_COUNTRY  "#n"
+
+#ifndef DHD_FW_NAME
+#define DHD_FW_NAME "fw_bcmdhd.bin"
+#endif
+#ifndef DHD_NVRAM_NAME
+#define DHD_NVRAM_NAME "bcmdhd.cal"
+#endif
+#ifndef DHD_CLM_NAME
+#define DHD_CLM_NAME "bcmdhd_clm.blob"
+#endif
+#ifndef DHD_MAP_NAME
+#define DHD_MAP_NAME "fw_bcmdhd.map"
+#endif
+#ifndef DHD_TXCAP_NAME
+#define DHD_TXCAP_NAME "bcmdhd_txcap.blob"
+#endif
 
 #ifdef DHD_EFI
 #define FW_VER_STR_LEN	256
@@ -951,10 +974,9 @@ enum {
 
 #define FW_LOGSET_MASK_ALL 0xFFFFu
 
-#if defined(CUSTOMER_HW4)
 #ifndef DHD_COMMON_DUMP_PATH
+#if defined(CUSTOMER_HW4)
 #define DHD_COMMON_DUMP_PATH	"/data/log/wifi/"
-#endif /* !DHD_COMMON_DUMP_PATH */
 #elif defined(CUSTOMER_HW2_DEBUG)
 #define DHD_COMMON_DUMP_PATH    PLATFORM_PATH
 #elif defined(BOARD_HIKEY)
@@ -968,6 +990,7 @@ enum {
 #else /* Default */
 #define DHD_COMMON_DUMP_PATH	"/root/"
 #endif /* CUSTOMER_HW4 */
+#endif /* !DHD_COMMON_DUMP_PATH */
 
 #define DHD_MEMDUMP_LONGSTR_LEN 180
 
@@ -1215,6 +1238,8 @@ typedef struct ota_update_info {
 	uint32 nvram_len;
 	uint8 *nvram_buf;
 	uint8 nvram_ext[MAX_EXT_INFO_LEN];
+	uint32 txcap_len;
+	uint8 *txcap_buf;
 } ota_update_info_t;
 #endif /* SUPPORT_OTA_UPDATE */
 
@@ -1249,6 +1274,7 @@ typedef struct dhd_pub {
 	struct dhd_prot *prot;	/* Protocol module handle */
 	struct dhd_info  *info; /* Info module handle */
 	struct dhd_dbg *dbg;	/* Debugability module handle */
+	dhd_logger_t *logger;	/* DHD logger module handle */
 #if defined(SHOW_LOGTRACE) && defined(DHD_USE_KTHREAD_FOR_LOGTRACE)
 	struct dhd_logtrace_thr_ts logtrace_thr_ts;
 #endif /* SHOW_LOGTRACE && DHD_USE_KTHREAD_FOR_LOGTRACE */
@@ -2014,6 +2040,7 @@ typedef struct dhd_pub {
 	bool assoc_at_suspend;
 #endif /* DEVICE_TX_STUCK_DETECT && ASSOC_CHECK_SR */
 	uint32 p2p_disc_busy_cnt;
+	bool skip_memdump_map_read;
 } dhd_pub_t;
 
 #if defined(__linux__)
@@ -2807,6 +2834,8 @@ static INLINE void dhd_schedule_axi_error_dump(dhd_pub_t *dhdp, void *type) { re
 #define dhd_schedule_cto_recovery(dhdp) dhdpcie_cto_recovery_handler(dhdp)
 #endif /* BCMPCIE */
 #endif /* __linux__ */
+
+bool dhd_os_check_image_exists(dhd_pub_t *pub, char *filename);
 
 #ifdef EWP_EDL
 #define EDL_SCHEDULE_DELAY 500 /* 500ms */
@@ -3628,7 +3657,7 @@ dhd_find_naming_info(dhd_pub_t *dhdp, char *module_type);
 extern naming_info_t * dhd_find_naming_info_by_chip_rev(dhd_pub_t *dhdp, bool *is_murata_fem);
 int dhd_get_fw_nvram_names(dhd_pub_t *dhdp, uint chipid, uint chiprev,
 	char *fw_path, char *nv_path, char *map_path);
-int dhd_get_clm_name(dhd_pub_t *dhdp, char *clm_path);
+int dhd_get_complete_blob_name(dhd_pub_t *dhdp, char *blob_path, char *blob_name);
 #endif /* defined(USE_CID_CHECK) */
 #ifdef USE_DIRECT_VID_TAG
 #define VENDOR_OFF 1
@@ -4662,6 +4691,10 @@ typedef wlc_sroam_info_v1_t wlc_sroam_info_t;
 #else
 #define FILE_NAME_HAL_TAG	"_hal" /* The tag name concatenated by HAL */
 #endif /* DHD_DUMP_FILE_WRITE_FROM_KERNEL */
+
+extern bool dhd_cancel_work_sync(void *work);
+extern bool dhd_cancel_delayed_work_sync(void *dwork);
+extern bool dhd_cancel_delayed_work(void *dwork);
 
 void dhd_bus_counters(dhd_pub_t *dhdp, struct bcmstrbuf *strbuf);
 

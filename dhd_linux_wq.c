@@ -188,7 +188,7 @@ dhd_deferred_work_deinit(void *work)
 	}
 
 	/* cancel the deferred work handling */
-	cancel_work_sync((struct work_struct *)deferred_work);
+	dhd_cancel_work_sync((struct work_struct *)deferred_work);
 
 	/*
 	 * free work event fifo.
