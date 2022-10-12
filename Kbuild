@@ -901,7 +901,7 @@ ifneq ($(CONFIG_SOC_GOOGLE),)
 	    DHDCFLAGS += -DBCMPCI_NOOTP_DEV_ID=0x4398 -DBCM4398_CHIP_DEF
     endif
     ifneq ($(CONFIG_BCMDHD_PCIE),)
-    ifneq ($(CONFIG_SOC_GS201),)
+    ifneq ($(filter y, $(CONFIG_SOC_GS201) $(CONFIG_SOC_ZUMA)),)
 	DHDCFLAGS += -DPCIE_CPL_TIMEOUT_RECOVERY
     endif
     endif
