@@ -5328,7 +5328,6 @@ dhd_monitor_open(struct net_device *net)
 {
 	int ret = 0;
 	dhd_info_t *dhd = DHD_MON_DEV_INFO(net);
-	int ifidx;
 
 	if (!dhd) {
 		DHD_ERROR(("%s: dhd info not available \n", __FUNCTION__));
@@ -5341,13 +5340,7 @@ dhd_monitor_open(struct net_device *net)
 		return BCME_ERROR;
 	}
 
-	ifidx = dhd_net2idx(dhd, net);
-	if (ifidx == DHD_BAD_IF) {
-		DHD_ERROR(("%s: bad ifidx\n", __FUNCTION__));
-		return BCME_ERROR;
-	}
-
-	ret = dhd_set_monitor_ioctl(&dhd->pub, ifidx, TRUE);
+	ret = dhd_set_monitor_ioctl(&dhd->pub, 0, TRUE);
 	if (ret) {
 		DHD_ERROR(("%s: Set monitor mode IOCTL failed.\n", __FUNCTION__));
 		return ret;
@@ -5361,7 +5354,6 @@ dhd_monitor_stop(struct net_device *net)
 {
 	int ret = 0;
 	dhd_info_t *dhd = DHD_MON_DEV_INFO(net);
-	int ifidx;
 
 	if (!dhd) {
 		DHD_ERROR(("%s: dhd info not available \n", __FUNCTION__));
@@ -5374,13 +5366,7 @@ dhd_monitor_stop(struct net_device *net)
 		return BCME_ERROR;
 	}
 
-	ifidx = dhd_net2idx(dhd, net);
-	if (ifidx == DHD_BAD_IF) {
-		DHD_ERROR(("%s: bad ifidx\n", __FUNCTION__));
-		return BCME_ERROR;
-	}
-
-	ret = dhd_set_monitor_ioctl(&dhd->pub, ifidx, FALSE);
+	ret = dhd_set_monitor_ioctl(&dhd->pub, 0, FALSE);
 	if (ret) {
 		DHD_ERROR(("%s: Set monitor mode IOCTL failed.\n", __FUNCTION__));
 		return ret;
