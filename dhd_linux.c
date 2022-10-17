@@ -11313,6 +11313,7 @@ dhd_optimised_preinit_ioctls(dhd_pub_t * dhd)
 
 #ifdef SUPPORT_MULTIPLE_CLMBLOB
 	char customer_clm_file_name[MAX_FILE_LEN] = {0, };
+	char customer_txcap_file_name[MAX_FILE_LEN] = {0, };
 #endif /* SUPPORT_MULTIPLE_CLMBLOB */
 	char* apply_clm;
 	char* apply_txcap;
@@ -11567,15 +11568,24 @@ dhd_optimised_preinit_ioctls(dhd_pub_t * dhd)
 		DHD_ERROR(("%s: CLM set failed. Abort initialization.\n", __FUNCTION__));
 		goto done;
 	}
-
+#ifdef SUPPORT_MULTIPLE_CLMBLOB
+	if (dhd_get_platform_naming_for_nvram_clmblob_file(TXCAP_BLOB,
+			customer_txcap_file_name) == BCME_OK) {
+		apply_txcap = customer_txcap_file_name;
+	}
+	else
+#endif /* SUPPORT_MULTIPLE_CLMBLOB */
+	{
 #if defined(SUPPORT_MULTIPLE_REVISION)
 #ifdef DHD_LINUX_STD_FW_API
-	dhd_get_complete_blob_name(dhd, txcap_path, DHD_TXCAP_NAME);
+		dhd_get_complete_blob_name(dhd, txcap_path, DHD_TXCAP_NAME);
 #else
-	dhd_get_complete_blob_name(dhd, txcap_path, VENDOR_PATH CONFIG_BCMDHD_TXCAP_PATH);
+		dhd_get_complete_blob_name(dhd, txcap_path, VENDOR_PATH CONFIG_BCMDHD_TXCAP_PATH);
 #endif /* DHD_LINUX_STD_FW_API */
 #endif /* SUPPORT_MULTIPLE_REVISION */
-	apply_txcap = txcap_path;
+		apply_txcap = txcap_path;
+	}
+
 
 	if ((ret = dhd_apply_default_txcap(dhd, apply_txcap)) < 0) {
 		DHD_ERROR(("%s: TXCAP set failed\n", __FUNCTION__));
