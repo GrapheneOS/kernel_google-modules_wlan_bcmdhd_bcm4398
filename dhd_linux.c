@@ -3362,6 +3362,7 @@ static void
 dhd_ndev_upd_features_handler(void *handle, void *event_info, u8 event)
 {
 	struct net_device *net = event_info;
+	dhd_info_t *dhd = DHD_DEV_INFO(net);
 
 	if (event != DHD_WQ_WORK_NDEV_UPD_FEATURES) {
 		DHD_ERROR(("%s: unexpected event \n", __FUNCTION__));
@@ -3371,7 +3372,17 @@ dhd_ndev_upd_features_handler(void *handle, void *event_info, u8 event)
 		DHD_ERROR(("%s: event data is null \n", __FUNCTION__));
 		return;
 	}
-	rtnl_lock();
+	/* Exit if dhd_stop is in progress which will be called with rtnl_lock */
+	while (!rtnl_trylock()) {
+		if (dhd->pub.stop_in_progress) {
+			DHD_PRINT(("%s: exit as dhd_stop in progress\n", __FUNCTION__));
+			return;
+		}
+		/* wait for 20msec and retry rtnl_lock */
+		DHD_PRINT(("%s: rtnl_lock held, wait\n", __FUNCTION__));
+		OSL_SLEEP(20);
+	}
+	DHD_PRINT(("%s: netdev_update_features\n", __FUNCTION__));
 	netdev_update_features(net);
 	rtnl_unlock();
 }
