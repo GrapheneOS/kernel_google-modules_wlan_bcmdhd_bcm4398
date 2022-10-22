@@ -370,6 +370,39 @@ channel_6g_80mhz_to_id(uint ch)
 	return -1;
 }
 
+/* return index of the 5G 160MHz channel from channel number
+ * return -1 on error
+ */
+int
+channel_5g_160mhz_to_id(uint ch)
+{
+	uint i;
+	for (i = 0; i < WF_NUM_5G_160M_CHANS; i ++) {
+		if (ch == wf_5g_160m_chans[i]) {
+			return i;
+		}
+	}
+
+	return -1;
+}
+
+/* return index of the 6G 160MHz channel from channel number
+ * return -1 on error
+ */
+int
+channel_6g_160mhz_to_id(uint ch)
+{
+	/* The 6GHz center channels start at 15, and have a spacing of 32 */
+	if (ch >= CH_MIN_6G_160M_CHANNEL &&
+	    ch <= CH_MAX_6G_160M_CHANNEL &&
+	    ((ch - CH_MIN_6G_160M_CHANNEL) % 32) == 0) {
+		return (ch - CH_MIN_6G_160M_CHANNEL) / 32;
+	}
+
+	return -1;
+}
+
+
 /* return index of the 6G 320MHz channel from channel number
  * return -1 on error
  */

@@ -1014,6 +1014,10 @@ uint8 wf_chspec_320_id2cch(chanspec_t chanspec);
 
 chanspec_t wf_create_chspec_with_center_channel(uint16 channel, bool is_6g);
 
+int channel_5g_160mhz_to_id(uint ch);
+
+int channel_6g_160mhz_to_id(uint ch);
+
 int channel_6g_320mhz_to_id(uint ch);
 #if defined(WL_BW320MHZ)
 /*

@@ -199,8 +199,11 @@ extern s32 wl_cfg80211_change_virtual_iface(struct wiphy *wiphy, struct net_devi
 	defined(WL_COMPAT_WIRELESS)
 extern s32 wl_cfg80211_start_ap(struct wiphy *wiphy, struct net_device *dev,
 		struct cfg80211_ap_settings *info);
-extern s32 wl_cfg80211_stop_ap(struct wiphy *wiphy, struct net_device *dev,
-	unsigned int link_id);
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 19, 0)) || defined(WL_MLO_BKPORT)
+extern s32 wl_cfg80211_stop_ap(struct wiphy *wiphy, struct net_device *dev, unsigned int link_id);
+#else
+extern s32 wl_cfg80211_stop_ap(struct wiphy *wiphy, struct net_device *dev);
+#endif /* LINUX_VERSION_CODE > KERNEL_VERSION(5, 19, 0) || WL_MLO_BKPORT */
 extern s32 wl_cfg80211_change_beacon(struct wiphy *wiphy, struct net_device *dev,
 	struct cfg80211_beacon_data *info);
 #else
@@ -276,4 +279,7 @@ int wl_cfg80211_set_softap_bw(struct bcm_cfg80211 *cfg, uint32 band, uint32 limi
 extern s32 wl_cfgvif_scb_authorized(struct bcm_cfg80211 *cfg, bcm_struct_cfgdev *cfgdev,
 	const wl_event_msg_t *event, void *data);
 #endif /* WL_IDAUTH */
+#ifdef WL_MLO
+extern void wl_mlo_update_linkaddr(wl_mlo_config_v1_t *mlo_config);
+#endif /* WL_MLO */
 #endif /* _wl_cfgvif_h_ */

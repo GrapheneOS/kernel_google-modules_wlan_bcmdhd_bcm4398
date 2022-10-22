@@ -401,6 +401,13 @@ dhd_get_platform_naming_for_nvram_clmblob_file(download_type_t component, char *
 		nvram_clmblob_file = VENDOR_PATH CONFIG_BCMDHD_CLM_PATH;
 #endif /* DHD_LINUX_STD_FW_API */
 	}
+	else if (component == TXCAP_BLOB) {
+#ifdef DHD_LINUX_STD_FW_API
+		nvram_clmblob_file = DHD_TXCAP_NAME;
+#else
+		nvram_clmblob_file = VENDOR_PATH CONFIG_BCMDHD_TXCAP_PATH;
+#endif /* DHD_LINUX_STD_FW_API */
+	}
 
 	for (i = 0; i < MAX_FILE_COUNT; i++) {
 		if (!isset(&platform_hw_info.avail_bmap, i)) {

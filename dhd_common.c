@@ -8491,12 +8491,17 @@ int dhd_get_download_buffer(dhd_pub_t	*dhd, char *file_path, download_type_t com
 			buf = ota_info->clm_buf;
 			len = ota_info->clm_len;
 		}
-	}
-	else if (component == NVRAM) {
+	} else if (component == NVRAM) {
 		if (ota_info->nvram_len) {
 			DHD_PRINT(("Using OTA NVRAM.\n"));
 			buf = ota_info->nvram_buf;
 			len = ota_info->nvram_len;
+		}
+	} else if (component == TXCAP_BLOB) {
+		if (ota_info->txcap_len) {
+			DHD_PRINT(("Using OTA TXCAP_BLOB\n"));
+			buf = ota_info->txcap_buf;
+			len = ota_info->txcap_len;
 		}
 	}
 #endif /* SUPPORT_OTA_UPDATE */
@@ -8961,9 +8966,103 @@ exit:
 #else
 
 int
-dhd_apply_default_txcap(dhd_pub_t  *dhd, char *path)
+dhd_apply_default_txcap(dhd_pub_t  *dhd, char *txcappath)
 {
-	return 0;
+	char *txcap_blob_path;
+	int len = 0, memblock_len = 0;
+	char *memblock = NULL;
+	int err = BCME_OK;
+	char iovbuf[WLC_IOCTL_SMLEN];
+#ifdef SUPPORT_OTA_UPDATE
+	ota_update_info_t *ota_info = &dhd->ota_update_info;
+#endif /* SUPPORT_OTA_UPDATE */
+
+	if (txcappath[0] != '\0') {
+		if (strlen(txcappath) > MOD_PARAM_PATHLEN) {
+			DHD_ERROR(("txcap path exceeds max len\n"));
+			return BCME_ERROR;
+		}
+		txcap_blob_path = txcappath;
+		DHD_TRACE(("txcap path from module param:%s\n", txcappath));
+	} else {
+		txcap_blob_path = DHD_TXCAP_NAME;
+	}
+
+#if !defined(__linux__) || defined(DHD_LINUX_STD_FW_API)
+	DHD_PRINT(("txcap blob file : %s\n", txcap_blob_path));
+	len = MAX_TXCAP_BUF_SIZE;
+	err = dhd_get_download_buffer(dhd, txcap_blob_path, TXCAP_BLOB, &memblock, &len);
+#ifdef DHD_LINUX_STD_FW_API
+	memblock_len = len;
+#else
+	memblock_len = MAX_TXCAP_BUF_SIZE;
+#endif /* DHD_LINUX_STD_FW_API */
+#else
+	memblock = dhd_os_open_image1(dhd, (char *)txcap_blob_path);
+	len = dhd_os_get_image_size(memblock);
+	BCM_REFERENCE(memblock_len);
+#endif /* !__linux__ || DHD_LINUX_STD_FW_API */
+
+	if (memblock == NULL) {
+		DHD_ERROR(("%s: memblock is NULL, exit\n", __FUNCTION__));
+		err = BCME_NOTFOUND;
+		goto exit;
+	}
+
+	if ((len > 0) && (len < MAX_TXCAP_BUF_SIZE) && memblock) {
+		/* Found blob file. Download the file */
+		DHD_TRACE(("txcap file download from %s \n", txcap_blob_path));
+		err = dhd_download_blob(dhd, (unsigned char*)memblock, len, "txcapload");
+		if (err) {
+			DHD_ERROR(("%s: TXCAP download failed err=%d\n", __FUNCTION__, err));
+			/* Retrieve clmload_status and print */
+			bzero(iovbuf, sizeof(iovbuf));
+			len = bcm_mkiovar("txcapload_status", NULL, 0, iovbuf, sizeof(iovbuf));
+			if (len == 0) {
+				err = BCME_BUFTOOSHORT;
+				goto exit;
+			}
+			err = dhd_wl_ioctl_cmd(dhd, WLC_GET_VAR, iovbuf, sizeof(iovbuf), FALSE, 0);
+			if (err) {
+				DHD_ERROR(("%s: txcapload_status get failed err=%d \n",
+					__FUNCTION__, err));
+			} else {
+				DHD_ERROR(("%s: txcapload_status: %d \n",
+					__FUNCTION__, *((int *)iovbuf)));
+				if (*((int *)iovbuf) == CHIPID_MISMATCH) {
+					DHD_ERROR(("Chip ID mismatch error \n"));
+				}
+			}
+			err = BCME_ERROR;
+			goto exit;
+		} else {
+			DHD_PRINT(("%s: TXCAP download succeeded \n", __FUNCTION__));
+		}
+	} else {
+		DHD_INFO(("Skipping the txcap download. len:%d memblk:%p \n", len, memblock));
+		err = BCME_ERROR;
+	}
+
+exit:
+
+	if (memblock) {
+#ifdef SUPPORT_OTA_UPDATE
+		if (ota_info->txcap_len) {
+			MFREE(dhd->osh, ota_info->txcap_buf, ota_info->txcap_len);
+			ota_info->txcap_len = 0;
+		}
+		else
+#endif /* SUPPORT_OTA_UPDATE */
+		{
+#if defined(__linux__) && !defined(DHD_LINUX_STD_FW_API)
+			dhd_os_close_image1(dhd, memblock);
+#else
+			dhd_free_download_buffer(dhd, memblock, memblock_len);
+#endif /* __linux__ */
+		}
+	}
+
+	return err;
 }
 
 int
@@ -9111,6 +9210,7 @@ dhd_apply_default_clm(dhd_pub_t *dhd, char *clm_path)
 		}
 	} else {
 		DHD_INFO(("Skipping the clm download. len:%d memblk:%p \n", len, memblock));
+		err = BCME_ERROR;
 	}
 
 	/* Verify country code */
@@ -12181,8 +12281,12 @@ dhd_ota_buf_clean(dhd_pub_t *dhdp)
 	if (ota_info->nvram_buf) {
 		MFREE(dhdp->osh, ota_info->nvram_buf, ota_info->nvram_len);
 	}
+	if (ota_info->txcap_buf) {
+		MFREE(dhdp->osh, ota_info->txcap_buf, ota_info->txcap_len);
+	}
 	ota_info->nvram_len = 0;
 	ota_info->clm_len = 0;
+	ota_info->txcap_len = 0;
 	return;
 }
 #endif /* SUPPORT_OTA_UPDATE */
@@ -12335,6 +12439,27 @@ exit:
 	return ret;
 }
 #endif /* DHD_CUSTOM_CONFIG_RTS_IN_SUSPEND */
+
+bool
+dhd_os_check_image_exists(dhd_pub_t *pub, char *filename)
+{
+	bool file_preset = FALSE;
+#ifdef DHD_LINUX_STD_FW_API
+	const struct firmware *fw = NULL;
+	if (dhd_os_get_img_fwreq(&fw, filename) == 0) {
+		file_preset = TRUE;
+		dhd_os_close_img_fwreq(fw);
+	}
+#else
+	void *image = NULL;
+	image = dhd_os_open_image1(pub, filename);
+	if (image) {
+		file_preset = TRUE;
+		dhd_os_close_image1(pub, image);
+	}
+#endif /* DHD_LINUX_STD_FW_API */
+	return file_preset;
+}
 
 void
 dhd_histo_update(dhd_pub_t *dhd, uint64 *histo, uint32 value)

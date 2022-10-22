@@ -586,10 +586,10 @@ typedef struct rxchain_info {
 #define RX_BUF_BURST_V2			256u	/* Rx buffers for MSDU Data */
 #define RX_BUFPOST_THRESHOLD_V2		64u	/* Rxbuf post threshold */
 
-/* Ring sizes version 3 for 5Gbps */
-#define H2DRING_TXPOST_SIZE_V3		512u
-#define H2DRING_HTPUT_TXPOST_SIZE_V3	8192u	/* ONLY for 4 320 MHz BE flowrings */
-#define D2HRING_TXCPL_SIZE_V3		8192u
+/* Ring sizes version 3 for 2.5Gbps */
+#define H2DRING_TXPOST_SIZE_V3		768u	/* To handle two 256 BA, use size > 512 */
+#define H2DRING_HTPUT_TXPOST_SIZE_V3	2048u
+#define D2HRING_TXCPL_SIZE_V3		2048u
 
 #define H2DRING_RXPOST_SIZE_V3		8192u
 #define D2HRING_RXCPL_SIZE_V3		8192u
@@ -599,6 +599,22 @@ typedef struct rxchain_info {
 
 #define RX_BUF_BURST_V3			1536u	/* Rx buffers for MSDU Data */
 #define RX_BUFPOST_THRESHOLD_V3		64u	/* Rxbuf post threshold */
+
+/* Ring sizes version 4 for 5Gbps */
+#define H2DRING_TXPOST_SIZE_V4		768u	/* To handle two 256 BA, use size > 512 */
+#define H2DRING_HTPUT_TXPOST_SIZE_V4	8192u	/* ONLY for 4 320 MHz BE flowrings */
+#define D2HRING_TXCPL_SIZE_V4		8192u
+
+#define H2DRING_RXPOST_SIZE_V4		8192u
+#define D2HRING_RXCPL_SIZE_V4		8192u
+
+#define H2DRING_CTRLPOST_SIZE_V4	128u
+#define D2HRING_CTRLCPL_SIZE_V4		64u
+
+#define RX_BUF_BURST_V4			1536u	/* Rx buffers for MSDU Data */
+#define RX_BUFPOST_THRESHOLD_V4		64u	/* Rxbuf post threshold */
+
+#define MAX_RING_SIZE_VERSION		4
 
 /* misc */
 #define MIN_HTPUT_H2DRING_RXPOST_SIZE		512u
@@ -618,6 +634,71 @@ uint d2h_max_ctrlcpl;
 
 uint rx_buf_burst;
 uint rx_bufpost_threshold;
+
+uint h2d_max_txpost_array[MAX_RING_SIZE_VERSION] =
+{
+	H2DRING_TXPOST_SIZE_V1,
+	H2DRING_TXPOST_SIZE_V2,
+	H2DRING_TXPOST_SIZE_V3,
+	H2DRING_TXPOST_SIZE_V4
+};
+uint h2d_htput_max_txpost_array[MAX_RING_SIZE_VERSION] =
+{
+	H2DRING_HTPUT_TXPOST_SIZE_V1,
+	H2DRING_HTPUT_TXPOST_SIZE_V2,
+	H2DRING_HTPUT_TXPOST_SIZE_V3,
+	H2DRING_HTPUT_TXPOST_SIZE_V4
+};
+uint d2h_max_txcpl_array[MAX_RING_SIZE_VERSION] =
+{
+	D2HRING_TXCPL_SIZE_V1,
+	D2HRING_TXCPL_SIZE_V2,
+	D2HRING_TXCPL_SIZE_V3,
+	D2HRING_TXCPL_SIZE_V4
+};
+
+uint h2d_max_rxpost_array[MAX_RING_SIZE_VERSION] =
+{
+	H2DRING_RXPOST_SIZE_V1,
+	H2DRING_RXPOST_SIZE_V2,
+	H2DRING_RXPOST_SIZE_V3,
+	H2DRING_RXPOST_SIZE_V4
+};
+uint d2h_max_rxcpl_array[MAX_RING_SIZE_VERSION] =
+{
+	D2HRING_RXCPL_SIZE_V1,
+	D2HRING_RXCPL_SIZE_V2,
+	D2HRING_RXCPL_SIZE_V3,
+	D2HRING_RXCPL_SIZE_V4
+};
+
+uint h2d_max_ctrlpost_array[MAX_RING_SIZE_VERSION] =
+{
+	H2DRING_CTRLPOST_SIZE_V1,
+	H2DRING_CTRLPOST_SIZE_V2,
+	H2DRING_CTRLPOST_SIZE_V3,
+	H2DRING_CTRLPOST_SIZE_V4
+};
+uint d2h_max_ctrlcpl_array[MAX_RING_SIZE_VERSION] = {
+	D2HRING_CTRLCPL_SIZE_V1,
+	D2HRING_CTRLCPL_SIZE_V2,
+	D2HRING_CTRLCPL_SIZE_V3,
+	D2HRING_CTRLCPL_SIZE_V4};
+
+uint rx_buf_burst_array[MAX_RING_SIZE_VERSION] =
+{
+	RX_BUF_BURST_V1,
+	RX_BUF_BURST_V2,
+	RX_BUF_BURST_V3,
+	RX_BUF_BURST_V4
+};
+uint rx_bufpost_threshold_array[MAX_RING_SIZE_VERSION] =
+{
+	RX_BUFPOST_THRESHOLD_V1,
+	RX_BUFPOST_THRESHOLD_V2,
+	RX_BUFPOST_THRESHOLD_V3,
+	RX_BUFPOST_THRESHOLD_V4
+};
 
 #ifndef DHD_RX_CPL_POST_BOUND
 #define DHD_RX_CPL_POST_BOUND		1024u
@@ -990,7 +1071,7 @@ static int dhd_msgbuf_set_ioctl(dhd_pub_t *dhd, int ifidx, uint cmd,
 	void *buf, uint len, uint8 action);
 static int dhd_msgbuf_wait_ioctl_cmplt(dhd_pub_t *dhd, uint32 len, void *buf);
 static int dhd_fillup_ioct_reqst(dhd_pub_t *dhd, uint16 len, uint cmd,
-	void *buf, int ifidx);
+	void *buf, int ifidx, uint8 action);
 static void dhd_msgbuf_dump_iovar_name(dhd_pub_t *dhd);
 
 /* Post buffers for Rx, control ioctl response and events */
@@ -1201,6 +1282,27 @@ void dhd_fill_cso_info(dhd_pub_t *dhd, void *pktbuf, void *txdesc, uint32 item_l
 #endif
 
 
+uint
+dhd_get_ring_size_from_version_array(uint cursize, uint* size_array, int version)
+{
+	uint finalsize = cursize;
+	if ((version <= 0) || (version > MAX_RING_SIZE_VERSION)) {
+		DHD_ERROR(("%s: invalid ring size version:%d\n", __FUNCTION__, version));
+		/* Return version 1 value */
+		return size_array[0];
+	}
+	/* Change each parameters only if they are 0s.
+	 * If it is non-zero means, it is overridden via module parameter.
+	 */
+	if (!finalsize) {
+		finalsize = size_array[version - 1];
+	}
+	return finalsize;
+}
+
+/*
+ * This is called during prot_attach, to set the max size if not overrided from module parameter
+ */
 void
 dhd_prot_set_ring_size_ver(dhd_pub_t *dhd, int version)
 {
@@ -1211,109 +1313,24 @@ dhd_prot_set_ring_size_ver(dhd_pub_t *dhd, int version)
 	}
 	ring_size_version = version;
 
-	/* Change each parameters only if they are 0s, non-zero means,
-	 * it is overridden via module parameter.
-	 */
-	switch (version) {
-		case 1:
-			if (!h2d_max_txpost) {
-				h2d_max_txpost = H2DRING_TXPOST_SIZE_V1;
-			}
-			if (!h2d_htput_max_txpost) {
-				h2d_htput_max_txpost = H2DRING_HTPUT_TXPOST_SIZE_V1;
-			}
-			if (!d2h_max_txcpl) {
-				d2h_max_txcpl = D2HRING_TXCPL_SIZE_V1;
-			}
-
-			if (!h2d_max_rxpost) {
-				h2d_max_rxpost = H2DRING_RXPOST_SIZE_V1;
-			}
-			if (!d2h_max_rxcpl) {
-				d2h_max_rxcpl = D2HRING_RXCPL_SIZE_V1;
-			}
-
-			if (!h2d_max_ctrlpost) {
-				h2d_max_ctrlpost = H2DRING_CTRLPOST_SIZE_V1;
-			}
-			if (!d2h_max_ctrlcpl) {
-				d2h_max_ctrlcpl = D2HRING_CTRLCPL_SIZE_V1;
-			}
-
-			if (!rx_buf_burst) {
-				rx_buf_burst = RX_BUF_BURST_V1;
-			}
-			if (!rx_bufpost_threshold) {
-				rx_bufpost_threshold = RX_BUFPOST_THRESHOLD_V1;
-			}
-			break;
-		case 2:
-			if (!h2d_max_txpost) {
-				h2d_max_txpost = H2DRING_TXPOST_SIZE_V2;
-			}
-			if (!h2d_htput_max_txpost) {
-				h2d_htput_max_txpost = H2DRING_HTPUT_TXPOST_SIZE_V2;
-			}
-			if (!d2h_max_txcpl) {
-				d2h_max_txcpl = D2HRING_TXCPL_SIZE_V2;
-			}
-
-			if (!h2d_max_rxpost) {
-				h2d_max_rxpost = H2DRING_RXPOST_SIZE_V2;
-			}
-			if (!d2h_max_rxcpl) {
-				d2h_max_rxcpl = D2HRING_RXCPL_SIZE_V2;
-			}
-
-			if (!h2d_max_ctrlpost) {
-				h2d_max_ctrlpost = H2DRING_CTRLPOST_SIZE_V2;
-			}
-			if (!d2h_max_ctrlcpl) {
-				d2h_max_ctrlcpl = D2HRING_CTRLCPL_SIZE_V2;
-			}
-
-			if (!rx_buf_burst) {
-				rx_buf_burst = RX_BUF_BURST_V2;
-			}
-			if (!rx_bufpost_threshold) {
-				rx_bufpost_threshold = RX_BUFPOST_THRESHOLD_V2;
-			}
-			break;
-		case 3:
-			if (!h2d_max_txpost) {
-				h2d_max_txpost = H2DRING_TXPOST_SIZE_V3;
-			}
-			if (!h2d_htput_max_txpost) {
-				h2d_htput_max_txpost = H2DRING_HTPUT_TXPOST_SIZE_V3;
-			}
-			if (!d2h_max_txcpl) {
-				d2h_max_txcpl = D2HRING_TXCPL_SIZE_V3;
-			}
-
-			if (!h2d_max_rxpost) {
-				h2d_max_rxpost = H2DRING_RXPOST_SIZE_V3;
-			}
-			if (!d2h_max_rxcpl) {
-				d2h_max_rxcpl = D2HRING_RXCPL_SIZE_V3;
-			}
-
-			if (!h2d_max_ctrlpost) {
-				h2d_max_ctrlpost = H2DRING_CTRLPOST_SIZE_V3;
-			}
-			if (!d2h_max_ctrlcpl) {
-				d2h_max_ctrlcpl = D2HRING_CTRLCPL_SIZE_V3;
-			}
-
-			if (!rx_buf_burst) {
-				rx_buf_burst = RX_BUF_BURST_V3;
-			}
-			if (!rx_bufpost_threshold) {
-				rx_bufpost_threshold = RX_BUFPOST_THRESHOLD_V3;
-			}
-			break;
-		default:
-			DHD_ERROR(("%s: invalid override version:%d", __FUNCTION__, version));
-	}
+	h2d_max_txpost = dhd_get_ring_size_from_version_array(
+				h2d_max_txpost, h2d_max_txpost_array, version);
+	h2d_htput_max_txpost = dhd_get_ring_size_from_version_array(
+				h2d_htput_max_txpost, h2d_htput_max_txpost_array, version);
+	d2h_max_txcpl = dhd_get_ring_size_from_version_array(
+				d2h_max_txcpl, d2h_max_txcpl_array, version);
+	h2d_max_rxpost = dhd_get_ring_size_from_version_array(
+				h2d_max_rxpost, h2d_max_rxpost_array, version);
+	d2h_max_rxcpl = dhd_get_ring_size_from_version_array(
+				d2h_max_rxcpl, d2h_max_rxcpl_array, version);
+	h2d_max_ctrlpost = dhd_get_ring_size_from_version_array(
+				h2d_max_ctrlpost, h2d_max_ctrlpost_array, version);
+	d2h_max_ctrlcpl = dhd_get_ring_size_from_version_array(
+				d2h_max_ctrlcpl, d2h_max_ctrlcpl_array, version);
+	rx_buf_burst = dhd_get_ring_size_from_version_array(
+				rx_buf_burst, rx_buf_burst_array, version);
+	rx_bufpost_threshold = dhd_get_ring_size_from_version_array(
+				rx_bufpost_threshold, rx_bufpost_threshold_array, version);
 }
 
 uint32
@@ -9060,6 +9077,12 @@ dhd_prot_ioctcmplt_process(dhd_pub_t *dhd, void *msg)
 #endif /* !IOCTLRESP_USE_CONSTMEM */
 	}
 
+	/* Do not log WLC_GET_MAGIC and WLC_GET_VERSION */
+	if (ioct_resp->cmd != WLC_GET_MAGIC && ioct_resp->cmd != WLC_GET_VERSION) {
+		DHD_LOG_IOCTL_RES(dhd->logger, ioct_resp->cmd, ltoh32(ioct_resp->cmn_hdr.if_id),
+			xt_id, prot->ioctl_status, prot->retbuf.va, prot->ioctl_resplen);
+	}
+
 	/* wake up any dhd_os_ioctl_resp_wait() */
 	dhd_wakeup_ioctl_event(dhd, IOCTL_RETURN_ON_SUCCESS);
 
@@ -11500,7 +11523,7 @@ dhd_msgbuf_query_ioctl(dhd_pub_t *dhd, int ifidx, uint cmd, void *buf, uint len,
 	dhd_start_bus_timer(dhd);
 #endif /* REPORT_FATAL_TIMEOUTS */
 
-	ret = dhd_fillup_ioct_reqst(dhd, (uint16)len, cmd, buf, ifidx);
+	ret = dhd_fillup_ioct_reqst(dhd, (uint16)len, cmd, buf, ifidx, action);
 
 #ifdef REPORT_FATAL_TIMEOUTS
 	/* For some reason if we fail to ring door bell, stop the timers */
@@ -11786,7 +11809,7 @@ dhd_msgbuf_set_ioctl(dhd_pub_t *dhd, int ifidx, uint cmd, void *buf, uint len, u
 #endif /* REPORT_FATAL_TIMEOUTS */
 
 	/* Fill up msgbuf for ioctl req */
-	ret = dhd_fillup_ioct_reqst(dhd, (uint16)len, cmd, buf, ifidx);
+	ret = dhd_fillup_ioct_reqst(dhd, (uint16)len, cmd, buf, ifidx, action);
 
 #ifdef REPORT_FATAL_TIMEOUTS
 	/* For some reason if we fail to ring door bell, stop the timers */
@@ -11862,6 +11885,10 @@ int dhd_d2h_h2d_ring_dump(dhd_pub_t *dhd, void *file, const void *user_buf,
 		goto exit;
 
 	h2d_flowrings_total = dhd_get_max_flow_rings(dhd);
+	if (!h2d_flowrings_total) {
+		DHD_ERROR(("%s() error: zero h2d_flowrings_total\n", __FUNCTION__));
+		goto exit;
+	}
 	FOREACH_RING_IN_FLOWRINGS_POOL(prot, ring, flowid, h2d_flowrings_total) {
 		if ((ret = dhd_ring_write(dhd, ring, file, user_buf, file_posn)) < 0) {
 			goto exit;
@@ -12257,7 +12284,7 @@ BCMFASTPATH(dhd_prot_alloc_ring_space)(dhd_pub_t *dhd, msgbuf_ring_t *ring,
  * buf contents from parent function is copied to remaining section of this buffer
  */
 static int
-dhd_fillup_ioct_reqst(dhd_pub_t *dhd, uint16 len, uint cmd, void* buf, int ifidx)
+dhd_fillup_ioct_reqst(dhd_pub_t *dhd, uint16 len, uint cmd, void* buf, int ifidx, uint8 action)
 {
 	dhd_prot_t *prot = dhd->prot;
 	ioctl_req_msg_t *ioct_rqst;
@@ -12370,6 +12397,12 @@ dhd_fillup_ioct_reqst(dhd_pub_t *dhd, uint16 len, uint cmd, void* buf, int ifidx
 #if defined(BCMINTERNAL) && defined(DHD_DBG_DUMP)
 	dhd_prot_ioctl_trace(dhd, ioct_rqst, buf, len);
 #endif /* defined(BCMINTERNAL) && defined(DHD_DBG_DUMP) */
+
+	/* Do not log WLC_GET_MAGIC and WLC_GET_VERSION */
+	if (cmd != WLC_GET_MAGIC && cmd != WLC_GET_VERSION) {
+		DHD_LOG_IOCTL_REQ(dhd->logger, cmd, action, ifidx, ioct_rqst->trans_id,
+			ioct_rqst->output_buf_len, ioct_buf, ioct_rqst->input_buf_len);
+	}
 
 	/* update ring's WR index and ring doorbell to dongle */
 	dhd_prot_ring_write_complete(dhd, ring, ioct_rqst, 1);
@@ -12687,6 +12720,21 @@ dhd_prot_ring_detach(dhd_pub_t *dhd, msgbuf_ring_t *ring)
 uint16
 dhd_get_max_flow_rings(dhd_pub_t *dhd)
 {
+	if (!dhd) {
+		DHD_ERROR(("%s dhd_pub_t not yet inited\n", __FUNCTION__));
+		return 0;
+	}
+
+	if (!dhd->bus) {
+		DHD_ERROR(("%s dhd_bus_t not yet inited\n", __FUNCTION__));
+		return 0;
+	}
+
+	if (!dhd->bus->max_tx_flowrings) {
+		DHD_ERROR(("%s max_tx_flowrings not inited\n", __FUNCTION__));
+		return 0;
+	}
+
 	if (dhd->bus->api.fw_rev >= PCIE_SHARED_VERSION_6)
 		return dhd->bus->max_tx_flowrings;
 	else
@@ -15374,7 +15422,13 @@ copy_hang_info_linkdown(dhd_pub_t *dhd)
 uint32
 dhd_prot_get_flow_ring_trace_len(dhd_pub_t *dhdp)
 {
-	return (dhd_get_max_flow_rings(dhdp) * TX_FLOW_RING_INDICES_TRACE_SIZE *
+	uint16 max_flow_rings;
+
+	max_flow_rings = dhd_get_max_flow_rings(dhdp);
+	if (!max_flow_rings) {
+		return 0;
+	}
+	return (max_flow_rings * TX_FLOW_RING_INDICES_TRACE_SIZE *
 		sizeof(rw_trace_t));
 }
 

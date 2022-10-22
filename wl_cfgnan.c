@@ -2092,7 +2092,7 @@ wl_cfgnan_enable_handler(wl_nan_iov_t *nan_iov_data, bool val)
 }
 
 static int
-wl_cfgnan_set_instant_chan(nan_config_cmd_data_t *cmd_data, wl_nan_iov_t *nan_iov_data)
+wl_cfgnan_set_instant_chanspec(nan_config_cmd_data_t *cmd_data, wl_nan_iov_t *nan_iov_data)
 {
 	s32 ret = BCME_OK;
 	bcm_iov_batch_subcmd_t *sub_cmd = NULL;
@@ -2112,7 +2112,7 @@ wl_cfgnan_set_instant_chan(nan_config_cmd_data_t *cmd_data, wl_nan_iov_t *nan_io
 	sub_cmd->id = htod16(WL_NAN_CMD_CFG_INSTANT_CHAN);
 	sub_cmd->len = sizeof(sub_cmd->u.options) + sizeof(chspec);
 	sub_cmd->u.options = htol32(BCM_XTLV_OPTION_ALIGN32);
-	chspec = CH20MHZ_CHSPEC(cmd_data->instant_chan);
+	chspec = cmd_data->instant_chspec;
 
 	ret = memcpy_s(sub_cmd->data, sizeof(chanspec_t),
 			(uint8*)&chspec, sizeof(chanspec_t));
@@ -2959,7 +2959,7 @@ wl_cfgnan_immediate_nan_disable_pending(struct bcm_cfg80211 *cfg)
 	if (delayed_work_pending(&cfg->nancfg->nan_disable)) {
 		WL_DBG(("Do immediate nan_disable work\n"));
 		DHD_NAN_WAKE_UNLOCK(cfg->pub);
-		if (cancel_delayed_work(&cfg->nancfg->nan_disable)) {
+		if (dhd_cancel_delayed_work(&cfg->nancfg->nan_disable)) {
 			schedule_delayed_work(&cfg->nancfg->nan_disable, 0);
 		}
 	}
@@ -2986,9 +2986,9 @@ wl_cfgnan_check_nan_disable_pending(struct bcm_cfg80211 *cfg,
 		DHD_NAN_WAKE_UNLOCK(cfg->pub);
 
 		if (is_sync_reqd == true) {
-			cancel_delayed_work_sync(&cfg->nancfg->nan_disable);
+			dhd_cancel_delayed_work_sync(&cfg->nancfg->nan_disable);
 		} else {
-			cancel_delayed_work(&cfg->nancfg->nan_disable);
+			dhd_cancel_delayed_work(&cfg->nancfg->nan_disable);
 		}
 		force_disable = true;
 	}
@@ -3069,7 +3069,7 @@ wl_cfgnan_config_nmi_rand_mac(struct net_device *ndev,
 		cfg->nancfg->nmi_rand_intvl =
 			(cmd_data->nmi_rand_intvl & NAN_NMI_RAND_INTVL_MASK);
 		if (delayed_work_pending(&cfg->nancfg->nan_nmi_rand)) {
-			cancel_delayed_work(&cfg->nancfg->nan_nmi_rand);
+			dhd_cancel_delayed_work(&cfg->nancfg->nan_nmi_rand);
 		}
 		schedule_delayed_work(&cfg->nancfg->nan_nmi_rand,
 				msecs_to_jiffies(cfg->nancfg->nmi_rand_intvl * 1000));
@@ -3081,7 +3081,7 @@ int
 wl_cfgnan_start_handler(struct net_device *ndev, struct bcm_cfg80211 *cfg,
 	nan_config_cmd_data_t *cmd_data, uint32 nan_attr_mask)
 {
-	s32 ret = BCME_OK;
+	s32 ret = BCME_OK, err = BCME_OK;
 	uint16 nan_buf_size = NAN_IOCTL_BUF_SIZE;
 	bcm_iov_batch_buf_t *nan_buf = NULL;
 	wl_nan_iov_t *nan_iov_data = NULL;
@@ -3334,8 +3334,8 @@ wl_cfgnan_start_handler(struct net_device *ndev, struct bcm_cfg80211 *cfg,
 	}
 	nan_buf->count++;
 
-	if (cmd_data->instant_chan) {
-		ret = wl_cfgnan_set_instant_chan(cmd_data, nan_iov_data);
+	if (cmd_data->instant_chspec) {
+		ret = wl_cfgnan_set_instant_chanspec(cmd_data, nan_iov_data);
 		if (unlikely(ret)) {
 			WL_ERR(("NAN 3.1 Instant disc channel sub_cmd set failed\n"));
 			goto fail;
@@ -3493,32 +3493,32 @@ wl_cfgnan_start_handler(struct net_device *ndev, struct bcm_cfg80211 *cfg,
 fail:
 	if (unlikely(ret) || unlikely(cmd_data->status)) {
 		mutex_lock(&cfg->if_sync);
-		ret = wl_cfg80211_delete_iface(cfg, WL_IF_TYPE_NAN);
-		if (ret != BCME_OK) {
-			WL_ERR(("failed to delete NDI[%d]\n", ret));
+		err = wl_cfg80211_delete_iface(cfg, WL_IF_TYPE_NAN);
+		if (err != BCME_OK) {
+			WL_ERR(("failed to delete NDI[%d]\n", err));
 		}
 		mutex_unlock(&cfg->if_sync);
 		if (delayed_work_pending(&cfg->nancfg->nan_nmi_rand)) {
-			cancel_delayed_work_sync(&cfg->nancfg->nan_nmi_rand);
+			dhd_cancel_delayed_work_sync(&cfg->nancfg->nan_nmi_rand);
 		}
 		if (nancfg->nan_ndp_peer_info) {
 			MFREE(cfg->osh, nancfg->nan_ndp_peer_info,
-					nancfg->max_ndp_count * sizeof(nan_ndp_peer_t));
+				nancfg->max_ndp_count * sizeof(nan_ndp_peer_t));
 			nancfg->nan_ndp_peer_info = NULL;
 		}
 		if (nancfg->ndi) {
 			MFREE(cfg->osh, nancfg->ndi,
-					nancfg->max_ndi_supported * sizeof(*nancfg->ndi));
+				nancfg->max_ndi_supported * sizeof(*nancfg->ndi));
 			nancfg->ndi = NULL;
 		}
 
-		ret = wl_cfgnan_stop_handler(ndev, cfg);
-		if (ret != BCME_OK) {
-			WL_ERR(("failed to stop nan[%d]\n", ret));
+		err = wl_cfgnan_stop_handler(ndev, cfg);
+		if (err != BCME_OK) {
+			WL_ERR(("failed to stop nan[%d]\n", err));
 		}
-		ret = wl_cfgnan_deinit(cfg, dhdp->up);
-		if (ret != BCME_OK) {
-			WL_ERR(("failed to de-initialize NAN[%d]\n", ret));
+		err = wl_cfgnan_deinit(cfg, dhdp->up);
+		if (err != BCME_OK) {
+			WL_ERR(("failed to de-initialize NAN[%d]\n", err));
 		}
 
 	}
@@ -3629,21 +3629,21 @@ wl_cfgnan_disable_cleanup(struct bcm_cfg80211 *cfg)
 	dhd_rtt_delete_geofence_target_list(dhdp);
 	/* Cancel pending retry timer if any */
 	if (delayed_work_pending(&rtt_status->rtt_retry_timer)) {
-		cancel_delayed_work_sync(&rtt_status->rtt_retry_timer);
+		dhd_cancel_delayed_work_sync(&rtt_status->rtt_retry_timer);
 	}
 	/* Remove if any pending proxd timeout for nan-rtt */
 	target_info = &rtt_status->rtt_config.target_info[rtt_status->cur_idx];
 	if (target_info && target_info->peer == RTT_PEER_NAN) {
 		/* Cancel pending proxd timeout work if any */
 		if (delayed_work_pending(&rtt_status->proxd_timeout)) {
-			cancel_delayed_work_sync(&rtt_status->proxd_timeout);
+			dhd_cancel_delayed_work_sync(&rtt_status->proxd_timeout);
 		}
 	}
 	/* Delete if any directed nan rtt session */
 	dhd_rtt_delete_nan_session(dhdp);
 #endif /* RTT_SUPPORT */
 	if (delayed_work_pending(&nancfg->nan_nmi_rand)) {
-		cancel_delayed_work_sync(&nancfg->nan_nmi_rand);
+		dhd_cancel_delayed_work_sync(&nancfg->nan_nmi_rand);
 	}
 	/* Clear the NDP ID array and dp count */
 	for (i = 0; i < NAN_MAX_NDP_PEER; i++) {
@@ -3911,8 +3911,8 @@ wl_cfgnan_config_handler(struct net_device *ndev, struct bcm_cfg80211 *cfg,
 	}
 
 	/* Set NAN 3.1 Instant channel */
-	if (cmd_data->instant_chan) {
-		ret = wl_cfgnan_set_instant_chan(cmd_data, nan_iov_data);
+	if (cmd_data->instant_chspec) {
+		ret = wl_cfgnan_set_instant_chanspec(cmd_data, nan_iov_data);
 		if (unlikely(ret)) {
 			WL_ERR(("NAN 3.1 Instant communication channel sub_cmd set failed\n"));
 			goto fail;
@@ -8636,7 +8636,7 @@ wl_cfgnan_reset_geofence_ranging(struct bcm_cfg80211 *cfg,
 		}
 		/* Cancel pending retry timer if any */
 		if (delayed_work_pending(&rtt_status->rtt_retry_timer)) {
-			cancel_delayed_work(&rtt_status->rtt_retry_timer);
+			dhd_cancel_delayed_work(&rtt_status->rtt_retry_timer);
 		}
 
 		/* invalidate current index as there are no targets */
@@ -9286,7 +9286,7 @@ wl_cfgnan_notify_nan_status(struct bcm_cfg80211 *cfg,
 		break;
 	}
 	default:
-		WL_ERR_RLMT(("WARNING: unimplemented NAN APP EVENT = %d\n", event_num));
+		WL_DBG_MEM(("WARNING: unimplemented NAN EVENT = %d\n", event_num));
 		ret = BCME_ERROR;
 		goto exit;
 	}
@@ -10154,7 +10154,7 @@ wl_cfgnan_register_nmi_ndev(struct bcm_cfg80211 *cfg)
 	wdev->netdev = ndev;
 	wdev->wiphy = bcmcfg_to_wiphy(cfg);
 	wdev->iftype = NL80211_IFTYPE_STATION;
- 
+
 	ret = dhd_register_net(ndev, true);
 	if (ret) {
 		WL_ERR((" NMI register_netdevice failed (%d)\n", ret));
@@ -10191,7 +10191,6 @@ wl_cfgnan_unregister_nmi_ndev(struct bcm_cfg80211 *cfg)
 
 	dhd_unregister_net(cfg->nmi_ndev, true);
 	free_netdev(cfg->nmi_ndev);
-
 	cfg->nmi_ndev = NULL;
 
 free_wdev:
@@ -10250,11 +10249,11 @@ wl_cfgnan_detach(struct bcm_cfg80211 *cfg)
 		if (delayed_work_pending(&cfg->nancfg->nan_disable)) {
 			WL_DBG(("Cancel nan_disable work\n"));
 			DHD_NAN_WAKE_UNLOCK(cfg->pub);
-			cancel_delayed_work_sync(&cfg->nancfg->nan_disable);
+			dhd_cancel_delayed_work_sync(&cfg->nancfg->nan_disable);
 		}
 		if (delayed_work_pending(&cfg->nancfg->nan_nmi_rand)) {
 			WL_DBG(("Cancel nan_nmi_rand workq\n"));
-			cancel_delayed_work_sync(&cfg->nancfg->nan_nmi_rand);
+			dhd_cancel_delayed_work_sync(&cfg->nancfg->nan_nmi_rand);
 		}
 
 #ifdef WL_NMI_IF

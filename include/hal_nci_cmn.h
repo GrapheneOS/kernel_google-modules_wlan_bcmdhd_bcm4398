@@ -198,7 +198,7 @@ typedef struct nci_error_container {
  * @brief A container for arguments passed to nci_error_logger.
  */
 typedef struct nci_error_logger_container {
-	void *osh;         /**< OS handle, or NULL for dongles with DNGL_BP_NCI enabled. */
+	void *osh;         /**< OS handle. */
 	void *wrapper;     /**< Pointer to the AXI wrapper address for this error. */
 	volatile idm_regs_t *idm_regs;  /**< Pointer to the container with e error information. */
 	nci_error_container_t *error_cont;  /**< Pointer to error container. */

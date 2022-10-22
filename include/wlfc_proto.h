@@ -125,10 +125,11 @@ typedef enum {
 
 	WLFC_CTL_TYPE_FLOWID_MAC		= 35, /* Get flow's MAC (used by WLMESH) */
 
-	WLFC_CTL_TYPE_LLW_OPEN              = 36,
-	WLFC_CTL_TYPE_LLW_CLOSE             = 37,
+	WLFC_CTL_TYPE_LLW_OPEN			= 36, /* Open LLW interface */
+	WLFC_CTL_TYPE_LLW_CLOSE			= 37, /* Close LLW interface */
 
-	WLFC_CTL_TYPE_D2HQ_STATUS             = 38,
+	WLFC_CTL_TYPE_D2HQ_STATUS		= 38,
+	WLFC_CTL_TYPE_LLW_LATENCY		= 39, /* LLW latency TLV */
 
 	WLFC_CTL_TYPE_FILLER			= 255
 } wlfc_ctl_type_t;
@@ -153,6 +154,7 @@ typedef enum {
 #define WLFC_CTL_EXT_TXSTATUS_PAYLOAD_LEN	8u	/* Payload legnth of extention tx status */
 
 #define WLFC_CTL_VALUE_LEN_LLW			8u	/** tid, ifindex, MAC */
+#define WLFC_CTL_VALUE_LEN_LLW_LATENCY		16u	/* Peer latency information */
 
 /* Reset the flags set for the corresponding flowring of the SCB which is de-inited */
 /* FLOW_RING_FLAG_LAST_TIM | FLOW_RING_FLAG_INFORM_PKTPEND | FLOW_RING_FLAG_PKT_REQ */
@@ -481,6 +483,7 @@ typedef enum {
 #define FLOW_RING_HP2P_TXQ_STRT      16u
 #define FLOW_RING_HP2P_TXQ_STOP      17u
 #define FLOW_RING_GET_TXPARAMS       18u
+#define FLOW_RING_GET_ONCHAN_TIME    19u
 
 /* bit 7, indicating if is TID(1) or AC(0) mapped info in tid field) */
 #define PCIEDEV_IS_AC_TID_MAP_MASK	0x80

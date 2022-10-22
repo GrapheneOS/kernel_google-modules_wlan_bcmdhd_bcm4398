@@ -36,39 +36,26 @@
 /* max log size */
 #define EVENT_LOG_MAX_SIZE		(64u * 1024u)
 
+#define EVENT_LOG_MIN_BLOCKS		(2u)
+
 /* We make sure that the block size will fit in a single packet
  *  (allowing for a bit of overhead on each packet
  */
+#ifndef EVENT_LOG_MAX_BLOCK_SIZE
 #if (defined(BCMPCIEDEV) && defined(BCMPCIEDEV_ENABLED)) || (defined(BCMPCIE))
 #define EVENT_LOG_MAX_BLOCK_SIZE	1832
 #else
 #define EVENT_LOG_MAX_BLOCK_SIZE	1400
 #endif
+#endif /* EVENT_LOG_MAX_BLOCK_SIZE */
 
 #define EVENT_LOG_BLOCK_SIZE_1K		0x400u
 #define EVENT_LOG_BLOCK_SIZE_512B	0x200u
 #define EVENT_LOG_BLOCK_SIZE_256B	0x100u
 #define EVENT_LOG_BLOCK_SIZE_1648B	0x670u
-#define EVENT_LOG_WL_BLOCK_SIZE		0x200
-#define EVENT_LOG_PSM_BLOCK_SIZE	0x200
-#define EVENT_LOG_MEM_API_BLOCK_SIZE	0x200
-#define EVENT_LOG_BUS_BLOCK_SIZE	0x200
-#define EVENT_LOG_ERROR_BLOCK_SIZE	0x400
-#define EVENT_LOG_MSCH_BLOCK_SIZE	0x400
-#define EVENT_LOG_WBUS_BLOCK_SIZE	0x100
-#define EVENT_LOG_PRSV_PERIODIC_BLOCK_SIZE (0x200u)
-#define EVENT_LOG_WL_BUF_SIZE		(EVENT_LOG_WL_BLOCK_SIZE * 3u)
-#define EVENT_LOG_SIB_BLOCK_SIZE	0x100
 
 #define EVENT_LOG_TOF_INLINE_BLOCK_SIZE	1300u
 #define EVENT_LOG_TOF_INLINE_BUF_SIZE (EVENT_LOG_TOF_INLINE_BLOCK_SIZE * 3u)
-
-#define EVENT_LOG_PRSRV_BUF_SIZE	(EVENT_LOG_BLOCK_SIZE_1648B * 2)
-#define EVENT_LOG_BUS_PRSRV_BUF_SIZE	(EVENT_LOG_BUS_BLOCK_SIZE * 2)
-#define EVENT_LOG_WBUS_PRSRV_BUF_SIZE	(EVENT_LOG_WBUS_BLOCK_SIZE * 2)
-
-#define EVENT_LOG_BLOCK_SIZE_PRSRV_CHATTY	(EVENT_LOG_BLOCK_SIZE_1648B * 1)
-#define EVENT_LOG_BLOCK_SIZE_BUS_PRSRV_CHATTY	(EVENT_LOG_BLOCK_SIZE_1648B * 1)
 
 /* Maximum event log record payload size = 1016 bytes or 254 words. */
 #define EVENT_LOG_MAX_RECORD_PAYLOAD_SIZE	254
@@ -226,15 +213,15 @@ typedef enum {
  * associated events (i.e, "fast" and "slow" events).
  */
 typedef struct event_log_set {
-	_EL_BLOCK_PTR first_block; 	/* Pointer to first event_log block */
-	_EL_BLOCK_PTR last_block; 	/* Pointer to last event_log block */
+	_EL_BLOCK_PTR first_block;	/* Pointer to first event_log block */
+	_EL_BLOCK_PTR last_block;	/* Pointer to last event_log block */
 	_EL_BLOCK_PTR logtrace_block;	/* next block traced */
-	_EL_BLOCK_PTR cur_block;   	/* Pointer to current event_log block */
-	_EL_TYPE_PTR cur_ptr;      	/* Current event_log pointer */
+	_EL_BLOCK_PTR cur_block;	/* Pointer to current event_log block */
+	_EL_TYPE_PTR cur_ptr;		/* Current event_log pointer */
 	uint32 blockcount;		/* Number of blocks */
 	uint16 logtrace_count;		/* Last count for logtrace */
 	uint16 blockfill_count;		/* Fill count for logtrace */
-	uint32 timestamp;		/* Last timestamp event */
+	uint32 reserved;		/* Reserved */
 	uint32 cyclecount;		/* Cycles at last timestamp event */
 	event_log_set_destination_t destination;
 	uint16 size;			/* same size for all buffers in one  set */
@@ -245,6 +232,7 @@ typedef struct event_log_set {
 	uint32 period;			/* period to flush host in ms */
 	uint32 last_rpt_ts;		/* last time to flush  in ms */
 	uint64 ets_write_ptm_time;	/* Raw PTM count in ns on PTM enabled devices */
+	uint64 timestamp;		/* Last timestamp event in ns */
 } event_log_set_t;
 
 /* Definition of flags in set */
@@ -687,10 +675,10 @@ extern void event_logn(int num_args, int tag, int fmtNum, ...);
 
 /* Use PTM based timestamping of event log records if PTM is available. */
 #if defined(GTIMER_PTM) && !defined(GTIMER_PTM_DISABLED)
-#define event_log_time_sync(ms)
+#define event_log_time_sync(ns)
 #else
-extern void event_log_time_sync(uint32 ms);
-#endif
+extern void event_log_time_sync(uint64 ns);
+#endif /* GTIMER_PTM && !GTIMER_PTM_DISABLED */
 
 extern bool event_log_time_sync_required(void);
 extern void event_log_cpu_freq_changed(void);

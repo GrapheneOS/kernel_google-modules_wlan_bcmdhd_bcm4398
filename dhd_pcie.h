@@ -1029,17 +1029,6 @@ dhd_pcie_config_read(dhd_bus_t *bus, uint offset, uint size)
 	return OSL_PCI_READ_CONFIG(bus->osh, offset, size);
 }
 
-static INLINE uint32
-dhd_pcie_corereg_read(si_t *sih, uint val)
-{
-	/* For 4375 or prior chips to 4375 */
-	if (sih->buscorerev <= 64) {
-		OSL_DELAY(100);
-	}
-	si_corereg(sih, sih->buscoreidx, PCIE_REG_OFF(ConfigIndAddr), ~0, val);
-	return si_corereg(sih, sih->buscoreidx, PCIE_REG_OFF(ConfigIndData), 0, 0);
-}
-
 extern int dhdpcie_get_fwpath_otp(dhd_bus_t *bus, char *fw_path, char *nv_path,
 		char *clm_path, char *txcap_path);
 

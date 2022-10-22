@@ -26,7 +26,6 @@
 #include <linux/module.h>
 #include <linux/netdevice.h>
 #include <net/netlink.h>
-#include <net/rtnetlink.h>
 #ifdef CONFIG_COMPAT
 #include <linux/compat.h>
 #endif

@@ -445,7 +445,7 @@ void wl_cfg80211_btcoex_kill_handler()
 		btcoex_info_loc->timer_on = 0;
 		del_timer_sync(&btcoex_info_loc->timer);
 	}
-	cancel_work_sync(&btcoex_info_loc->work);
+	dhd_cancel_work_sync(&btcoex_info_loc->work);
 	wl_cfg80211_btcoex_init_handler_status();
 }
 

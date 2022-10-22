@@ -48,16 +48,8 @@ CONFIG_BCM4398=y
 CONFIG_DHD_OF_SUPPORT=y
 ifneq ($(CONFIG_SOC_GOOGLE),)
  CONFIG_BCM4389=n
- CONFIG_BCMDHD_FW_PATH="\"/vendor/firmware/fw_bcmdhd.bin\""
- CONFIG_BCMDHD_NVRAM_PATH="\"/vendor/etc/wifi/bcmdhd.cal\""
- CONFIG_BCMDHD_CLM_PATH="\"/vendor/etc/wifi/bcmdhd_clm.blob\""
- CONFIG_BCMDHD_MAP_PATH="\"/vendor/etc/wifi/fw_bcmdhd.map\""
 else
  CONFIG_BCM4389=y
- CONFIG_BCMDHD_FW_PATH="\"/vendor/etc/wifi/fw_bcmdhd.bin\""
- CONFIG_BCMDHD_NVRAM_PATH="\"/vendor/etc/wifi/bcmdhd.cal\""
- CONFIG_BCMDHD_CLM_PATH="\"/vendor/etc/wifi/bcmdhd_clm.blob\""
- CONFIG_BCMDHD_MAP_PATH="\"/vendor/etc/wifi/fw_bcmdhd.map\""
 endif
 CONFIG_BROADCOM_WIFI_RESERVED_MEM=y
 CONFIG_DHD_USE_STATIC_BUF=y
@@ -76,10 +68,6 @@ DHDCFLAGS += -DCONFIG_BCM43752=$(CONFIG_BCM43752)
 DHDCFLAGS += -DCONFIG_BCM4389=$(CONFIG_BCM4389)
 DHDCFLAGS += -DCONFIG_BCM4398=$(CONFIG_BCM4398)
 DHDCFLAGS += -DCONFIG_DHD_OF_SUPPORT=$(CONFIG_DHD_OF_SUPPORT)
-DHDCFLAGS += -DCONFIG_BCMDHD_FW_PATH=$(CONFIG_BCMDHD_FW_PATH)
-DHDCFLAGS += -DCONFIG_BCMDHD_NVRAM_PATH=$(CONFIG_BCMDHD_NVRAM_PATH)
-DHDCFLAGS += -DCONFIG_BCMDHD_CLM_PATH=$(CONFIG_BCMDHD_CLM_PATH)
-DHDCFLAGS += -DCONFIG_BCMDHD_MAP_PATH=$(CONFIG_BCMDHD_MAP_PATH)
 DHDCFLAGS += -DCONFIG_BROADCOM_WIFI_RESERVED_MEM=$(CONFIG_BROADCOM_WIFI_RESERVED_MEM)
 DHDCFLAGS += -DCONFIG_DHD_USE_STATIC_BUF=$(CONFIG_DHD_USE_STATIC_BUF)
 DHDCFLAGS += -DCONFIG_DHD_USE_SCHED_SCAN=$(CONFIG_DHD_USE_SCHED_SCAN)
@@ -120,12 +108,35 @@ DHDCFLAGS += -DDHD_EXPORT_CNTL_FILE
 DHDCFLAGS += -DEWP_ECNTRS_LOGGING
 DHDCFLAGS += -DEWP_RTT_LOGGING
 ifneq ($(CONFIG_BCMDHD_PCIE),)
+	DHDCFLAGS += -DDHD_LINUX_STD_FW_API
 	DHDCFLAGS += -DEWP_ETD_PRSRV_LOGS
 	DHDCFLAGS += -DEWP_EDL
 	DHDCFLAGS += -DEWP_DACS
 	DHDCFLAGS += -DEWP_EVENTTS_LOG
 	DHDCFLAGS += -DEVENT_LOG_RATE_HC
 endif
+
+# if DHD_LINUX_STD_FW_API defined add only file names else add full path
+ifneq ($(filter -DDHD_LINUX_STD_FW_API, $(DHDCFLAGS)),)
+	DHDCFLAGS += -DDHD_FW_NAME="\"fw_bcmdhd.bin\""
+	DHDCFLAGS += -DDHD_NVRAM_NAME="\"bcmdhd.cal\""
+	DHDCFLAGS += -DDHD_CLM_NAME="\"bcmdhd_clm.blob\""
+	DHDCFLAGS += -DDHD_MAP_NAME="\"fw_bcmdhd.map\""
+	DHDCFLAGS += -DDHD_TXCAP_NAME="\"bcmdhd_txcap.blob\""
+else
+	CONFIG_BCMDHD_FW_PATH="\"/vendor/firmware/fw_bcmdhd.bin\""
+	CONFIG_BCMDHD_NVRAM_PATH="\"/vendor/firmware/bcmdhd.cal\""
+	CONFIG_BCMDHD_CLM_PATH="\"/vendor/firmware/bcmdhd_clm.blob\""
+	CONFIG_BCMDHD_TXCAP_PATH="\"/vendor/firmware/bcmdhd_txcap.blob\""
+	CONFIG_BCMDHD_MAP_PATH="\"/vendor/firmware/fw_bcmdhd.map\""
+
+	DHDCFLAGS += -DCONFIG_BCMDHD_FW_PATH=$(CONFIG_BCMDHD_FW_PATH)
+	DHDCFLAGS += -DCONFIG_BCMDHD_NVRAM_PATH=$(CONFIG_BCMDHD_NVRAM_PATH)
+	DHDCFLAGS += -DCONFIG_BCMDHD_CLM_PATH=$(CONFIG_BCMDHD_CLM_PATH)
+	DHDCFLAGS += -DCONFIG_BCMDHD_TXCAP_PATH=$(CONFIG_BCMDHD_TXCAP_PATH)
+	DHDCFLAGS += -DCONFIG_BCMDHD_MAP_PATH=$(CONFIG_BCMDHD_MAP_PATH)
+endif
+
 
 # Enable wakelock for legacy scan
 DHDCFLAGS += -DDHD_USE_SCAN_WAKELOCK
@@ -323,8 +334,10 @@ ifneq ($(CONFIG_FIB_RULES),)
 	DHDCFLAGS += -DDHD_HAL_RING_DUMP_MEMDUMP
 	# Pixel platform only, to support ring data flushing properly
 	DHDCFLAGS += -DDHD_DUMP_START_COMMAND
+        # MLO related back port changes
+        DHDCFLAGS += -DWL_MLO_BKPORT
     else
-        DHDCFLAGS += -DDHD_FILE_DUMP_EVENT
+	DHDCFLAGS += -DDHD_FILE_DUMP_EVENT
 	# The debug dump file path is blank in DHD, it is defined in HAL.
 	DHDCFLAGS += -DDHD_COMMON_DUMP_PATH="\"/\""
     endif
@@ -638,6 +651,8 @@ DHDCFLAGS += -DWL_NAN -DWL_NAN_DISC_CACHE -DWL_NANP2P -DNAN_DAM_ANDROID
 # NAN 3.1 specific
 DHDCFLAGS += -DWL_NAN_INSTANT_MODE
 
+DHDCFLAGS += -DFTM
+
 DHDCFLAGS += -DQOS_MAP_SET
 
 # Thermal mitigation flag
@@ -886,12 +901,7 @@ ifneq ($(CONFIG_SOC_GOOGLE),)
 	    DHDCFLAGS += -DBCMPCI_NOOTP_DEV_ID=0x4398 -DBCM4398_CHIP_DEF
     endif
     ifneq ($(CONFIG_BCMDHD_PCIE),)
-	DHDCFLAGS += -DDHD_LINUX_STD_FW_API
-	DHDCFLAGS += -DDHD_FW_NAME="\"fw_bcmdhd.bin\""
-	DHDCFLAGS += -DDHD_NVRAM_NAME="\"bcmdhd.cal\""
-	DHDCFLAGS += -DDHD_CLM_NAME="\"bcmdhd_clm.blob\""
-	DHDCFLAGS += -DDHD_MAP_NAME="\"fw_bcmdhd.map\""
-    ifneq ($(CONFIG_SOC_GS201),)
+    ifneq ($(filter y, $(CONFIG_SOC_GS201) $(CONFIG_SOC_ZUMA)),)
 	DHDCFLAGS += -DPCIE_CPL_TIMEOUT_RECOVERY
     endif
     endif
@@ -910,11 +920,6 @@ else ifneq ($(CONFIG_ARCH_HISI),)
 	    # LB RXP Flow control to avoid OOM
 	    DHDCFLAGS += -DLB_RXP_STOP_THR=200 -DLB_RXP_STRT_THR=199
         endif
-        DHDCFLAGS += -DDHD_LINUX_STD_FW_API
-        DHDCFLAGS += -DDHD_FW_NAME="\"fw_bcmdhd.bin\""
-        DHDCFLAGS += -DDHD_NVRAM_NAME="\"bcmdhd.cal\""
-        DHDCFLAGS += -DDHD_CLM_NAME="\"bcmdhd_clm.blob\""
-        DHDCFLAGS += -DDHD_MAP_NAME="\"fw_bcmdhd.map\""
         DHDCFLAGS += -DDHD_SUPPORT_VFS_CALL
         # Skip pktlogging of data packets
         DHDCFLAGS += -DDHD_SKIP_PKTLOGGING_FOR_DATA_PKTS
@@ -954,6 +959,11 @@ DHDOFILES += $(BCMINTERNAL_DHDOFILES)
 # extra Source files
 ifneq ($(filter -DSOCI_NCI_BUS, $(DHDCFLAGS)),)
 	DHDOFILES += nciutils.o nciutils_host.o
+endif
+
+# if DHD_LINUX_STD_FW_API not defined add fwpkg_utils.c
+ifeq ($(filter -DDHD_LINUX_STD_FW_API, $(DHDCFLAGS)),)
+	DHDOFILES += fwpkg_utils.o
 endif
 
 DHDOFILES += wl_roam.o

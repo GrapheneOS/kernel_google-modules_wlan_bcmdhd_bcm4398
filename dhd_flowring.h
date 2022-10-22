@@ -100,7 +100,8 @@
 #define DHD_FLOWRING_RX_BUFPOST_PKTSZ	2048
 #endif /* DHD_EFI */
 
-#define DHD_FLOWRING_RX_BUFPOST_PKTSZ_MAX 4096
+/* Increasing Max buf post to 12k to accommodate encrypted AMSDUs in monitor mode */
+#define DHD_FLOWRING_RX_BUFPOST_PKTSZ_MAX (12 * 1024u)
 
 #define DHD_FLOWRING_TX_BIG_PKT_SIZE	(3700u)
 

@@ -396,12 +396,16 @@ dhd_flow_rings_init(dhd_pub_t *dhdp, uint32 num_h2d_rings)
 
 	DHD_INFO(("%s\n", __FUNCTION__));
 
+	max_tx_flow_rings = dhd_get_max_flow_rings(dhdp);
+	if (!max_tx_flow_rings) {
+		DHD_ERROR(("%s() error: zero max_tx_flow_rings\n", __FUNCTION__));
+		goto fail;
+	}
 	/*
 	 * Only 16-bit flowid map will be allocated for actual number of Tx flowrings
 	 * excluding common rings.
-	 * Rest all flowring data structure will be allocated for all num_h2d_rings.
+	 * Reset all flowring data structure will be allocated for all num_h2d_rings.
 	 */
-	max_tx_flow_rings = dhd_get_max_flow_rings(dhdp);
 	if (dhd_flowid_map_init(dhdp, max_tx_flow_rings) != BCME_OK) {
 		DHD_ERROR(("%s: dhd_flowid_map_init failure\n", __FUNCTION__));
 		goto fail;

@@ -70,7 +70,7 @@ static DEFINE_SPINLOCK(noti_list_lock);
 			err = BCME_ERROR; \
 			return err; \
 		} \
-	} while (0)
+} while (0)
 #define DHD_RTT_CHK_SET_PARAM(param, param_cnt, targets, tlvid)  \
 	do { \
 		if ((param_cnt) >= FTM_MAX_PARAMS) { \
@@ -82,6 +82,19 @@ static DEFINE_SPINLOCK(noti_list_lock);
 				(targets), (tlvid)); \
 		}\
 	} while (0)
+
+#define DHD_RTT_AC_AZ_CHK_SET_PARAM(param, param_cnt, targets, tlvid)  \
+	do { \
+		if ((param_cnt) >= FTM_MAX_PARAMS) { \
+			DHD_RTT_ERR(("Param cnt exceeded for FTM cfg iovar\n")); \
+			err = BCME_ERROR; \
+			goto exit; \
+		} else { \
+			dhd_rtt_set_ac_az_ftm_config_param((param), &(param_cnt), \
+				(targets), (tlvid)); \
+		}\
+	} while (0)
+
 
 #define TIMESPEC64_TO_US(ts)  (((ts).tv_sec * USEC_PER_SEC) + \
 							(ts).tv_nsec / NSEC_PER_USEC)
@@ -123,6 +136,9 @@ static DEFINE_SPINLOCK(noti_list_lock);
 
 /* CUR ETH became obsolete with this major version onwards */
 #define RTT_IOV_CUR_ETH_OBSOLETE 12
+
+/* minimum WLC API version supporting 11AZ */
+#define FTM_11AZ_MIN_WLC_API 16
 
 /*
  * Parallel RTT Sessions are supported
@@ -172,6 +188,11 @@ typedef struct ftm_config_options_info {
 	uint32 flags;				/* wl_proxd_flags_t/wl_proxd_session_flags_t */
 	bool enable;
 } ftm_config_options_info_t;
+
+typedef struct ftm_ac_az_config_options_info {
+	uint64 flags;				/* wl_ftm_flags_t/wl_ftm_session_flags_t */
+	bool enable;
+} ftm_ac_az_config_options_info_t;
 
 typedef struct ftm_config_param_info {
 	uint16		tlvid;	/* mapping TLV id for the item */
@@ -736,7 +757,11 @@ rtt_alloc_getset_buf(dhd_pub_t *dhd, wl_proxd_method_t method, wl_proxd_session_
 	}
 
 	/* setup proxd-FTM-method iovar header */
-	p_proxd_iov->version = htol16(WL_PROXD_API_VERSION_3);
+	if (dhd->wlc_ver_major >= FTM_11AZ_MIN_WLC_API) {
+		p_proxd_iov->version = htol16(WL_PROXD_11AZ_API_VERSION_1);
+	} else {
+		p_proxd_iov->version = htol16(WL_PROXD_API_VERSION_3);
+	}
 	p_proxd_iov->len = htol16(proxd_iovsize); /* caller may adjust it based on #of TLVs */
 	p_proxd_iov->cmd = htol16(cmdid);
 	p_proxd_iov->method = htol16(method);
@@ -744,7 +769,14 @@ rtt_alloc_getset_buf(dhd_pub_t *dhd, wl_proxd_method_t method, wl_proxd_session_
 
 	/* initialize the reserved/dummy-TLV in iovar header */
 	p_tlv = p_proxd_iov->tlvs;
-	p_tlv->id = htol16(WL_PROXD_TLV_ID_NONE);
+#ifdef FTM
+	if (dhd->wlc_ver_major >= FTM_11AZ_MIN_WLC_API) {
+		p_tlv->id = htol16(WL_FTM_TLV_ID_NONE);
+	} else
+#endif /* FTM */
+	{
+		p_tlv->id = htol16(WL_PROXD_TLV_ID_NONE);
+	}
 	p_tlv->len = htol16(0);
 
 	*p_out_bufsize = proxd_iovsize;	/* for caller's reference */
@@ -1303,7 +1335,15 @@ dhd_rtt_ftm_enable(dhd_pub_t *dhd, bool enable)
 {
 	ftm_subcmd_info_t subcmd_info;
 	subcmd_info.name = (enable)? "enable" : "disable";
-	subcmd_info.cmdid = (enable)? WL_PROXD_CMD_ENABLE: WL_PROXD_CMD_DISABLE;
+
+#ifdef FTM
+	if (dhd->wlc_ver_major >= FTM_11AZ_MIN_WLC_API) {
+		subcmd_info.cmdid = (enable)? WL_FTM_CMD_ENABLE: WL_FTM_CMD_DISABLE;
+	} else
+#endif /* FTM */
+	{
+		subcmd_info.cmdid = (enable)? WL_PROXD_CMD_ENABLE: WL_PROXD_CMD_DISABLE;
+	}
 	subcmd_info.handler = NULL;
 	return dhd_rtt_common_set_handler(dhd, &subcmd_info,
 			WL_PROXD_METHOD_FTM, WL_PROXD_SESSION_ID_GLOBAL);
@@ -1313,11 +1353,18 @@ static int
 dhd_rtt_start_session(dhd_pub_t *dhd, wl_proxd_session_id_t session_id, bool start)
 {
 	ftm_subcmd_info_t subcmd_info;
+
 	subcmd_info.name = (start)? "start session" : "stop session";
-	subcmd_info.cmdid = (start)? WL_PROXD_CMD_START_SESSION: WL_PROXD_CMD_STOP_SESSION;
+#ifdef FTM
+	if (dhd->wlc_ver_major >= FTM_11AZ_MIN_WLC_API) {
+		subcmd_info.cmdid = (start)? WL_FTM_CMD_START_SESSION: WL_FTM_CMD_STOP_SESSION;
+	} else
+#endif /* FTM */
+	{
+		subcmd_info.cmdid = (start)? WL_PROXD_CMD_START_SESSION: WL_PROXD_CMD_STOP_SESSION;
+	}
 	subcmd_info.handler = NULL;
-	return dhd_rtt_common_set_handler(dhd, &subcmd_info,
-			WL_PROXD_METHOD_FTM, session_id);
+	return dhd_rtt_common_set_handler(dhd, &subcmd_info, WL_PROXD_METHOD_FTM, session_id);
 }
 
 static int
@@ -1325,11 +1372,147 @@ dhd_rtt_delete_session(dhd_pub_t *dhd, wl_proxd_session_id_t session_id)
 {
 	ftm_subcmd_info_t subcmd_info;
 	subcmd_info.name = "delete session";
-	subcmd_info.cmdid = WL_PROXD_CMD_DELETE_SESSION;
+
+#ifdef FTM
+	if (dhd->wlc_ver_major >= FTM_11AZ_MIN_WLC_API) {
+		subcmd_info.cmdid = WL_FTM_CMD_DELETE_SESSION;
+	} else
+#endif /* FTM */
+	{
+		subcmd_info.cmdid = WL_PROXD_CMD_DELETE_SESSION;
+	}
 	subcmd_info.handler = NULL;
-	return dhd_rtt_common_set_handler(dhd, &subcmd_info,
-			WL_PROXD_METHOD_FTM, session_id);
+	return dhd_rtt_common_set_handler(dhd, &subcmd_info, WL_PROXD_METHOD_FTM, session_id);
 }
+
+#ifdef FTM
+static int
+dhd_rtt_handle_ac_az_config_options(wl_proxd_session_id_t session_id, wl_proxd_tlv_t **p_tlv,
+	uint16 *p_buf_space_left, ftm_ac_az_config_options_info_t *ftm_configs, int ftm_cfg_cnt)
+{
+	int ret = BCME_OK;
+	int cfg_idx = 0;
+	uint64 flags = WL_FTM_FLAG_NONE;
+	uint64 flags_mask = WL_FTM_FLAG_NONE;
+	uint64 new_mask;		/* cmdline input */
+	ftm_ac_az_config_options_info_t *p_option_info;
+	uint16 type = (session_id == WL_PROXD_SESSION_ID_GLOBAL) ?
+			WL_FTM_TLV_ID_FLAGS_MASK : WL_FTM_TLV_ID_SESSION_FLAGS_MASK;
+
+	for (cfg_idx = 0; cfg_idx < ftm_cfg_cnt; cfg_idx++) {
+		p_option_info = (ftm_configs + cfg_idx);
+		if (p_option_info != NULL) {
+			new_mask = p_option_info->flags;
+			/* update flags mask */
+			flags_mask |= new_mask;
+			if (p_option_info->enable) {
+				flags |= new_mask;	/* set the bit on */
+			} else {
+				flags &= ~new_mask;	/* set the bit off */
+			}
+		}
+	}
+	flags = htol64(flags);
+	flags_mask = htol64(flags_mask);
+	/* setup flags_mask TLV */
+	ret = bcm_pack_xtlv_entry((uint8 **)p_tlv, p_buf_space_left,
+		type, sizeof(flags_mask), (uint8 *)&flags_mask, BCM_XTLV_OPTION_ALIGN32);
+	if (ret != BCME_OK) {
+		DHD_RTT_ERR(("%s : bcm_pack_xltv_entry() for mask flags failed, status=%d\n",
+			__FUNCTION__, ret));
+		goto exit;
+	}
+
+	/* setup flags TLV */
+	ret = bcm_pack_xtlv_entry((uint8 **)p_tlv, p_buf_space_left,
+			type, sizeof(flags), (uint8 *)&flags, BCM_XTLV_OPTION_ALIGN32);
+		if (ret != BCME_OK) {
+#ifdef RTT_DEBUG
+			DHD_RTT(("%s: bcm_pack_xltv_entry() for flags failed, status=%d\n",
+				__FUNCTION__, ret));
+#endif
+		}
+exit:
+	return ret;
+}
+
+static int
+dhd_rtt_handle_ac_az_config_general(wl_proxd_session_id_t session_id, wl_proxd_tlv_t **p_tlv,
+	uint16 *p_buf_space_left, ftm_config_param_info_t *ftm_configs, int ftm_cfg_cnt)
+{
+	int ret = BCME_OK;
+	int cfg_idx = 0;
+	uint32 chanspec;
+	ftm_config_param_info_t *p_config_param_info;
+	void *p_src_data;
+	uint16	src_data_size;	/* size of data pointed by p_src_data as 'source' */
+
+	for (cfg_idx = 0; cfg_idx < ftm_cfg_cnt; cfg_idx++) {
+		p_config_param_info = (ftm_configs + cfg_idx);
+		if (p_config_param_info != NULL) {
+			switch (p_config_param_info->tlvid)	{
+			case WL_FTM_TLV_ID_BSS_INDEX:
+			case WL_FTM_TLV_ID_FTM_RETRIES:
+			case WL_FTM_TLV_ID_FTM_REQ_RETRIES:
+				p_src_data = &p_config_param_info->data8;
+				src_data_size = sizeof(uint8);
+				break;
+			case WL_FTM_TLV_ID_BURST_NUM_MEAS: /* uint16 */
+			case WL_FTM_TLV_ID_NUM_BURST:
+			case WL_FTM_TLV_ID_RX_MAX_BURST:
+				p_src_data = &p_config_param_info->data16;
+				src_data_size = sizeof(uint16);
+				break;
+			case WL_FTM_TLV_ID_TX_POWER:		/* uint32 */
+			case WL_FTM_TLV_ID_RATESPEC:
+			case WL_FTM_TLV_ID_EVENT_MASK: /* wl_proxd_event_mask_t/uint32 */
+			case WL_FTM_TLV_ID_DEBUG_MASK:
+				p_src_data = &p_config_param_info->data32;
+				src_data_size = sizeof(uint32);
+				break;
+			case WL_FTM_TLV_ID_CHANSPEC:		/* chanspec_t --> 32bit */
+				chanspec = p_config_param_info->chanspec;
+				p_src_data = (void *) &chanspec;
+				src_data_size = sizeof(uint32);
+				break;
+			case WL_FTM_TLV_ID_BSSID: /* mac address */
+			case WL_FTM_TLV_ID_PEER_MAC:
+			case WL_FTM_TLV_ID_CUR_ETHER_ADDR:
+				p_src_data = &p_config_param_info->mac_addr;
+				src_data_size = sizeof(struct ether_addr);
+				break;
+			case WL_FTM_TLV_ID_BURST_DURATION:	/* wl_proxd_intvl_t */
+			case WL_FTM_TLV_ID_BURST_PERIOD:
+			case WL_FTM_TLV_ID_BURST_FTM_SEP:
+			case WL_FTM_TLV_ID_BURST_TIMEOUT:
+			case WL_FTM_TLV_ID_INIT_DELAY:
+				p_src_data = &p_config_param_info->data_intvl;
+				src_data_size = sizeof(wl_ftm_intvl_t);
+				break;
+			default:
+				ret = BCME_BADARG;
+				break;
+			}
+			if (ret != BCME_OK) {
+				DHD_RTT_ERR(("%s bad TLV ID : %d\n",
+					__FUNCTION__, p_config_param_info->tlvid));
+				break;
+			}
+
+			ret = bcm_pack_xtlv_entry((uint8 **) p_tlv, p_buf_space_left,
+				p_config_param_info->tlvid, src_data_size, (uint8 *)p_src_data,
+				BCM_XTLV_OPTION_ALIGN32);
+			if (ret != BCME_OK) {
+				DHD_RTT_ERR(("%s: bcm_pack_xltv_entry() failed,"
+					" status=%d\n", __FUNCTION__, ret));
+				break;
+			}
+
+		}
+	}
+	return ret;
+}
+#endif /* FTM */
 
 #ifdef WL_NAN
 int
@@ -1627,6 +1810,61 @@ dhd_rtt_ftm_config(dhd_pub_t *dhd, wl_proxd_session_id_t session_id,
 	return ret;
 }
 
+#ifdef FTM
+static int
+dhd_rtt_ac_az_ftm_config(dhd_pub_t *dhd, wl_proxd_session_id_t session_id,
+	void *ftm_cfg_opt, int ftm_cfg_opt_cnt, void *ftm_cfg_gen, int ftm_cfg_gen_cnt)
+{
+	ftm_subcmd_info_t subcmd_info;
+	wl_proxd_tlv_t *p_tlv;
+	/* alloc mem for ioctl headr + reserved 0 bufsize for tlvs (initialize to zero) */
+	wl_proxd_iov_t *p_proxd_iov;
+	uint16 proxd_iovsize = 0;
+	uint16 bufsize;
+	uint16 buf_space_left;
+	uint16 all_tlvsize;
+	int ret = BCME_OK;
+
+	subcmd_info.name = "config";
+	subcmd_info.cmdid = WL_FTM_CMD_CONFIG;
+
+	p_proxd_iov = rtt_alloc_getset_buf(dhd, WL_PROXD_METHOD_FTM, session_id, subcmd_info.cmdid,
+			FTM_IOC_BUFSZ, &proxd_iovsize);
+
+	if (p_proxd_iov == NULL) {
+		DHD_RTT_ERR(("%s : failed to allocate the iovar (size :%d)\n",
+			__FUNCTION__, FTM_IOC_BUFSZ));
+		return BCME_NOMEM;
+	}
+	/* setup TLVs */
+	bufsize = proxd_iovsize - WL_PROXD_IOV_HDR_SIZE; /* adjust available size for TLVs */
+	p_tlv = &p_proxd_iov->tlvs[0];
+	/* TLV buffer starts with a full size, will decrement for each packed TLV */
+	buf_space_left = bufsize;
+	if (ftm_cfg_opt) {
+		ret = dhd_rtt_handle_ac_az_config_options(session_id, &p_tlv, &buf_space_left,
+				(ftm_ac_az_config_options_info_t *)ftm_cfg_opt, ftm_cfg_opt_cnt);
+	}
+	if (ftm_cfg_gen) {
+		ret = dhd_rtt_handle_ac_az_config_general(session_id, &p_tlv, &buf_space_left,
+				(ftm_config_param_info_t *)ftm_cfg_gen, ftm_cfg_gen_cnt);
+	}
+	if (ret == BCME_OK) {
+		/* update the iov header, set len to include all TLVs + header */
+		all_tlvsize = (bufsize - buf_space_left);
+		p_proxd_iov->len = htol16(all_tlvsize + WL_PROXD_IOV_HDR_SIZE);
+		ret = dhd_iovar(dhd, 0, "proxd", (char *)p_proxd_iov,
+				all_tlvsize + WL_PROXD_IOV_HDR_SIZE, NULL, 0, TRUE);
+		if (ret != BCME_OK) {
+			DHD_RTT_ERR(("%s : failed to set config err %d\n", __FUNCTION__, ret));
+		}
+	}
+	/* clean up */
+	MFREE(dhd->osh, p_proxd_iov, proxd_iovsize);
+	return ret;
+}
+#endif /* FTM */
+
 static int
 dhd_rtt_get_version(dhd_pub_t *dhd, int *out_version)
 {
@@ -1822,7 +2060,7 @@ dhd_rtt_set_cfg(dhd_pub_t *dhd, rtt_config_params_t *params)
 	* geofence sessions in progress...for that we need to make sure
 	* work queue is IDLE & then cancel the geofence sessions
 	*/
-	cancel_work_sync(&rtt_status->work);
+	dhd_cancel_work_sync(&rtt_status->work);
 
 	mutex_lock(&rtt_status->rtt_mutex);
 
@@ -2120,7 +2358,7 @@ dhd_rtt_move_geofence_cur_target_idx_to_next(dhd_pub_t *dhd)
 			DHD_RTT_INVALID_TARGET_INDEX;
 		/* Cancel pending retry timer if any */
 		if (delayed_work_pending(&rtt_status->rtt_retry_timer)) {
-			cancel_delayed_work(&rtt_status->rtt_retry_timer);
+			dhd_cancel_delayed_work(&rtt_status->rtt_retry_timer);
 		}
 		return;
 	}
@@ -2687,7 +2925,7 @@ dhd_rtt_stop(dhd_pub_t *dhd, struct ether_addr *mac_list, int mac_cnt)
 		rtt_status->cur_idx = 0;
 		/* Cancel pending proxd timeout work if any */
 		if (delayed_work_pending(&rtt_status->proxd_timeout)) {
-			cancel_delayed_work(&rtt_status->proxd_timeout);
+			dhd_cancel_delayed_work(&rtt_status->proxd_timeout);
 		}
 		dhd_rtt_delete_session(dhd, FTM_DEFAULT_SESSION);
 #ifdef WL_NAN
@@ -3041,6 +3279,161 @@ dhd_rtt_set_ftm_config_param(ftm_config_param_info_t *ftm_params,
 	return;
 }
 
+#ifdef FTM
+static void
+dhd_rtt_set_ac_az_ftm_config_param(ftm_config_param_info_t *ftm_params,
+	int *ftm_param_cnt, rtt_target_info_t *rtt_target, uint16 tlvid)
+{
+	char eabuf[ETHER_ADDR_STR_LEN];
+	char chanbuf[CHANSPEC_STR_LEN];
+	uint32 num_ftm_pref = rtt_target->num_frames_per_burst;
+
+	switch (tlvid) {
+		case WL_FTM_TLV_ID_CUR_ETHER_ADDR:
+			/* local mac address */
+			if (!ETHER_ISNULLADDR(rtt_target->local_addr.octet)) {
+				ftm_params[*ftm_param_cnt].mac_addr = rtt_target->local_addr;
+				ftm_params[*ftm_param_cnt].tlvid = WL_FTM_TLV_ID_CUR_ETHER_ADDR;
+				*ftm_param_cnt = *ftm_param_cnt + 1;
+				bcm_ether_ntoa(&rtt_target->local_addr, eabuf);
+				DHD_RTT((">\t local %s\n", eabuf));
+			}
+			break;
+		case WL_FTM_TLV_ID_PEER_MAC:
+			/* target's mac address */
+			if (!ETHER_ISNULLADDR(rtt_target->addr.octet)) {
+				ftm_params[*ftm_param_cnt].mac_addr = rtt_target->addr;
+				ftm_params[*ftm_param_cnt].tlvid = WL_FTM_TLV_ID_PEER_MAC;
+				*ftm_param_cnt = *ftm_param_cnt + 1;
+				bcm_ether_ntoa(&rtt_target->addr, eabuf);
+				DHD_RTT((">\t target %s\n", eabuf));
+			}
+			break;
+		case WL_FTM_TLV_ID_CHANSPEC:
+			/* target's chanspec */
+			if (rtt_target->chanspec) {
+				ftm_params[*ftm_param_cnt].chanspec =
+					htol32((uint32)rtt_target->chanspec);
+				ftm_params[*ftm_param_cnt].tlvid = WL_FTM_TLV_ID_CHANSPEC;
+				*ftm_param_cnt = *ftm_param_cnt + 1;
+				wf_chspec_ntoa(rtt_target->chanspec, chanbuf);
+				DHD_RTT((">\t chanspec : %s\n", chanbuf));
+			}
+			break;
+		case WL_FTM_TLV_ID_NUM_BURST:
+			/* num-burst */
+			if (rtt_target->num_burst) {
+				ftm_params[*ftm_param_cnt].data16 = htol16(rtt_target->num_burst);
+				ftm_params[*ftm_param_cnt].tlvid = WL_FTM_TLV_ID_NUM_BURST;
+				*ftm_param_cnt = *ftm_param_cnt + 1;
+				DHD_RTT((">\t num of burst : %d\n", rtt_target->num_burst));
+			}
+			break;
+		case WL_FTM_TLV_ID_BURST_NUM_MEAS:
+			/* number of frame per burst */
+			/* get pref num_ftm based on chanspec */
+			ftm_params[*ftm_param_cnt].data16 = htol16(num_ftm_pref);
+			ftm_params[*ftm_param_cnt].tlvid =
+				WL_FTM_TLV_ID_BURST_NUM_MEAS;
+			*ftm_param_cnt = *ftm_param_cnt + 1;
+			DHD_RTT((">\t number of frame per burst : %d\n",
+				rtt_target->num_frames_per_burst));
+			break;
+		case WL_FTM_TLV_ID_FTM_RETRIES:
+			/* FTM retry count */
+			if (rtt_target->num_retries_per_ftm) {
+				ftm_params[*ftm_param_cnt].data8 = rtt_target->num_retries_per_ftm;
+				ftm_params[*ftm_param_cnt].tlvid = WL_FTM_TLV_ID_FTM_RETRIES;
+				*ftm_param_cnt = *ftm_param_cnt + 1;
+				DHD_RTT((">\t retry count of FTM  : %d\n",
+					rtt_target->num_retries_per_ftm));
+			}
+			break;
+		case WL_FTM_TLV_ID_FTM_REQ_RETRIES:
+			/* FTM Request retry count */
+			if (rtt_target->num_retries_per_ftmr) {
+				ftm_params[*ftm_param_cnt].data8 = rtt_target->num_retries_per_ftmr;
+				ftm_params[*ftm_param_cnt].tlvid =
+					WL_FTM_TLV_ID_FTM_REQ_RETRIES;
+				*ftm_param_cnt = *ftm_param_cnt + 1;
+				DHD_RTT((">\t retry count of FTM Req : %d\n",
+					rtt_target->num_retries_per_ftmr));
+			}
+			break;
+		case WL_FTM_TLV_ID_BURST_PERIOD:
+			/* burst-period */
+			if (rtt_target->burst_period) {
+				ftm_params[*ftm_param_cnt].data_intvl.intvl =
+					htol32(rtt_target->burst_period); /* ms */
+				ftm_params[*ftm_param_cnt].data_intvl.tmu = WL_FTM_TMU_MILLI_SEC;
+				ftm_params[*ftm_param_cnt].tlvid = WL_FTM_TLV_ID_BURST_PERIOD;
+				*ftm_param_cnt = *ftm_param_cnt + 1;
+				DHD_RTT((">\t burst period : %d ms\n", rtt_target->burst_period));
+			}
+			break;
+		case WL_FTM_TLV_ID_BURST_DURATION:
+			/* burst-duration */
+			rtt_target->burst_duration = FTM_MAX_BURST_DUR_TMO_MS;
+			if (rtt_target->burst_duration) {
+				ftm_params[*ftm_param_cnt].data_intvl.intvl =
+					htol32(rtt_target->burst_duration); /* ms */
+				ftm_params[*ftm_param_cnt].data_intvl.tmu = WL_FTM_TMU_MILLI_SEC;
+				ftm_params[*ftm_param_cnt].tlvid = WL_FTM_TLV_ID_BURST_DURATION;
+				*ftm_param_cnt = *ftm_param_cnt + 1;
+				DHD_RTT((">\t burst duration : %d ms\n",
+					rtt_target->burst_duration));
+			}
+			break;
+		case WL_FTM_TLV_ID_BURST_TIMEOUT:
+			/* burst-timeout */
+			rtt_target->burst_timeout = FTM_MAX_BURST_DUR_TMO_MS;
+			if (rtt_target->burst_timeout) {
+				ftm_params[*ftm_param_cnt].data_intvl.intvl =
+					htol32(rtt_target->burst_timeout); /* ms */
+				ftm_params[*ftm_param_cnt].data_intvl.tmu = WL_FTM_TMU_MILLI_SEC;
+				ftm_params[*ftm_param_cnt].tlvid = WL_FTM_TLV_ID_BURST_TIMEOUT;
+				*ftm_param_cnt = *ftm_param_cnt + 1;
+				DHD_RTT((">\t burst timeout : %d ms\n",
+					rtt_target->burst_timeout));
+			}
+			break;
+		case WL_FTM_TLV_ID_RATESPEC:
+			dhd_rtt_set_ftm_config_ratespec(ftm_params,
+				ftm_param_cnt, rtt_target);
+			break;
+		case WL_FTM_TLV_ID_EVENT_MASK:
+			{
+				/* set burst end and session end in ev mask by def */
+				uint32 event_mask = ((1 << WL_FTM_EVENT_BURST_END) |
+						(1 << WL_FTM_EVENT_SESSION_END));
+#ifdef WL_RTT_LCI
+				/* LCI request */
+				if (rtt_target && rtt_target->LCI_request) {
+					event_mask |= (1 << WL_FTM_EVENT_LCI_MEAS_REP);
+				}
+				/* LCR request (CIVIC) */
+				if (rtt_target && rtt_target->LCR_request) {
+					event_mask |= (1 << WL_FTM_EVENT_CIVIC_MEAS_REP);
+				}
+#endif /* WL_RTT_LCI */
+				/* only burst end for directed nan-rtt target */
+				if (rtt_target && (rtt_target->peer == RTT_PEER_NAN)) {
+					event_mask = (1 << WL_FTM_EVENT_BURST_END);
+				}
+				ftm_params[*ftm_param_cnt].event_mask = event_mask;
+				ftm_params[*ftm_param_cnt].tlvid = WL_FTM_TLV_ID_EVENT_MASK;
+				*ftm_param_cnt = *ftm_param_cnt + 1;
+			}
+			break;
+		default:
+			DHD_RTT_ERR(("Invalid FTM Param Config, tlvid = %d\n", tlvid));
+			break;
+	}
+
+	return;
+}
+#endif /* FTM */
+
 /* API to configure a legacy/sta RTT session.
  * @rtt_target will be having the user configuration for RTT session
  */
@@ -3170,6 +3563,113 @@ exit:
 	return err;
 }
 
+#ifdef FTM
+/* API to configure a legacy/sta RTT session.
+ * @rtt_target will be having the user configuration for RTT session
+ */
+static int
+dhd_rtt_ac_az_config_sta_rtt(dhd_pub_t *dhd, struct net_device *dev,
+	rtt_target_info_t *rtt_target)
+{
+	int ftm_cfg_cnt = 0;
+	ftm_ac_az_config_options_info_t ftm_configs[FTM_MAX_CONFIGS];
+	ftm_config_param_info_t ftm_params[FTM_MAX_PARAMS];
+	int ftm_param_cnt = 0;
+	int err = BCME_OK;
+	uint8 err_at = 0;
+	u8 ioctl_buf[WLC_IOCTL_SMLEN];
+
+	memset(ftm_configs, 0, sizeof(ftm_configs));
+	memset(ftm_params, 0, sizeof(ftm_params));
+
+	/* configure the session 1 as initiator */
+	ftm_configs[ftm_cfg_cnt].enable = TRUE;
+	ftm_configs[ftm_cfg_cnt].flags =
+		WL_FTM_SESSION_FLAG_INITIATOR | WL_FTM_SESSION_FLAG_RANDMAC;
+	if (rtt_target->type == RTT_ONE_WAY) {
+		ftm_configs[ftm_cfg_cnt].flags |= WL_FTM_SESSION_FLAG_ONE_WAY;
+	}
+#ifdef WL_RTT_LCI
+	/* LCI request */
+	if (rtt_target->LCI_request) {
+		ftm_configs[ftm_cfg_cnt].flags |= WL_FTM_SESSION_FLAG_REQ_LCI;
+	}
+	/* LCR request (CIVIC) */
+	if (rtt_target->LCR_request) {
+		ftm_configs[ftm_cfg_cnt].flags |= WL_FTM_SESSION_FLAG_REQ_CIV;
+	}
+#endif /* WL_RTT_LCI */
+	ftm_cfg_cnt++;
+
+	memset(ioctl_buf, 0, WLC_IOCTL_SMLEN);
+	/* target's mac address */
+	DHD_RTT_AC_AZ_CHK_SET_PARAM(ftm_params, ftm_param_cnt,
+		rtt_target, WL_FTM_TLV_ID_PEER_MAC);
+
+	/* target's chanspec */
+	DHD_RTT_AC_AZ_CHK_SET_PARAM(ftm_params, ftm_param_cnt,
+		rtt_target, WL_FTM_TLV_ID_CHANSPEC);
+
+	/* num-burst */
+	DHD_RTT_AC_AZ_CHK_SET_PARAM(ftm_params, ftm_param_cnt,
+		rtt_target, WL_FTM_TLV_ID_NUM_BURST);
+
+	/* number of frame per burst */
+	DHD_RTT_AC_AZ_CHK_SET_PARAM(ftm_params, ftm_param_cnt,
+		rtt_target, WL_FTM_TLV_ID_BURST_NUM_MEAS);
+
+	/* FTM retry count */
+	DHD_RTT_AC_AZ_CHK_SET_PARAM(ftm_params, ftm_param_cnt,
+		rtt_target, WL_FTM_TLV_ID_FTM_RETRIES);
+
+	/* FTM Request retry count */
+	DHD_RTT_AC_AZ_CHK_SET_PARAM(ftm_params, ftm_param_cnt,
+		rtt_target, WL_FTM_TLV_ID_FTM_REQ_RETRIES);
+
+	/* burst-period */
+	DHD_RTT_AC_AZ_CHK_SET_PARAM(ftm_params, ftm_param_cnt,
+		rtt_target, WL_FTM_TLV_ID_BURST_PERIOD);
+
+	/* Setting both duration and timeout to MAX duration
+	 * to handle the congestion environments.
+	 * Hence ignoring the user config.
+	 */
+	/* burst-duration */
+	DHD_RTT_AC_AZ_CHK_SET_PARAM(ftm_params, ftm_param_cnt,
+		rtt_target, WL_FTM_TLV_ID_BURST_DURATION);
+
+	/* burst-timeout */
+	DHD_RTT_AC_AZ_CHK_SET_PARAM(ftm_params, ftm_param_cnt,
+		rtt_target, WL_FTM_TLV_ID_BURST_TIMEOUT);
+
+	DHD_RTT_AC_AZ_CHK_SET_PARAM(ftm_params, ftm_param_cnt,
+		rtt_target, WL_FTM_TLV_ID_RATESPEC);
+
+	/* event_mask..applicable for only Legacy RTT.
+	 * For nan-rtt config happens from firmware
+	 */
+	DHD_RTT_AC_AZ_CHK_SET_PARAM(ftm_params, ftm_param_cnt,
+		rtt_target, WL_FTM_TLV_ID_EVENT_MASK);
+
+#if !defined(WL_USE_RANDOMIZED_SCAN)
+	/* legacy rtt randmac */
+	dhd_set_rand_mac_oui(dhd);
+#endif /* !defined(WL_USE_RANDOMIZED_SCAN */
+	err = dhd_rtt_ac_az_ftm_config(dhd, rtt_target->sid, ftm_configs,
+			ftm_cfg_cnt, ftm_params, ftm_param_cnt);
+	if (err != BCME_OK) {
+		err_at = 1;
+		goto exit;
+	}
+
+exit:
+	if (err != BCME_OK) {
+		DHD_RTT_ERR(("dhd_rtt_config_sta_rtt: err %d err_at %d\n",
+			err, err_at));
+	}
+	return err;
+}
+#endif /* FTM */
 
 /* Work thread API to start the RTT.
  * If all targets are AP only, then this API will confgure all sessions
@@ -3263,7 +3763,14 @@ dhd_rtt_start(dhd_pub_t *dhd)
 		for (i = 0; i < rtt_status->rtt_config.rtt_target_cnt; i++) {
 			rtt_target = &rtt_status->rtt_config.target_info[i];
 			rtt_target->sid = sid++;
-			dhd_rtt_config_sta_rtt(dhd, dev, rtt_target);
+#ifdef FTM
+			if (dhd->wlc_ver_major >= FTM_11AZ_MIN_WLC_API) {
+				dhd_rtt_ac_az_config_sta_rtt(dhd, dev, rtt_target);
+			} else
+#endif /* FTM */
+			{
+				dhd_rtt_config_sta_rtt(dhd, dev, rtt_target);
+			}
 		}
 		rtt_target = &rtt_status->rtt_config.target_info[0];
 		err = dhd_rtt_start_session(dhd, rtt_target->sid, TRUE);
@@ -4202,7 +4709,7 @@ dhd_rtt_handle_rtt_session_end(dhd_pub_t *dhd)
 
 	/* Cancel pending proxd timeout work if any */
 	if (delayed_work_pending(&rtt_status->proxd_timeout)) {
-		cancel_delayed_work(&rtt_status->proxd_timeout);
+		dhd_cancel_delayed_work(&rtt_status->proxd_timeout);
 	}
 
 	/* check if all targets results received */
@@ -5325,7 +5832,8 @@ dhd_rtt_init(dhd_pub_t *dhd)
 	DHD_RTT_MEM(("dhd_rtt_init ENTRY\n"));
 
 	ret = dhd_rtt_get_version(dhd, &version);
-	if (ret == BCME_OK && (version == WL_PROXD_API_VERSION_3)) {
+	if (ret == BCME_OK && ((version == WL_PROXD_API_VERSION_3) ||
+		(version == WL_PROXD_11AZ_API_VERSION_1))) {
 		DHD_RTT_ERR(("%s : FTM is supported\n", __FUNCTION__));
 #ifdef WL_RTT_ONE_WAY
 		rtt_status->rtt_capa.proto |= RTT_CAP_ONE_WAY;
@@ -5391,13 +5899,13 @@ dhd_rtt_deinit(dhd_pub_t *dhd)
 	DHD_RTT_MEM(("dhd_rtt_deinit: ENTER\n"));
 
 #ifdef WL_NAN
-	cancel_delayed_work_sync(&rtt_status->rtt_retry_timer);
+	dhd_cancel_delayed_work_sync(&rtt_status->rtt_retry_timer);
 #endif /* WL_NAN */
 
-	cancel_work_sync(&rtt_status->work);
+	dhd_cancel_work_sync(&rtt_status->work);
 	rtt_status->rtt_sched = FALSE;
 
-	cancel_delayed_work_sync(&rtt_status->proxd_timeout);
+	dhd_cancel_delayed_work_sync(&rtt_status->proxd_timeout);
 
 	mutex_lock(&rtt_status->rtt_mutex);
 	/*

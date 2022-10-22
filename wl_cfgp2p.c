@@ -2576,7 +2576,6 @@ wl_cfgp2p_register_ndev(struct bcm_cfg80211 *cfg)
 	/* Associate p2p0 network interface with new wdev */
 	wdev->netdev = net;
 #endif /* WL_NEWCFG_PRIVCMD_SUPPORT */
-
 	ret = dhd_register_net(net, true);
 	if (ret) {
 		CFGP2P_ERR((" register_netdevice failed (%d)\n", ret));

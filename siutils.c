@@ -101,11 +101,6 @@
 #include <hnd_dvfs.h>
 #endif /* HND_DVFS_REORG */
 
-// TODO temporary include until siutils is no longer used by the dongle
-#ifdef DNGL_BP_NCI
-#include <hal_dngl_bp.h>
-#endif  /* DNGL_BP_NCI */
-
 /* minimum corerevs supported by firmware */
 #define BCM_MIN_SUPPORTED_COREREV_CHIPCOMMON	68
 #define BCM_MIN_SUPPORTED_COREREV_ACPHY_MAIN	50

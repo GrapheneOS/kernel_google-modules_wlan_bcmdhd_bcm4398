@@ -1320,7 +1320,7 @@ dhd_eap_txcomplete(dhd_pub_t *dhdp, void *txp, bool success, int ifidx)
 				schedule_delayed_work(&ifp->m4state_work,
 					msecs_to_jiffies(MAX_4WAY_TIMEOUT_MS));
 			} else {
-				cancel_delayed_work(&ifp->m4state_work);
+				dhd_cancel_delayed_work(&ifp->m4state_work);
 			}
 		}
 	}
