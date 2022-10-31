@@ -5227,7 +5227,15 @@ dhdpcie_get_link_state(dhd_bus_t *bus)
 	uint32 intstatus;
 	uint origidx;
 	dhd_pcie_link_state_type_t link_state = DHD_PCIE_ALL_GOOD;
-	uint32 status_cmd = dhd_pcie_config_read(bus, PCIECFGREG_STATUS_CMD, sizeof(uint32));
+	uint32 status_cmd;
+
+	/* If the link down is already set, no need to further access registers */
+	if (bus->is_linkdown) {
+		link_state = DHD_PCIE_LINK_DOWN;
+		goto exit;
+	}
+
+	status_cmd = dhd_pcie_config_read(bus, PCIECFGREG_STATUS_CMD, sizeof(uint32));
 	if (status_cmd == (uint32) -1) {
 		DHD_PRINT(("%s: pcie link down: status_cmd:0x%x\n", __FUNCTION__, status_cmd));
 		link_state = DHD_PCIE_LINK_DOWN;
@@ -11167,6 +11175,17 @@ dhdpcie_bus_suspend(struct dhd_bus *bus, bool state)
 			dhd_bus_start_queue(bus);
 			DHD_GENERAL_UNLOCK(bus->dhd, flags);
 
+			dhd_validate_pcie_link_cbp_wlbp(bus);
+			if (bus->link_state != DHD_PCIE_ALL_GOOD) {
+				DHD_ERROR(("%s: bus->link_state:%d\n",
+					__FUNCTION__, bus->link_state));
+#ifdef OEM_ANDROID
+				dhd_os_check_hang(bus->dhd, 0, -ETIMEDOUT);
+#endif /* OEM_ANDROID */
+				rc = -ETIMEDOUT;
+				return rc;
+			}
+
 			/* Dump important config space registers */
 			dhd_bus_dump_imp_cfg_registers(bus);
 
@@ -11183,15 +11202,6 @@ dhdpcie_bus_suspend(struct dhd_bus *bus, bool state)
 			bus->dhd->d3ack_timeout_occured = TRUE;
 			/* If the D3 Ack has timeout */
 			bus->dhd->d3ackcnt_timeout++;
-
-			dhd_validate_pcie_link_cbp_wlbp(bus);
-			if (bus->link_state != DHD_PCIE_ALL_GOOD) {
-				DHD_ERROR(("%s: bus->link_state:%d\n",
-					__FUNCTION__, bus->link_state));
-#ifdef OEM_ANDROID
-				dhd_os_check_hang(bus->dhd, 0, -ETIMEDOUT);
-#endif /* OEM_ANDROID */
-			}
 
 			if (bus->dhd->dongle_trap_occured) {
 #ifdef OEM_ANDROID
