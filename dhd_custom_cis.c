@@ -460,7 +460,7 @@ dhd_parse_board_information_bcm(dhd_bus_t *bus, int *boardtype,
 		goto exit;
 	}
 
-	otp_cis_sz = CIS_TUPLE_MAX_CNT(chipidx);
+	otp_cis_sz = CIS_TUPLE_MAX_CNT(chipidx) * sizeof(uint32);
 	raw_data = MALLOCZ(bus->osh, otp_cis_sz);
 	if (!raw_data) {
 		DHD_ERROR(("%s: failed to alloc mem !\n", __FUNCTION__));
