@@ -1756,7 +1756,7 @@ dhd_bus_dump_imp_cfg_registers(struct dhd_bus *bus)
 	uint32 devctl = dhd_pcie_config_read(bus, PCIECFGREG_DEV_STATUS_CTRL, sizeof(uint32));
 	uint32 devctl2 = dhd_pcie_config_read(bus, PCIECFGGEN_DEV_STATUS_CTRL2, sizeof(uint32));
 
-	DHD_PRINT(("status_cmd(0x%x)=0x%x, pmcsr(0x%x)=0x%x "
+	DHD_PRINT(("PCIE CFG regs: status_cmd(0x%x)=0x%x, pmcsr(0x%x)=0x%x "
 		"base_addr0(0x%x)=0x%x base_addr1(0x%x)=0x%x "
 		"linkctl(0x%x)=0x%x l1ssctrl(0x%x)=0x%x "
 		"devctl(0x%x)=0x%x devctl2(0x%x)=0x%x \n",
@@ -5227,7 +5227,15 @@ dhdpcie_get_link_state(dhd_bus_t *bus)
 	uint32 intstatus;
 	uint origidx;
 	dhd_pcie_link_state_type_t link_state = DHD_PCIE_ALL_GOOD;
-	uint32 status_cmd = dhd_pcie_config_read(bus, PCIECFGREG_STATUS_CMD, sizeof(uint32));
+	uint32 status_cmd;
+
+	/* If the link down is already set, no need to further access registers */
+	if (bus->is_linkdown) {
+		link_state = DHD_PCIE_LINK_DOWN;
+		goto exit;
+	}
+
+	status_cmd = dhd_pcie_config_read(bus, PCIECFGREG_STATUS_CMD, sizeof(uint32));
 	if (status_cmd == (uint32) -1) {
 		DHD_PRINT(("%s: pcie link down: status_cmd:0x%x\n", __FUNCTION__, status_cmd));
 		link_state = DHD_PCIE_LINK_DOWN;
@@ -11167,6 +11175,17 @@ dhdpcie_bus_suspend(struct dhd_bus *bus, bool state)
 			dhd_bus_start_queue(bus);
 			DHD_GENERAL_UNLOCK(bus->dhd, flags);
 
+			dhd_validate_pcie_link_cbp_wlbp(bus);
+			if (bus->link_state != DHD_PCIE_ALL_GOOD) {
+				DHD_ERROR(("%s: bus->link_state:%d\n",
+					__FUNCTION__, bus->link_state));
+#ifdef OEM_ANDROID
+				dhd_os_check_hang(bus->dhd, 0, -ETIMEDOUT);
+#endif /* OEM_ANDROID */
+				rc = -ETIMEDOUT;
+				return rc;
+			}
+
 			/* Dump important config space registers */
 			dhd_bus_dump_imp_cfg_registers(bus);
 
@@ -11183,15 +11202,6 @@ dhdpcie_bus_suspend(struct dhd_bus *bus, bool state)
 			bus->dhd->d3ack_timeout_occured = TRUE;
 			/* If the D3 Ack has timeout */
 			bus->dhd->d3ackcnt_timeout++;
-
-			dhd_validate_pcie_link_cbp_wlbp(bus);
-			if (bus->link_state != DHD_PCIE_ALL_GOOD) {
-				DHD_ERROR(("%s: bus->link_state:%d\n",
-					__FUNCTION__, bus->link_state));
-#ifdef OEM_ANDROID
-				dhd_os_check_hang(bus->dhd, 0, -ETIMEDOUT);
-#endif /* OEM_ANDROID */
-			}
 
 			if (bus->dhd->dongle_trap_occured) {
 #ifdef OEM_ANDROID
@@ -15566,6 +15576,32 @@ done:
 }
 
 static int
+dhdpcie_validate_sh_ring_info(dhd_bus_t *bus, ring_info_t *ring_info)
+{
+	int ret = BCME_OK;
+
+	if ((ltoh32(ring_info->ringmem_ptr) == (uint32)-1) ||
+		(ltoh32(ring_info->h2d_w_idx_ptr) == (uint32)-1) ||
+		(ltoh32(ring_info->h2d_r_idx_ptr) == (uint32)-1) ||
+		(ltoh32(ring_info->d2h_w_idx_ptr) == (uint32)-1) ||
+		(ltoh32(ring_info->d2h_r_idx_ptr) == (uint32)-1)) {
+		DHD_ERROR(("%s: Read invalid address in shared ring info !"
+			" ringmem_ptr=0x%x; h2d_w_idx_ptr=0x%x; h2d_r_idx_ptr=0x%x"
+			" d2h_w_idx_ptr=0x%x; d2h_r_idx_ptr=0x%x\n", __FUNCTION__,
+			ltoh32(ring_info->ringmem_ptr), ltoh32(ring_info->h2d_w_idx_ptr),
+			ltoh32(ring_info->h2d_r_idx_ptr), ltoh32(ring_info->d2h_w_idx_ptr),
+			ltoh32(ring_info->d2h_r_idx_ptr)));
+		dhd_bus_dump_imp_cfg_registers(bus);
+		dhd_bus_dump_dar_registers(bus);
+		DHD_ERROR(("%s: Set linkdown occurred !\n", __FUNCTION__));
+		bus->is_linkdown = TRUE;
+		ret = BCME_BADADDR;
+	}
+
+	return ret;
+}
+
+static int
 dhdpcie_readshared(dhd_bus_t *bus)
 {
 	uint32 addr = 0;
@@ -15768,6 +15804,10 @@ dhdpcie_readshared(dhd_bus_t *bus)
 		if ((rv = dhdpcie_bus_membytes(bus, FALSE, DHD_PCIE_MEM_BAR1, sh->rings_info_ptr,
 			(uint8 *)&ring_info, sizeof(ring_info_t))) < 0)
 			return BCME_BADADDR;
+
+		if (dhdpcie_validate_sh_ring_info(bus, &ring_info) != BCME_OK) {
+			return BCME_BADADDR;
+		}
 
 		bus->h2d_mb_data_ptr_addr = ltoh32(sh->h2d_mb_data_ptr);
 		bus->d2h_mb_data_ptr_addr = ltoh32(sh->d2h_mb_data_ptr);
@@ -16031,7 +16071,6 @@ dhdpcie_readshared(dhd_bus_t *bus)
 	}
 	return BCME_OK;
 } /* dhdpcie_readshared */
-
 /** Read ring mem and ring state ptr info from shared memory area in device memory */
 static void
 dhd_fillup_ring_sharedptr_info(dhd_bus_t *bus, ring_info_t *ring_info)
