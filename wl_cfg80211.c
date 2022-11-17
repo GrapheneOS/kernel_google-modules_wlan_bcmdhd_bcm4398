@@ -582,20 +582,6 @@ static s32 wl_cfg80211_get_tx_power(struct wiphy *wiphy,
 #else
 static s32 wl_cfg80211_get_tx_power(struct wiphy *wiphy, s32 *dbm);
 #endif /* WL_CFG80211_P2P_DEV_IF */
-static s32 wl_cfg80211_config_default_key(struct wiphy *wiphy,
-	struct net_device *dev,
-	u8 key_idx, bool unicast, bool multicast);
-static s32 wl_cfg80211_add_key(struct wiphy *wiphy, struct net_device *dev,
-	u8 key_idx, bool pairwise, const u8 *mac_addr,
-	struct key_params *params);
-static s32 wl_cfg80211_del_key(struct wiphy *wiphy, struct net_device *dev,
-	u8 key_idx, bool pairwise, const u8 *mac_addr);
-static s32 wl_cfg80211_get_key(struct wiphy *wiphy, struct net_device *dev,
-	u8 key_idx, bool pairwise, const u8 *mac_addr,
-	void *cookie, void (*callback) (void *cookie,
-	struct key_params *params));
-static s32 wl_cfg80211_config_default_mgmt_key(struct wiphy *wiphy,
-	struct net_device *dev,	u8 key_idx);
 #if defined(WL_SUPPORT_BACKPORTED_KPATCHES) || (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 2, 0))
 static s32 wl_cfg80211_mgmt_tx_cancel_wait(struct wiphy *wiphy,
 	bcm_struct_cfgdev *cfgdev, u64 cookie);
@@ -1226,7 +1212,7 @@ static struct ieee80211_channel __wl_6ghz_channels[] = {
 #ifdef WL_CAP_HE
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 19, 0))
 static struct ieee80211_sband_iftype_data __wl_he_cap = {
-	.types_mask = BIT(NL80211_IFTYPE_STATION) | BIT(NL80211_IFTYPE_AP),
+	.types_mask = BIT(NL80211_IFTYPE_STATION),
 	.he_cap = {
 		.has_he = true,
 		.he_cap_elem = {
@@ -1294,8 +1280,11 @@ static struct ieee80211_sband_iftype_data __wl_he_cap = {
 		.eht_cap_elem = {
 			.mac_cap_info[0] =
 			IEEE80211_EHT_MAC_CAP0_OM_CONTROL |
+#ifdef WL_MLO_BKPORT_CAP
 			(IEEE80211_EHT_MAC_CAP0_MAX_AMPDU_LEN_MASK &
-			(IEEE80211_EHT_MAC_CAP0_MAX_AMPDU_LEN_7991 << 6)),
+			(IEEE80211_EHT_MAC_CAP0_MAX_AMPDU_LEN_7991 << 6)) |
+#endif
+			0,
 			.mac_cap_info[1] = 0,
 			.phy_cap_info[0] = IEEE80211_EHT_PHY_CAP0_242_TONE_RU_GT20MHZ |
 			IEEE80211_EHT_PHY_CAP0_NDP_4_EHT_LFT_32_GI |
@@ -7983,9 +7972,15 @@ static s32 wl_cfg80211_get_tx_power(struct wiphy *wiphy, s32 *dbm)
 	return err;
 }
 
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(6, 0, 0)) || defined(WL_MLO_BKPORT)
+static s32
+wl_cfg80211_config_default_key(struct wiphy *wiphy, struct net_device *dev,
+	int link_id, u8 key_idx, bool unicast, bool multicast)
+#else
 static s32
 wl_cfg80211_config_default_key(struct wiphy *wiphy, struct net_device *dev,
 	u8 key_idx, bool unicast, bool multicast)
+#endif /* LINUX_VERSION_CODE >= KERNEL_VERSION(6, 0, 0) || WL_MLO_BKPORT */
 {
 	struct bcm_cfg80211 *cfg = wiphy_priv(wiphy);
 	u32 index;
@@ -8207,10 +8202,17 @@ wl_cfg80211_block_arp(struct net_device *dev, int enable)
 }
 #endif /* PKT_FILTER_SUPPORT && APSTA_BLOCK_ARP_DURING_DHCP */
 
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(6, 0, 0)) || defined(WL_MLO_BKPORT)
+static s32
+wl_cfg80211_add_key(struct wiphy *wiphy, struct net_device *dev,
+	int link_id, u8 key_idx, bool pairwise, const u8 *mac_addr,
+	struct key_params *params)
+#else
 static s32
 wl_cfg80211_add_key(struct wiphy *wiphy, struct net_device *dev,
 	u8 key_idx, bool pairwise, const u8 *mac_addr,
 	struct key_params *params)
+#endif /* LINUX_VERSION_CODE >= KERNEL_VERSION(6, 0, 0) || WL_MLO_BKPORT */
 {
 	struct wl_wsec_key key = {0};
 	s32 val = 0;
@@ -8433,9 +8435,15 @@ exit:
 	return err;
 }
 
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(6, 0, 0)) || defined(WL_MLO_BKPORT)
+static s32
+wl_cfg80211_del_key(struct wiphy *wiphy, struct net_device *dev,
+	int link_id, u8 key_idx, bool pairwise, const u8 *mac_addr)
+#else
 static s32
 wl_cfg80211_del_key(struct wiphy *wiphy, struct net_device *dev,
 	u8 key_idx, bool pairwise, const u8 *mac_addr)
+#endif /* LINUX_VERSION_CODE >= KERNEL_VERSION(6, 0, 0) || WL_MLO_BKPORT */
 {
 	struct wl_wsec_key key = {0};
 	struct bcm_cfg80211 *cfg = wiphy_priv(wiphy);
@@ -8498,10 +8506,17 @@ wl_cfg80211_del_key(struct wiphy *wiphy, struct net_device *dev,
 }
 
 /* NOTE : this function cannot work as is and is never called */
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(6, 0, 0)) || defined(WL_MLO_BKPORT)
+static s32
+wl_cfg80211_get_key(struct wiphy *wiphy, struct net_device *dev,
+	int link_id, u8 key_idx, bool pairwise, const u8 *mac_addr, void *cookie,
+	void (*callback) (void *cookie, struct key_params * params))
+#else
 static s32
 wl_cfg80211_get_key(struct wiphy *wiphy, struct net_device *dev,
 	u8 key_idx, bool pairwise, const u8 *mac_addr, void *cookie,
 	void (*callback) (void *cookie, struct key_params * params))
+#endif /* LINUX_VERSION_CODE >= KERNEL_VERSION(6, 0, 0) || WL_MLO_BKPORT */
 {
 	struct key_params params;
 	struct wl_wsec_key key;
@@ -8566,9 +8581,15 @@ wl_cfg80211_get_key(struct wiphy *wiphy, struct net_device *dev,
 	return err;
 }
 
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(6, 0, 0)) || defined(WL_MLO_BKPORT)
+static s32
+wl_cfg80211_config_default_mgmt_key(struct wiphy *wiphy,
+	struct net_device *dev, int link_id, u8 key_idx)
+#else
 static s32
 wl_cfg80211_config_default_mgmt_key(struct wiphy *wiphy,
 	struct net_device *dev, u8 key_idx)
+#endif /* LINUX_VERSION_CODE >= KERNEL_VERSION(6, 0, 0) || WL_MLO_BKPORT */
 {
 #ifdef MFP
 	/* Firmware seems to use hard coded index for Group Mgmt Key.
