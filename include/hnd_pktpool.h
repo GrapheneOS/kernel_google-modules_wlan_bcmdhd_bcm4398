@@ -137,6 +137,8 @@ typedef struct pktpool {
 	uint8 cbcnt;
 	uint8 ecbcnt;
 	uint8 emptycb_disable;	/**< Value of type enum pktpool_empty_cb_state */
+	uint8 metasz;		/**< size of tx or rx metadata allocated after lbuf struct */
+	uint16 metaoff;		/**< offset of tx or rx metadata allocated after lbuf struct */
 	pktpool_cbinfo_t *availcb_excl;
 	pktpool_cbinfo_t cbs[PKTPOOL_CB_MAX_AVL];
 	pktpool_cbinfo_t ecbs[PKTPOOL_CB_MAX];
@@ -167,7 +169,13 @@ typedef struct pktpool {
 #endif
 } pktpool_t;
 
+/* Flags to indicate the packet pool status.
+ * PKTPOOL_RXLFRAG_SORTED_INSERT: Ordered list of rxfrag packets.
+ * PKTPOOL_POOL_ZERO: Allow reset of private packet pool memory
+ * and verify prior usage
+ */
 #define PKTPOOL_RXLFRAG_SORTED_INSERT	0x00000001u
+#define PKTPOOL_POOL_ZERO		0x00000002u
 
 pktpool_t *get_pktpools_registry(int id);
 #define pktpool_get(pktp)	(pktpool_get_ext((pktp), (pktp)->type, NULL))

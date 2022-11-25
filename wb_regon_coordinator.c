@@ -1,5 +1,5 @@
 /*
- * DHD BT WiFi Coex RegON Coordinator
+ * DHD WiFi BT RegON Coordinator - WBRC
  *
  * Copyright (C) 2022, Broadcom.
  *
@@ -32,6 +32,10 @@
 #include <linux/poll.h>
 #include <linux/eventpoll.h>
 #include <linux/version.h>
+#include <linux/delay.h>
+
+#include <wb_regon_coordinator.h>
+#include <bcmstdlib_s.h>
 
 #define DESCRIPTION "Broadcom WiFi BT Regon coordinator Driver"
 #define AUTHOR "Broadcom Corporation"
@@ -39,84 +43,23 @@
 #define DEVICE_NAME "wbrc"
 #define CLASS_NAME "bcm"
 
-#ifndef TRUE
-#define TRUE (1)
-#endif
-
-#ifndef FALSE
-#define FALSE (0)
-#endif
-
 #if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 16, 0))
 typedef unsigned int __poll_t;
 #endif
 
-/*
- * 4 byte message to sync with BT stack.
- * Byte 0 - header
- * Byte 1 - length of LTV now fixed to 2
- * Byte 2 - type
- * Byte 3 - command value
-*/
-#define WBRC_MSG_LEN	4u
-
-/* Below defines to be mapped in the user space. */
-/* TODO have these as enums and define new structure with members */
-
-/* Byte 0 - Define header for direction of command */
-#define HEADER_DIR_WL2BT 0x01
-#define HEADER_DIR_BT2WL 0x02
-
-/*
- * Byte 2 - Define Type of Command (Followed LTV format)
- * wifi/bt, signal/ack types
- */
-#define TYPE_WIFI_CMD 0x01
-#define TYPE_WIFI_ACK 0x02
-#define TYPE_BT_CMD 0x03
-#define TYPE_BT_ACK 0x04
-
-/* Byte 3 - Define Value field: commands/acks */
-#define CMD_RESET_WIFI 0x40
-#define CMD_RESET_WIFI_WITH_ACK 0x41
-#define CMD_RESET_BT 0x42
-#define CMD_RESET_BT_WITH_ACK 0x43
-#define ACK_RESET_WIFI_COMPLETE 0x80
-#define ACK_RESET_BT_COMPLETE 0x81
-
-struct wbrc_pvt_data {
-	int wbrc_bt_dev_major_number;		/* BT char dev major number */
-	struct class *wbrc_bt_dev_class;	/* BT char dev class */
-	struct device *wbrc_bt_dev_device;	/* BT char dev */
-	struct mutex wbrc_mutex;		/* mutex to synchronise */
-	bool bt_dev_opened;			/* To check if bt dev open is called */
-	wait_queue_head_t bt_reset_waitq;	/* waitq to wait till bt reset is done */
-	unsigned int bt_reset_ack;		/* condition variable to be check for bt reset */
-	wait_queue_head_t wlan_reset_waitq;	/* waitq to wait till wlan reset is done */
-	unsigned int wlan_reset_ack;		/* condition variable to be check for wlan reset */
-	wait_queue_head_t wlan_on_waitq;	/* waitq to wait till wlan on is done */
-	unsigned int wlan_on_ack;		/* condition variable to be check for wlan on */
-	wait_queue_head_t outmsg_waitq;		/* wait queue for poll */
-	char wl2bt_message[WBRC_MSG_LEN];	/* message to communicate with Bt stack */
-	bool read_data_available;		/* condition to check if read data is present */
-};
-
 static struct wbrc_pvt_data *g_wbrc_data;
 
-#define WBRC_LOCK(wbrc_data)	{if (wbrc_data) mutex_lock(&(wbrc_data)->wbrc_mutex);}
-#define WBRC_UNLOCK(wbrc_data)	{if (wbrc_data) mutex_unlock(&(wbrc_data)->wbrc_mutex);}
-
-int wbrc_wl2bt_reset(void);
-int wbrc_bt_reset_ack(struct wbrc_pvt_data *wbrc_data);
-
-static int wbrc_bt2wl_reset(void);
-static int wbrc_wl_reset_ack(struct wbrc_pvt_data *wbrc_data);
+static int bt2wbrc_ack_bt_reset(struct wbrc_pvt_data *wbrc_data);
+static int bt2wbrc_bt_fw_dwnld(struct wbrc_pvt_data *wbrc_data, void *fwblob, uint len);
+static void wbrc2bt_cmd_bt_reset(struct wbrc_pvt_data *wbrc_data);
 
 static int wbrc_bt_dev_open(struct inode *, struct file *);
 static int wbrc_bt_dev_release(struct inode *, struct file *);
 static ssize_t wbrc_bt_dev_read(struct file *, char *, size_t, loff_t *);
 static ssize_t wbrc_bt_dev_write(struct file *, const char *, size_t, loff_t *);
 static __poll_t wbrc_bt_dev_poll(struct file *filep, poll_table *wait);
+static int wbrc_wait_on_condition(wait_queue_head_t *q, uint tmo_ms,
+	uint *var, uint condition);
 
 static struct file_operations wbrc_bt_dev_fops = {
 	.open = wbrc_bt_dev_open,
@@ -126,7 +69,41 @@ static struct file_operations wbrc_bt_dev_fops = {
 	.poll = wbrc_bt_dev_poll,
 };
 
-static ssize_t wbrc_bt_dev_read(struct file *filep, char *buffer, size_t len,
+typedef enum wbrc_state {
+	IDLE = 0,
+	WLAN_ON_IN_PROGRESS = 1,
+	WLAN_OFF_IN_PROGRESS = 2,
+	BT_ON_IN_PROGRESS = 3,
+	BT_FW_DWNLD_IN_PROGRESS
+} wbrc_state_t;
+
+struct wbrc_pvt_data {
+	int wbrc_bt_dev_major_number;		/* BT char dev major number */
+	struct class *wbrc_bt_dev_class;	/* BT char dev class */
+	struct device *wbrc_bt_dev_device;	/* BT char dev */
+	struct mutex wbrc_mutex;		/* mutex to synchronise */
+	bool bt_dev_opened;			/* To check if bt dev open is called */
+	wait_queue_head_t bt_reset_waitq;	/* waitq to wait till bt reset is done */
+	unsigned int bt_reset_ack;		/* condition variable to be check for bt reset */
+	wait_queue_head_t outmsg_waitq;		/* wait queue for poll */
+	wbrc_msg_t wbrc2bt_msg;			/* message to send to BT stack */
+	/* buffer to store ext message sent from BT to WBRC */
+	unsigned char bt2wbrc_ext_msgbuf[WBRC_MSG_BUF_MAXLEN];
+	bool read_data_available;		/* condition to check if read data is present */
+	wbrc_state_t state;			/* wbrc state machine */
+	wait_queue_head_t state_change_waitq;	/* Q to wait on for state change events */
+	struct mutex state_mutex;		/* mutex to synchronise on state changes */
+	void *wl_hdl;				/* opaque handle to wlan host driver */
+};
+
+#define WBRC_LOCK(wbrc_data)	{if (wbrc_data) mutex_lock(&(wbrc_data)->wbrc_mutex);}
+#define WBRC_UNLOCK(wbrc_data)	{if (wbrc_data) mutex_unlock(&(wbrc_data)->wbrc_mutex);}
+
+#define WBRC_STATE_LOCK(wbrc_data)	{if (wbrc_data) mutex_lock(&(wbrc_data)->state_mutex);}
+#define WBRC_STATE_UNLOCK(wbrc_data)	{if (wbrc_data) mutex_unlock(&(wbrc_data)->state_mutex);}
+
+static ssize_t
+wbrc_bt_dev_read(struct file *filep, char *buffer, size_t len,
                              loff_t *offset)
 {
 	struct wbrc_pvt_data *wbrc_data = filep->private_data;
@@ -143,12 +120,12 @@ static ssize_t wbrc_bt_dev_read(struct file *filep, char *buffer, size_t len,
 		ret = -EFAULT;
 		goto exit;
 	}
-	err_count = copy_to_user(buffer, &wbrc_data->wl2bt_message,
-		sizeof(wbrc_data->wl2bt_message));
+	err_count = copy_to_user(buffer, &wbrc_data->wbrc2bt_msg,
+		sizeof(wbrc_data->wbrc2bt_msg));
 	if (err_count == 0) {
 		pr_info("Sent %d bytes\n",
-			(int)sizeof(wbrc_data->wl2bt_message));
-		err_count = sizeof(wbrc_data->wl2bt_message);
+			(int)sizeof(wbrc_data->wbrc2bt_msg));
+		err_count = sizeof(wbrc_data->wbrc2bt_msg);
 	} else {
 		pr_err("Failed to send %d bytes\n", err_count);
 		ret = -EFAULT;
@@ -160,51 +137,102 @@ exit:
 	return ret;
 }
 
-static ssize_t wbrc_bt_dev_write(struct file *filep, const char *buffer,
+static ssize_t
+wbrc_bt_dev_write(struct file *filep, const char *buffer,
 	size_t len, loff_t *offset)
 {
 	struct wbrc_pvt_data *wbrc_data = filep->private_data;
 	int err_count = 0;
-	int ret = 0;
-	char message[WBRC_MSG_LEN] = {};
+	int ret = len, err = 0;
+	wbrc_msg_t msg;
+	wbrc_ext_msg_t *extmsg = NULL;
+#ifdef WBRC_TEST
+	unsigned char stub_msg = FALSE;
+#endif
 
 	WBRC_LOCK(wbrc_data);
 
 	pr_info("%s Received %zu bytes\n", __func__, len);
-	if (len != WBRC_MSG_LEN) {
-		pr_err("%s: Received malformed packet:%d\n", __func__, (int)len);
+	if (len < WBRC_MSG_LEN || len > WBRC_MSG_BUF_MAXLEN) {
+		pr_err("%s: Invalid msg len %lu\n", __func__, len);
 		ret = -EFAULT;
 		goto exit;
 	}
 
-	err_count = copy_from_user(message, buffer, len);
+#ifdef WBRC_TEST
+	if (offset && *offset == 0xDEADFACE) {
+		memcpy(&msg, buffer, WBRC_MSG_LEN);
+		pr_err("%s: msg from wbrc stub: %x %x %x %x \n", __func__,
+			msg.hdr, msg.len, msg.type, msg.val);
+		stub_msg = TRUE;
+	} else {
+		err_count = copy_from_user(&msg, buffer, WBRC_MSG_LEN);
+	}
+#else
+	err_count = copy_from_user(&msg, buffer, WBRC_MSG_LEN);
+#endif /* WBRC_TEST */
 	if (err_count) {
 		pr_err("%s: copy_from_user failed:%d\n", __func__, err_count);
 		ret = -EFAULT;
 		goto exit;
 	}
 
-	if (message[0] != HEADER_DIR_BT2WL) {
-		pr_err("%s: invalid header:%d\n", __func__, message[0]);
+	if (msg.hdr != WBRC_HEADER_DIR_BT2WBRC) {
+		pr_err("%s: invalid header:%d\n", __func__, msg.hdr);
 		ret = -EFAULT;
 		goto exit;
 	}
 
-	if (message[2] == TYPE_BT_CMD) {
-		switch (message[3]) {
-			case CMD_RESET_WIFI:
-				pr_info("RCVD TYPE_BT_CMD: CMD_RESET_WIFI\n");
-				break;
-			case CMD_RESET_WIFI_WITH_ACK:
-				pr_info("RCVD TYPE_BT_CMD: CMD_RESET_WIFI_WITH_ACK\n");
-				wbrc_bt2wl_reset();
-				break;
+	/* check for extended len msg */
+	if (msg.len & WBRC_EXT_MSG_LEN) {
+		/* copy the full ext msg including BT FW blob */
+#ifdef WBRC_TEST
+		if (stub_msg) {
+			memcpy_s(wbrc_data->bt2wbrc_ext_msgbuf, WBRC_MSG_BUF_MAXLEN,
+				buffer, len);
+		} else {
+			err_count = copy_from_user(wbrc_data->bt2wbrc_ext_msgbuf,
+				buffer, len);
 		}
-	}
-
-	if (message[2] == TYPE_BT_ACK && message[3] == ACK_RESET_BT_COMPLETE) {
+#else
+		err_count = copy_from_user(wbrc_data->bt2wbrc_ext_msgbuf, buffer, len);
+#endif /* WBRC_TEST */
+		extmsg = (wbrc_ext_msg_t *)wbrc_data->bt2wbrc_ext_msgbuf;
+		if (extmsg->type == WBRC_TYPE_BT2WBRC_CMD) {
+			if (err_count) {
+				pr_err("%s: copy_from_user failed:%d\n", __func__, err_count);
+				ret = -EFAULT;
+				goto exit;
+			}
+			if (extmsg->cmd == WBRC_CMD_BT_FW_DWNLD) {
+				/* validate internal len field */
+				if (extmsg->len > WBRC_MSG_BUF_MAXLEN) {
+					pr_err("%s: Invalid ext msg len %u\n",
+						__func__, extmsg->len);
+					ret = -EFAULT;
+					goto exit;
+				}
+				pr_err("%s: recd. valid CMD_BT_FW_DWNLD, bt fw len = %u bytes\n",
+					__func__, extmsg->len);
+				err = bt2wbrc_bt_fw_dwnld(wbrc_data, extmsg->val, extmsg->len);
+				if (err != WBRC_OK) {
+					ret = err;
+				}
+			} else {
+				pr_err("%s: Unknown ext msg cmd 0x%x\n", __func__, extmsg->cmd);
+				ret = -EFAULT;
+			}
+		} else {
+			/* for now BT_FW_DWNLD is the only CMD from BT2WBRC */
+			pr_err("%s: Unknown extmsg type = 0x%x\n", __func__, extmsg->type);
+			ret = -EFAULT;
+		}
+	} else if (msg.type == WBRC_TYPE_BT2WBRC_ACK && msg.val == WBRC_ACK_BT_RESET_COMPLETE) {
 		pr_info("RCVD ACK_RESET_BT_COMPLETE");
-		wbrc_bt_reset_ack(wbrc_data);
+		bt2wbrc_ack_bt_reset(wbrc_data);
+	} else {
+		pr_err("%s: Unknown msg type %u\n", __func__, msg.type);
+		ret = -EFAULT;
 	}
 
 exit:
@@ -212,7 +240,8 @@ exit:
 	return ret;
 }
 
-static __poll_t wbrc_bt_dev_poll(struct file *filep, poll_table *wait)
+static __poll_t
+wbrc_bt_dev_poll(struct file *filep, poll_table *wait)
 {
 	struct wbrc_pvt_data *wbrc_data = filep->private_data;
 	__poll_t mask = 0;
@@ -228,90 +257,138 @@ static __poll_t wbrc_bt_dev_poll(struct file *filep, poll_table *wait)
 	return mask;
 }
 
-int wbrc_reset_wait_on_condition(wait_queue_head_t *reset_waitq, uint *var, uint condition);
-
-static int wbrc_bt_dev_open(struct inode *inodep, struct file *filep)
+/* WL2WBRC - wlan host driver init */
+void
+wl2wbrc_wlan_init(void *wl_hdl)
 {
 	struct wbrc_pvt_data *wbrc_data = g_wbrc_data;
-	int ret = 0;
+	wbrc_data->wl_hdl = wl_hdl;
+}
+
+static int
+wbrc_bt_dev_open(struct inode *inodep, struct file *filep)
+{
+	struct wbrc_pvt_data *wbrc_data = g_wbrc_data;
+	int ret = 0, tmo_ret = 0;
+	int state = 0;
+
 	WBRC_LOCK(wbrc_data);
 	if (wbrc_data->bt_dev_opened) {
 		pr_err("%s already opened\n", __func__);
 		WBRC_UNLOCK(wbrc_data);
 		return -EFAULT;
 	}
-	wbrc_data->bt_dev_opened = TRUE;
-	pr_info("%s Device opened %d time(s)\n", __func__,
-		wbrc_data->bt_dev_opened);
-	filep->private_data = wbrc_data;
+	WBRC_UNLOCK(wbrc_data);
 
-	/* If wlan_on_ack is false means, the dev_open is called during WLAN ON */
-	if (wbrc_data->wlan_on_ack == FALSE) {
-		/* unlock mutex before wait as wbrc_wlan_on_ack also holds same mutex  */
-		WBRC_UNLOCK(wbrc_data);
+	WBRC_STATE_LOCK(wbrc_data);
 
-		pr_info("%s: wait for wlan_on_ack\n", __func__);
-		/* Wait till wlan is ON */
-		wbrc_reset_wait_on_condition(&wbrc_data->wlan_on_waitq,
-			&wbrc_data->wlan_on_ack, TRUE);
-		if (wbrc_data->wlan_on_ack == FALSE) {
-			pr_err("%s: WLAN ON timeout\n", __func__);
-		} else {
-			pr_info("%s: got wlan_on_ack\n", __func__);
-		}
-	} else {
-		pr_info("%s: wlan_on_ack is TRUE\n", __func__);
-		WBRC_UNLOCK(wbrc_data);
+	state = wbrc_data->state;
+
+	/* check for invalid states */
+	if (state == BT_ON_IN_PROGRESS ||
+		state == BT_FW_DWNLD_IN_PROGRESS) {
+		WBRC_STATE_UNLOCK(wbrc_data);
+		pr_err("%s: Unexpected state %u !\n", __func__, state);
+		goto exit;
 	}
 
-	pr_info("%s Done\n", __func__);
+	if (state == WLAN_ON_IN_PROGRESS ||
+		state == WLAN_OFF_IN_PROGRESS) {
+		WBRC_STATE_UNLOCK(wbrc_data);
+		pr_err("%s: state=%u, wait for WLAN ON/OFF to finish \n", __func__, state);
+		/* Wait till wlan is ON. i.e, state change to IDLE */
+		tmo_ret = wbrc_wait_on_condition(&wbrc_data->state_change_waitq,
+			WBRC_WAIT_TIMEOUT, &wbrc_data->state, IDLE);
+		if (tmo_ret <= 0) {
+			pr_err("%s: WLAN ON/OFF timed out !\n", __func__);
+			goto exit;
+		} else {
+			pr_err("%s: WLAN ON/OFF finished\n", __func__);
+		}
+		WBRC_STATE_LOCK(wbrc_data);
+	}
 
+	wbrc_data->state = BT_ON_IN_PROGRESS;
+	pr_err("%s: state -> BT_ON_IN_PROGRESS \n", __func__);
+
+	WBRC_STATE_UNLOCK(wbrc_data);
+
+#ifdef WBRC_WLAN_ON_FIRST_ALWAYS
+	/* turn on wlan - will return immediately if wlan is already on */
+	pr_err("%s: turn WLAN ON ... \n", __func__);
+	if (wbrc2wl_wlan_on_request(wbrc_data->wl_hdl)) {
+		pr_err("%s: WLAN failed to turn ON ! \n", __func__);
+	} else {
+		pr_err("%s: WLAN is ON \n", __func__);
+	}
+#endif /* WBRC_WLAN_ON_FIRST_ALWAYS */
+
+	/* change state back to IDLE */
+	WBRC_STATE_LOCK(wbrc_data);
+	wbrc_data->state = IDLE;
+	pr_err("%s: state -> IDLE \n", __func__);
+	WBRC_STATE_UNLOCK(wbrc_data);
+
+	wake_up(&wbrc_data->state_change_waitq);
+
+exit:
+	WBRC_LOCK(wbrc_data);
+	wbrc_data->bt_dev_opened = TRUE;
+	pr_err("%s Device opened %d time(s)\n", __func__,
+		wbrc_data->bt_dev_opened);
+	filep->private_data = wbrc_data;
+	WBRC_UNLOCK(wbrc_data);
+
+	pr_err("%s Done\n", __func__);
 	return ret;
 }
 
-static int wbrc_bt_dev_release(struct inode *inodep, struct file *filep)
+static int
+wbrc_bt_dev_release(struct inode *inodep, struct file *filep)
 {
 	struct wbrc_pvt_data *wbrc_data = filep->private_data;
 	WBRC_LOCK(wbrc_data);
-	pr_info("%s Device closed %d\n", __func__, wbrc_data->bt_dev_opened);
+	pr_err("%s Device closed %d\n", __func__, wbrc_data->bt_dev_opened);
 	wbrc_data->bt_dev_opened = FALSE;
 	WBRC_UNLOCK(wbrc_data);
 	wake_up_interruptible(&wbrc_data->outmsg_waitq);
 	return 0;
 }
 
-void wbrc_signal_bt_reset(struct wbrc_pvt_data *wbrc_data)
+/* WBRC_LOCK to be held by caller */
+static void
+wbrc2bt_cmd_bt_reset(struct wbrc_pvt_data *wbrc_data)
 {
 	pr_info("%s\n", __func__);
 
-	/* Below message will be read by userspace using .read */
-	wbrc_data->wl2bt_message[0] = HEADER_DIR_WL2BT;       // Minimal Header
-	wbrc_data->wl2bt_message[1] = 2;                      // Length
-	wbrc_data->wl2bt_message[2] = TYPE_WIFI_CMD;          // Type
-	wbrc_data->wl2bt_message[3] = CMD_RESET_BT_WITH_ACK;  // Value
+	wbrc_data->wbrc2bt_msg.hdr = WBRC_HEADER_DIR_WBRC2BT;
+	wbrc_data->wbrc2bt_msg.type = WBRC_TYPE_WBRC2BT_CMD;
+	wbrc_data->wbrc2bt_msg.val = WBRC_CMD_BT_RESET;
+	wbrc_data->wbrc2bt_msg.len = WBRC_MSG_DEFAULT_LEN;
+
 	wbrc_data->read_data_available = TRUE;
 	smp_wmb();
-
 	wake_up_interruptible(&wbrc_data->outmsg_waitq);
 }
 
-int wbrc_init(void)
+int
+wbrc_init(void)
 {
 	int err = 0;
 	struct wbrc_pvt_data *wbrc_data;
+
 	pr_info("%s\n", __func__);
+
 	wbrc_data = kzalloc(sizeof(struct wbrc_pvt_data), GFP_KERNEL);
 	if (wbrc_data == NULL) {
 		return -ENOMEM;
 	}
-	mutex_init(&wbrc_data->wbrc_mutex);
-	init_waitqueue_head(&wbrc_data->bt_reset_waitq);
-	init_waitqueue_head(&wbrc_data->wlan_reset_waitq);
-	init_waitqueue_head(&wbrc_data->wlan_on_waitq);
-	init_waitqueue_head(&wbrc_data->outmsg_waitq);
 
-	/* Set wlan_on_ack in bootup so that 1st BT ON without WLAN does not wait */
-	wbrc_data->wlan_on_ack = TRUE;
+	mutex_init(&wbrc_data->wbrc_mutex);
+	mutex_init(&wbrc_data->state_mutex);
+	init_waitqueue_head(&wbrc_data->bt_reset_waitq);
+	init_waitqueue_head(&wbrc_data->outmsg_waitq);
+	init_waitqueue_head(&wbrc_data->state_change_waitq);
 
 	g_wbrc_data = wbrc_data;
 
@@ -351,7 +428,8 @@ err_register:
 	return err;
 }
 
-void wbrc_exit(void)
+void
+wbrc_exit(void)
 {
 	struct wbrc_pvt_data *wbrc_data = g_wbrc_data;
 	pr_info("%s\n", __func__);
@@ -378,144 +456,279 @@ MODULE_AUTHOR(AUTHOR);
  * Returns 0 if the @condition evaluated to false after the timeout elapsed
  * Returns 1 if the @condition evaluated to true
  */
-#define WBRC_RESET_WAIT_TIMEOUT 4000
 int
-wbrc_reset_wait_on_condition(wait_queue_head_t *reset_waitq, uint *var, uint condition)
+wbrc_wait_on_condition(wait_queue_head_t *waitq, uint tmo_ms,
+	uint *var, uint condition)
 {
 	int timeout;
 
 	/* Convert timeout in millsecond to jiffies */
-	timeout = msecs_to_jiffies(WBRC_RESET_WAIT_TIMEOUT);
+	timeout = msecs_to_jiffies(tmo_ms);
 
-	timeout = wait_event_timeout(*reset_waitq, (*var == condition), timeout);
+	timeout = wait_event_timeout(*waitq, (*var == condition), timeout);
 
 	return timeout;
 }
 
-int wbrc_wlan_on_ack(void)
+/* WL2WBRC - wlan FW downloaded */
+void
+wl2wbrc_wlan_on_finished(void)
 {
 	struct wbrc_pvt_data *wbrc_data = g_wbrc_data;
+	int state = 0;
 
-	WBRC_LOCK(wbrc_data);
-	if (wbrc_data->wlan_on_ack == FALSE) {
-		pr_info("%s: set wlan_on_ack\n", __func__);
-		wbrc_data->wlan_on_ack = TRUE;
-		smp_wmb();
-		wake_up(&wbrc_data->wlan_on_waitq);
+	pr_err("%s: enter \n", __func__);
+
+	WBRC_STATE_LOCK(wbrc_data);
+
+	state = wbrc_data->state;
+
+	if (state != WLAN_ON_IN_PROGRESS) {
+		pr_err("%s: unexpected state %d !\n", __func__, state);
+	} else {
+		wbrc_data->state = IDLE;
+		pr_err("%s: state -> IDLE \n", __func__);
+		wake_up(&wbrc_data->state_change_waitq);
 	}
-	WBRC_UNLOCK(wbrc_data);
 
-	return 0;
+	WBRC_STATE_UNLOCK(wbrc_data);
 }
 
-int wbrc_wlan_on_started(void)
+/* WL2WBRC - wlan ON start */
+int
+wl2wbrc_wlan_on(void)
 {
 	struct wbrc_pvt_data *wbrc_data = g_wbrc_data;
+	int state = 0;
+	int ret = WBRC_OK;
+	int tmo_ret = 0;
 
-	WBRC_LOCK(wbrc_data);
-	pr_info("%s: reset wlan_on_ack\n", __func__);
-	wbrc_data->wlan_on_ack = FALSE;
-	WBRC_UNLOCK(wbrc_data);
+	pr_err("%s: enter \n", __func__);
 
-	return 0;
+	WBRC_STATE_LOCK(wbrc_data);
+
+	state = wbrc_data->state;
+
+	if (state == BT_ON_IN_PROGRESS ||
+		state == BT_FW_DWNLD_IN_PROGRESS) {
+		WBRC_STATE_UNLOCK(wbrc_data);
+		/* wait for state to change to IDLE
+		 * and return nop
+		 */
+		pr_err("%s: state=%u, wait for state to become IDLE \n",
+			__func__, state);
+		tmo_ret = wbrc_wait_on_condition(&wbrc_data->state_change_waitq,
+			WBRC_WAIT_TIMEOUT, &wbrc_data->state, IDLE);
+		if (tmo_ret <= 0) {
+			pr_err("%s: wait for state to change to IDLE timed out !\n", __func__);
+			ret = WBRC_ERR;
+		} else {
+			pr_err("%s: state is now IDLE \n", __func__);
+			ret = WBRC_NOP;
+		}
+		WBRC_STATE_LOCK(wbrc_data);
+	}
+
+	wbrc_data->state = WLAN_ON_IN_PROGRESS;
+	pr_err("%s: state -> WLAN_ON_IN_PROGRESS \n", __func__);
+
+	WBRC_STATE_UNLOCK(wbrc_data);
+
+	return ret;
 }
 
 /* WBRC_LOCK should be held from caller */
-int wbrc_bt_reset_ack(struct wbrc_pvt_data *wbrc_data)
+static int
+bt2wbrc_ack_bt_reset(struct wbrc_pvt_data *wbrc_data)
 {
-	pr_info("%s\n", __func__);
+	int ret = 0;
+
+	pr_err("%s: enter \n", __func__);
+
 	wbrc_data->bt_reset_ack = TRUE;
 	smp_wmb();
 	wake_up(&wbrc_data->bt_reset_waitq);
-	return 0;
+
+	return ret;
 }
 
-int wbrc_wl2bt_reset(void)
+static int
+bt2wbrc_bt_fw_dwnld(struct wbrc_pvt_data *wbrc_data, void *fwblob, uint len)
+{
+	int ret = 0, tmo_ret = 0;
+	int state = 0;
+
+	WBRC_STATE_LOCK(wbrc_data);
+
+	state = wbrc_data->state;
+
+	/* check for invalid states */
+	if (state == BT_ON_IN_PROGRESS ||
+		state == BT_FW_DWNLD_IN_PROGRESS) {
+		pr_err("%s: Unexpected state %u !\n", __func__, state);
+		WBRC_STATE_UNLOCK(wbrc_data);
+		ret = WBRC_ERR;
+		goto exit;
+	}
+
+	/* wait if WLAN ON or WLAN recovery is in progress */
+	if (state == WLAN_ON_IN_PROGRESS ||
+		state == WLAN_OFF_IN_PROGRESS) {
+		WBRC_STATE_UNLOCK(wbrc_data);
+		pr_err("%s: state=%u, wait for WLAN ON/OFF to finish \n", __func__, state);
+		tmo_ret = wbrc_wait_on_condition(&wbrc_data->state_change_waitq,
+			WBRC_WAIT_TIMEOUT, &wbrc_data->state, IDLE);
+		if (tmo_ret <= 0) {
+			pr_err("%s: WLAN ON/OFF timed out !\n", __func__);
+			ret = WBRC_ERR;
+			goto exit;
+		} else {
+			pr_err("%s: WLAN ON/OFF finished\n", __func__);
+		}
+		WBRC_STATE_LOCK(wbrc_data);
+	}
+
+	wbrc_data->state = BT_FW_DWNLD_IN_PROGRESS;
+	pr_err("%s: state -> BT_FW_DWNLD_IN_PROGRESS \n", __func__);
+
+	WBRC_STATE_UNLOCK(wbrc_data);
+
+	/* resume pcie link */
+	if (wbrc2wl_wlan_pcie_link_request(wbrc_data->wl_hdl) == WBRC_OK) {
+		/* download the BT FW over BAR2 */
+		ret = wbrc2wl_wlan_dwnld_bt_fw(wbrc_data->wl_hdl, fwblob, len);
+		if (ret) {
+			pr_err("%s: BT FW dwnld fails with error %d! \n", __func__, ret);
+		}
+	} else {
+		pr_err("%s: wbrc2wl_wlan_pcie_link_request returns error! \n", __func__);
+		ret = WBRC_ERR;
+	}
+
+#ifdef WBRC_TEST
+	if (wbrc_test_get_error() == WBRC_DELAY_BT_FW_DWNLD) {
+		pr_err("%s: induce_error DELAY_BT_FW_DWNLD, sleep 5s \n", __func__);
+		msleep(5000);
+	}
+#endif /* WBRC_TEST */
+
+	/* change state back to IDLE */
+	WBRC_STATE_LOCK(wbrc_data);
+	wbrc_data->state = IDLE;
+	pr_err("%s: state -> IDLE \n", __func__);
+	WBRC_STATE_UNLOCK(wbrc_data);
+
+	wake_up(&wbrc_data->state_change_waitq);
+
+exit:
+	return ret;
+}
+
+/* WL2WBRC - wlan recovery start */
+int
+wl2wbrc_wlan_off(void)
 {
 	struct wbrc_pvt_data *wbrc_data = g_wbrc_data;
+	int tmo_ret = 0, state = 0;
+	int ret = 0;
 
-	pr_info("%s\n", __func__);
+	pr_info("%s: enter \n", __func__);
+
+	WBRC_STATE_LOCK(wbrc_data);
+
+	state = wbrc_data->state;
+
+	if (state == BT_ON_IN_PROGRESS ||
+		state == BT_FW_DWNLD_IN_PROGRESS) {
+		WBRC_STATE_UNLOCK(wbrc_data);
+		/* wait for state to change to IDLE */
+		pr_err("%s: state=%u, wait for state to become IDLE \n",
+			__func__, state);
+		tmo_ret = wbrc_wait_on_condition(&wbrc_data->state_change_waitq,
+			WBRC_WAIT_TIMEOUT, &wbrc_data->state, IDLE);
+		if (tmo_ret <= 0) {
+			pr_err("%s: wait for state to change to IDLE timed out !\n", __func__);
+			ret = WBRC_ERR;
+		} else {
+			pr_err("%s: state is now IDLE \n", __func__);
+		}
+		WBRC_STATE_LOCK(wbrc_data);
+	}
+
+	wbrc_data->state = WLAN_OFF_IN_PROGRESS;
+	pr_err("%s: state -> WLAN_OFF_IN_PROGRESS \n", __func__);
+	WBRC_STATE_UNLOCK(wbrc_data);
+
+#ifdef WBRC_TEST
+	if (wbrc_test_get_error() == WBRC_DELAY_WLAN_OFF) {
+		pr_err("%s: induce_error DELAY_WLAN_OFF, sleep 3s \n", __func__);
+		msleep(3000);
+	}
+#endif /* WBRC_TEST */
+
+	return ret;
+}
+
+/* WL2WBRC - wlan OFF complete */
+int
+wl2wbrc_wlan_off_finished(void)
+{
+	struct wbrc_pvt_data *wbrc_data = g_wbrc_data;
+	int state = 0;
+	int ret = 0;
+
+	WBRC_STATE_LOCK(wbrc_data);
+	state = wbrc_data->state;
+	if (state == WLAN_OFF_IN_PROGRESS) {
+		wbrc_data->state = IDLE;
+		wake_up(&wbrc_data->state_change_waitq);
+		pr_err("%s: state -> IDLE \n", __func__);
+	} else {
+		pr_err("%s: unexpected state %u ! \n", __func__, state);
+		ret = WBRC_ERR;
+	}
+	WBRC_STATE_UNLOCK(wbrc_data);
+
+	return ret;
+}
+
+/* WL2WBRC - request reset of BT stack and wait for ack, for fatal errors */
+int
+wl2wbrc_req_bt_reset(void)
+{
+	int ret = 0, tmo_ret = 0;
+	struct wbrc_pvt_data *wbrc_data = g_wbrc_data;
+
+	pr_err("%s: enter \n", __func__);
 
 	WBRC_LOCK(wbrc_data);
-
 	if (!wbrc_data->bt_dev_opened) {
 		pr_info("%s: no BT\n", __func__);
 		WBRC_UNLOCK(wbrc_data);
-		return -1;
+		return WBRC_OK;
 	}
-
+	pr_err("%s: fatal error, reset BT... \n", __func__);
 	/* bt_reset_ack will be set after BT acks for reset */
 	wbrc_data->bt_reset_ack = FALSE;
-
-	wbrc_signal_bt_reset(wbrc_data);
-
+	wbrc2bt_cmd_bt_reset(wbrc_data);
 	WBRC_UNLOCK(wbrc_data);
-	/* Wait till BT reset is done */
-	wbrc_reset_wait_on_condition(&wbrc_data->bt_reset_waitq,
+
+	tmo_ret = wbrc_wait_on_condition(&wbrc_data->bt_reset_waitq, WBRC_WAIT_TIMEOUT,
 		&wbrc_data->bt_reset_ack, TRUE);
-	if (wbrc_data->bt_reset_ack == FALSE) {
-		pr_err("%s: BT reset timeout\n", __func__);
+	if (tmo_ret <= 0) {
+		pr_err("%s: BT reset ack timeout !\n", __func__);
+		ret = WBRC_ERR;
 	} else {
-		pr_info("%s: got bt_reset_ack\n", __func__);
+		pr_err("%s: got BT reset ack\n", __func__);
 	}
-	return 0;
-}
 
-#ifdef WBRC_BT2WL_RESET
-extern void dhd_wbrc_wl_trap(void);
-#endif /* WBRC_BT2WL_RESET */
-
-/* WBRC_LOCK should be held from caller */
-static int
-wbrc_signal_wlan_reset(struct wbrc_pvt_data *wbrc_data)
-{
-#ifdef WBRC_BT2WL_RESET
-	/* Force trap wl */
-	dhd_wbrc_wl_trap();
-#endif /* WBRC_BT2WL_RESET */
-	wbrc_wl_reset_ack(wbrc_data);
-	return 0;
-}
-
-/* WBRC_LOCK should be held from caller */
-static int
-wbrc_wl_reset_ack(struct wbrc_pvt_data *wbrc_data)
-{
-	pr_info("%s\n", __func__);
-	wbrc_data->wlan_reset_ack = TRUE;
-
-	/* Below message will be read by userspace using .read */
-	wbrc_data->wl2bt_message[0] = HEADER_DIR_WL2BT;       // Minimal Header
-	wbrc_data->wl2bt_message[1] = 2;                      // Length
-	wbrc_data->wl2bt_message[2] = TYPE_WIFI_ACK;          // Type
-	wbrc_data->wl2bt_message[3] = ACK_RESET_WIFI_COMPLETE;  // Value
-	wbrc_data->read_data_available = TRUE;
-
-	smp_wmb();
-	wake_up_interruptible(&wbrc_data->outmsg_waitq);
-
-	smp_wmb();
-	wake_up(&wbrc_data->wlan_reset_waitq);
-	return 0;
-}
-
-/* WBRC_LOCK should be held from caller */
-static int
-wbrc_bt2wl_reset(void)
-{
-	int ret = 0;
-	struct wbrc_pvt_data *wbrc_data = g_wbrc_data;
-
-	pr_info("%s\n", __func__);
-
-	wbrc_data->wlan_reset_ack = FALSE;
-	wbrc_signal_wlan_reset(wbrc_data);
-	/* Wait till WLAN reset is done */
-	wbrc_reset_wait_on_condition(&wbrc_data->wlan_reset_waitq,
-		&wbrc_data->wlan_reset_ack, TRUE);
-	if (wbrc_data->wlan_reset_ack == FALSE) {
-		pr_err("%s: WLAN reset timeout\n", __func__);
-		ret = -1;
-	}
 	return ret;
 }
+
+#ifdef WBRC_TEST
+void *
+wbrc_get_fops(void)
+{
+	return &wbrc_bt_dev_fops;
+}
+#endif /* WBRC_TEST */

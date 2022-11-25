@@ -1756,51 +1756,6 @@ wl_cfgp2p_action_tx_complete(struct bcm_cfg80211 *cfg, bcm_struct_cfgdev *cfgdev
 	return ret;
 }
 
-#define ETHER_LOCAL_ADDR 0x02
-static s32
-wl_actframe_fillup_v2(struct bcm_cfg80211 *cfg, bcm_struct_cfgdev *cfgdev,
-	struct net_device *dev, wl_af_params_v2_t *af_params_v2_p,
-	wl_af_params_v1_t *af_params, const u8 *sa, uint16 wl_af_params_size)
-{
-	s32 err = 0;
-	wl_action_frame_v2_t *action_frame_v2_p;
-	struct ether_addr rand_mac_mask = {{0}};
-	WL_DBG(("Enter \n"));
-
-	af_params_v2_p->version = WL_ACTFRAME_VERSION_MAJOR_2;
-	af_params_v2_p->length = wl_af_params_size;
-	af_params_v2_p->channel = af_params->channel;
-	af_params_v2_p->dwell_time = af_params->dwell_time;
-	af_params_v2_p->BSSID = af_params->BSSID;
-	action_frame_v2_p = &af_params_v2_p->action_frame;
-	action_frame_v2_p->len_total = OFFSETOF(wl_action_frame_v2_t, data) +
-		af_params->action_frame.len;
-	action_frame_v2_p->data_offset = OFFSETOF(wl_action_frame_v2_t, data);
-	action_frame_v2_p->da = af_params->action_frame.da;
-	action_frame_v2_p->len_data = af_params->action_frame.len;
-	action_frame_v2_p->packetId = af_params->action_frame.packetId;
-	err = memcpy_s(action_frame_v2_p->data, action_frame_v2_p->len_data,
-			af_params->action_frame.data, af_params->action_frame.len);
-	if (err) {
-		WL_ERR(("actframe :memcpy failed\n"));
-		return -ENOMEM;
-	}
-	/* check if local admin bit is set and addr is different from ndev addr */
-	if ((sa[0] & ETHER_LOCAL_ADDR) &&
-		(cfgdev->iftype == NL80211_IFTYPE_STATION) &&
-		memcmp(sa, dev->dev_addr, ETH_ALEN)) {
-		/* Use mask to avoid randomization, as the address from supplicant
-		 * is already randomized.
-		 */
-		eacopy(sa, &action_frame_v2_p->rand_mac_addr);
-		action_frame_v2_p->rand_mac_mask = rand_mac_mask;
-		action_frame_v2_p->flags |= WL_RAND_GAS_MAC;
-		eacopy(sa, &cfg->af_randmac);
-		cfg->randomized_gas_tx = TRUE;
-	}
-	return err;
-}
-
 s32
 wl_cfg80211_abort_action_frame(struct bcm_cfg80211 *cfg, struct net_device *dev, s32 bssidx)
 {
@@ -1872,8 +1827,8 @@ wl_cfgp2p_tx_action_frame(struct bcm_cfg80211 *cfg, bcm_struct_cfgdev *cfgdev,
 				ret = -ENOMEM;
 				goto exit;
 			}
-			ret = wl_actframe_fillup_v2(cfg, cfgdev, dev, af_params_v2_p, af_params, sa,
-					wl_af_params_size);
+			ret = wl_cfg80211_actframe_fillup_v2(cfg, cfgdev, dev, af_params_v2_p,
+				af_params, sa, wl_af_params_size);
 			if (ret != BCME_OK) {
 				WL_ERR(("unable to fill actframe_params, ret %d\n", ret));
 				goto exit;

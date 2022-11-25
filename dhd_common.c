@@ -1880,6 +1880,7 @@ dhd_sdtc_etb_init(dhd_pub_t *dhd)
 	int ret = 0;
 	uint16 iovlen = 0;
 	uint16 version = 0;
+	uint32 etb_config_addr = 0;
 
 	BCM_REFERENCE(p_etb_addr_info);
 	dhd->sdtc_etb_inited = FALSE;
@@ -1894,6 +1895,27 @@ dhd_sdtc_etb_init(dhd_pub_t *dhd)
 	 * to legacy iovar method
 	 */
 	DHD_PRINT(("%s: Legacy FW, use iovar method...\n", __FUNCTION__));
+
+#ifdef DHD_SDTC_ETB_DUMP
+	/* DAP ETB configuration IOVAR */
+	DHD_PRINT(("%s: Local FW, use DAP ETB iovar method...\n", __FUNCTION__));
+	ret = dhd_iovar(dhd, 0, "etb_config", NULL, 0, (char *)&etb_config_addr,
+		sizeof(etb_config_addr), FALSE);
+
+	if (ret) {
+		DHD_ERROR(("%s: DAP etb config iovar is not supported\n", __FUNCTION__));
+	} else {
+		DHD_PRINT(("%s: etb config address return is 0x%x\n", __FUNCTION__,
+			etb_config_addr));
+
+		ret = dhd_bus_get_etb_config(dhd->bus, etb_config_addr);
+		if (ret == BCME_OK) {
+			dhd->etb_dump_inited = TRUE;
+			DHD_PRINT(("DEBUG: ETB dump is inited\n"));
+			goto success;
+		}
+	}
+#endif /* DHD_SDTC_ETB_DUMP */
 
 	iov_req = MALLOCZ(dhd->osh, WLC_IOCTL_SMLEN);
 	if (iov_req == NULL) {
@@ -3171,30 +3193,121 @@ done:
 }
 
 /*
- * Set handler for the dhd -i ethX dscp_policy flush
+ * Set handler for dscp_policy commands:
+ *
+ * The flush subcommand removes all entries in the DSCP table.
+ * dhd -i ethX dscp_policy flush
+ *
+ * Subcommand send_query 0 - sends the DSCP policy query frame and rejects all policies
+ * that are present in the immediate DSCP policy request frame from the AP.
+ * dhd -i ethX dscp_policy send_query 0
+ *
+ * Subcommand send_query 1 domain_name - sends the DSCP policy query frame with domain_name and
+ * rejects all policies that are present in the immediate DSCP policy request frame from the AP.
+ * dhd -i ethX dscp_policy send_query 1 example.com
+ *
+ * Subcommand send_query 2 - sends the DSCP policy query frame and accepts all policies
+ * that are present in the immediate DSCP policy request frame from the AP.
+ * dhd -i ethX dscp_policy send_query 2
+ *
+ * Subcommand send_us_resp - sends unsolicted DSCP policy response frame with a given policy_id.
+ * dhd -i ethX dscp_policy send_us_resp policy_id
+ *
  * The flush command removes all entries in the DSCP policy table.
  */
 static int
 dhd_process_dscp_policy_set_cmds(dhd_pub_t *dhd, char *msg, uint msglen)
 {
-	char *subcmd_flush = "flush";
 	struct net_device *ndev;
 	int ret_val = BCME_ERROR;
+	char *param_str;
+	char *end_ptr = NULL;
 
 	ndev = dhd_linux_get_primary_netdev(dhd);
 	if (ndev == NULL) {
 		goto done;
 	}
 
-	if (!(strncmp(msg, subcmd_flush, msglen))) {
-		dhd_dscp_policy_flush(ndev);
-		ret_val = BCME_OK;
+	if (!(strncmp(msg, "flush", msglen))) {
+		ret_val = dhd_dscp_policy_flush(ndev);
 		goto done;
 	}
 
-	/* more set commands coming soon */
+	msg[msglen - 1] = '\0';
+	param_str = bcmstrstr(msg, " ");
+	if (param_str == NULL) {
+		DHD_ERROR(("missing args for dscp_policy cmd \"%s\"\n", msg));
+		ret_val = BCME_BADARG;
+		goto done;
+	}
 
-	ret_val = BCME_ERROR;
+	/* Overwrite the space between the command name and parameter(s)
+	 * with a NULL so that msg can be used as a NULL terminated word.
+	 */
+	*param_str = '\0';
+
+	/* move up to first char of parameter */
+	param_str += 1;
+
+	if (!(strncmp(msg, "send_query", msglen))) {
+		uint32 val = bcm_strtoul(param_str, &end_ptr, 0);
+		uint8 dn_len = 0;
+		uint8 *dn = NULL;
+
+		if ((end_ptr == NULL) || ((*end_ptr != '\0') && (*end_ptr != ' '))) {
+			DHD_ERROR(("%s: invalid arguments for the command send_query \n ",
+			           __FUNCTION__));
+			ret_val = BCME_BADARG;
+			goto done;
+		}
+
+		/* Val 0 or 2 doesn't have any more arguments */
+		if (((val == 0) || (val == 2)) && (*end_ptr != '\0')) {
+			DHD_ERROR(("%s: invalid arguments for the command send_query 0/2 \n",
+			           __FUNCTION__));
+			ret_val = BCME_BADARG;
+			goto done;
+		}
+
+		if (val == 1) {
+
+			end_ptr += 1;
+
+			/* Skip any leading spaces */
+			while ((*end_ptr != '\0') && (*end_ptr == ' ')) {
+				end_ptr++;
+			}
+
+			dn = end_ptr;
+			dn_len = strlen(dn);
+
+			if (dn_len == 0) {
+				DHD_ERROR(("%s: invalid domain_name 'send_query 1 <dn_name>' \n",
+				           __FUNCTION__));
+				ret_val =  BCME_BADARG;
+				goto done;
+			}
+		}
+
+		ret_val = dhd_dscp_policy_send_query(ndev, val, dn, dn_len);
+
+	} else if (!(strncmp(msg, "send_us_resp", msglen))) {
+		uint32 policy_id = bcm_strtoul(param_str, &end_ptr, 0);
+		if ((end_ptr == NULL) || (*end_ptr != '\0')) {
+			DHD_ERROR(("%s: could not parse int param \"%s\" for "
+			           "'send_us_resp <policy_id>' command\n",
+			           __FUNCTION__, param_str));
+			ret_val =  BCME_BADARG;
+		} else {
+			/* basic policy id validation */
+			if ((policy_id == 0) || (policy_id > 255)) {
+				ret_val =  BCME_BADARG;
+				goto done;
+			}
+
+			ret_val = dhd_dscp_policy_send_unsolicited_resp(ndev, (uint8) policy_id);
+		}
+	}
 done:
 	return ret_val;
 }
@@ -5002,6 +5115,7 @@ wl_show_roam_event(dhd_pub_t *dhd_pub, uint status, uint datalen,
 		 * For secure join if WLC_E_SET_SSID returns with any failure case,
 		 * donot expect WLC_E_PSK_SUP. So clear the mask.
 		 */
+		OSL_ATOMIC_SET(dhd_pub->osh, &dhd_pub->set_ssid_err_rcvd, TRUE);
 		dhd_clear_join_error(dhd_pub, WLC_WPA_MASK);
 #endif /* REPORT_FATAL_TIMEOUTS */
 		if (status == WLC_E_STATUS_FAIL) {
@@ -5465,6 +5579,7 @@ wl_show_host_event(dhd_pub_t *dhd_pub, wl_event_msg_t *event, void *event_data,
 			 * For secure join if WLC_E_SET_SSID returns with any failure case,
 			 * donot expect WLC_E_PSK_SUP. So clear the mask.
 			 */
+			OSL_ATOMIC_SET(dhd_pub->osh, &dhd_pub->set_ssid_err_rcvd, TRUE);
 			dhd_clear_join_error(dhd_pub, WLC_WPA_MASK);
 #endif /* REPORT_FATAL_TIMEOUTS */
 			if (status == WLC_E_STATUS_FAIL) {
@@ -6727,8 +6842,10 @@ wl_process_host_event(dhd_pub_t *dhd_pub, int *ifidx, void *pktdata, uint pktlen
 				del_sta = FALSE;
 			}
 #endif /* WL_CFG80211 */
-			DHD_EVENT(("%s: Link event %d, flags %x, status %x, role %d, del_sta %d\n",
-				__FUNCTION__, type, flags, status, role, del_sta));
+			DHD_EVENT(("%s: Link event %d, flags %x, status %x, "
+				"reason=%d, role %d, del_sta %d\n",
+				__FUNCTION__, type, flags, status,
+				reason, role, del_sta));
 
 			if (del_sta) {
 				DHD_EVENT(("%s: Deleting STA " MACDBG "\n",
@@ -9280,6 +9397,7 @@ init_dhd_timeouts(dhd_pub_t *pub)
 		pub->timeout_info->cmd_join_error = FALSE;
 		pub->timeout_info->cmd_request_id = 0;
 		OSL_ATOMIC_SET(pub->osh, &pub->set_ssid_rcvd, FALSE);
+		OSL_ATOMIC_SET(pub->osh, &pub->set_ssid_err_rcvd, FALSE);
 	}
 }
 
@@ -10436,7 +10554,7 @@ int dhd_free_tdls_peer_list(dhd_pub_t *dhd_pub)
 * based on the debug level specified
 */
 void
-dhd_prhex(const char *msg, volatile uchar *buf, uint nbytes, uint8 dbg_level)
+dhd_prhex(const char *msg, volatile uchar *buf, uint nbytes, uint32 dbg_level)
 {
 	char line[128], *p;
 	int len = sizeof(line);
@@ -10444,12 +10562,15 @@ dhd_prhex(const char *msg, volatile uchar *buf, uint nbytes, uint8 dbg_level)
 	uint i;
 
 	if (msg && (msg[0] != '\0')) {
-		if (dbg_level == DHD_ERROR_VAL)
+		if (dbg_level == DHD_ERROR_VAL) {
 			DHD_ERROR(("%s:\n", msg));
-		else if (dbg_level == DHD_INFO_VAL)
+		} else if (dbg_level == DHD_INFO_VAL) {
 			DHD_INFO(("%s:\n", msg));
-		else if (dbg_level == DHD_TRACE_VAL)
+		} else if (dbg_level == DHD_TRACE_VAL) {
 			DHD_TRACE(("%s:\n", msg));
+		} else if (dbg_level == DHD_RPM_VAL) {
+			DHD_RPM(("%s:\n", msg));
+		}
 	}
 
 	p = line;
@@ -10467,12 +10588,16 @@ dhd_prhex(const char *msg, volatile uchar *buf, uint nbytes, uint8 dbg_level)
 
 		if (i % 16 == 15) {
 			/* flush line */
-			if (dbg_level == DHD_ERROR_VAL)
+			if (dbg_level == DHD_ERROR_VAL) {
 				DHD_ERROR(("%s:\n", line));
-			else if (dbg_level == DHD_INFO_VAL)
+			} else if (dbg_level == DHD_INFO_VAL) {
 				DHD_INFO(("%s:\n", line));
-			else if (dbg_level == DHD_TRACE_VAL)
+			} else if (dbg_level == DHD_TRACE_VAL) {
 				DHD_TRACE(("%s:\n", line));
+			} else if (dbg_level == DHD_RPM_VAL) {
+				DHD_RPM(("%s:\n", line));
+			}
+
 			p = line;
 			len = sizeof(line);
 		}
@@ -10480,12 +10605,15 @@ dhd_prhex(const char *msg, volatile uchar *buf, uint nbytes, uint8 dbg_level)
 
 	/* flush last partial line */
 	if (p != line) {
-		if (dbg_level == DHD_ERROR_VAL)
+		if (dbg_level == DHD_ERROR_VAL) {
 			DHD_ERROR(("%s:\n", line));
-		else if (dbg_level == DHD_INFO_VAL)
+		} else if (dbg_level == DHD_INFO_VAL) {
 			DHD_INFO(("%s:\n", line));
-		else if (dbg_level == DHD_TRACE_VAL)
+		} else if (dbg_level == DHD_TRACE_VAL) {
 			DHD_TRACE(("%s:\n", line));
+		} else if (dbg_level == DHD_RPM_VAL) {
+			DHD_RPM(("%s:\n", line));
+		}
 	}
 }
 
@@ -12133,6 +12261,8 @@ bool dhd_validate_chipid(dhd_pub_t *dhdp)
 	config_chipid = BCM4398_CHIP_ID;
 #elif defined(BCM4389_CHIP_DEF)
 	config_chipid = BCM4389_CHIP_ID;
+#elif defined(BCM4383_CHIP_DEF)
+	config_chipid = BCM4383_CHIP_ID;
 #elif defined(BCM4375_CHIP)
 	config_chipid = BCM4375_CHIP_ID;
 #elif defined(BCM4361_CHIP)

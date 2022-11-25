@@ -489,12 +489,15 @@ typedef struct dot11_extcap_ie dot11_extcap_ie_t;
 /* Draft P802.11az/D2.5 - Table 9-321 Extended RSN Capabilities field */
 #define DOT11_EXT_RSN_CAP_SECURE_LTF		8u	/* Secure LTF support */
 #define DOT11_EXT_RSN_CAP_SECURE_RTT		9u	/* Secure RTT(EDMG measurement) support */
-#define DOT11_EXT_RSN_CAP_RANGE_PMF_REQUIRED	10u	/* Protection of Ranging frm required */
+/* Protection of Ranging management frame is required */
+#define DOT11_EXT_RSN_CAP_URNM_MFPR_X20		10u	/* except BW20 ranging */
+#define DOT11_EXT_RSN_CAP_RANGE_PMF_REQUIRED	DOT11_EXT_RSN_CAP_URNM_MFPR_X20 /* to be removed */
+#define DOT11_EXT_RSN_CAP_URNM_MFPR		15u	/* P802.11az/D4.1 */
 
 /* Last bit in Extended RSN Capabilities defined in P802.11
  * Please update DOT11_EXT_RSN_CAP_LAST_BIT_IDX to the last bit when P802.11 inteoduced new bit
  */
-#define DOT11_EXT_RSN_CAP_LAST_BIT_IDX	DOT11_EXT_RSN_CAP_RANGE_PMF_REQUIRED /* update this */
+#define DOT11_EXT_RSN_CAP_LAST_BIT_IDX	DOT11_EXT_RSN_CAP_URNM_MFPR /* update this */
 #define DOT11_EXT_RSN_CAP_NUM_BITS_MAX	(DOT11_EXT_RSN_CAP_LAST_BIT_IDX + 1) /* last bit idx + 1 */
 
 /* Please use DOT11_EXT_RSN_CAP_BYTE_LEN_MAX for any of RSNXE cap buffer size ONLY in ATTACH time.

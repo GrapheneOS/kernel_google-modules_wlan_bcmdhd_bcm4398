@@ -172,6 +172,10 @@ extern void register_page_corrupt_cb(page_corrupt_cb_t cb, void* handle);
 #ifdef EWP_DACS
 #include <ewp.h>
 #endif
+#ifdef WBRC
+#include <wb_regon_coordinator.h>
+#endif /* WBRC */
+
 #define IP_PROT_RESERVED	0xFF
 
 #ifdef DHD_MQ
@@ -183,7 +187,7 @@ int mq_select_disable = FALSE;
 #endif
 
 
-int dhd_logger = FALSE;
+int dhd_logger = TRUE;
 module_param(dhd_logger, int, 0644);
 
 #if defined(DHD_LB)
@@ -5868,6 +5872,10 @@ int dhd_ioctl_process(dhd_pub_t *pub, int ifidx, dhd_ioctl_t *ioc, void *data_bu
 	int bcmerror = BCME_OK;
 	int buflen = 0;
 	struct net_device *net;
+#ifdef REPORT_FATAL_TIMEOUTS
+	bool set_ssid_rcvd;
+	bool set_ssid_err_rcvd;
+#endif  /* REPORT_FATAL_TIMEOUTS */
 
 	net = dhd_idx2net(pub, ifidx);
 	if (!net) {
@@ -5898,7 +5906,22 @@ int dhd_ioctl_process(dhd_pub_t *pub, int ifidx, dhd_ioctl_t *ioc, void *data_bu
 			} else if (!bcmstricmp((char *)data_buf, "counters") ||
 				!bcmstricmp((char *)data_buf, "dump_flowrings")) {
 				buflen = MIN(ioc->len, DHD_IOCTL_MAXLEN_32K);
-			} else {
+			}
+#ifdef WBRC_TEST
+			/* re-route 'wbrc_test' iovar to wbrc even if iface
+			 * is down. For other iovars, block if iface is down
+			 */
+			else if (!bcmstricmp((char *)data_buf, "wbrc_test")) {
+				wl2wbrc_iovar(pub, data_buf + strlen("wbrc_test") + 1);
+				goto done;
+			} else if (ioc->cmd != DHD_GET_MAGIC && ioc->cmd != DHD_GET_VERSION &&
+					!dhd_download_fw_on_driverload && pub->up == FALSE) {
+				DHD_ERROR(("%s: Interface is down\n", __func__));
+				bcmerror = BCME_NOTUP;
+				goto done;
+			}
+#endif /* WBRC_TEST */
+			else {
 				/* This is a DHD IOVAR, truncate buflen to DHD_IOCTL_MAXLEN */
 				buflen = MIN(ioc->len, DHD_IOCTL_MAXLEN);
 			}
@@ -6001,14 +6024,24 @@ int dhd_ioctl_process(dhd_pub_t *pub, int ifidx, dhd_ioctl_t *ioc, void *data_bu
 		}
 
 		if (ioc->cmd == WLC_SET_SSID) {
-			bool set_ssid_rcvd = OSL_ATOMIC_READ(pub->osh, &pub->set_ssid_rcvd);
-			if ((!set_ssid_rcvd) && (!pub->secure_join)) {
+			set_ssid_rcvd = OSL_ATOMIC_READ(pub->osh, &pub->set_ssid_rcvd);
+			set_ssid_err_rcvd = OSL_ATOMIC_READ(pub->osh, &pub->set_ssid_err_rcvd);
+			/* For open join, donot start join timer if the WLC_E_SET_SSID is
+			 * received even before the join timer starts.
+			 *
+			 * Similarly for secure join if an error is reported for WLC_E_SET_SSID
+			 * donot start join timer, since the secure join has failed
+			 */
+			if ((!pub->secure_join && !set_ssid_rcvd) ||
+					(pub->secure_join && !set_ssid_err_rcvd)) {
 				dhd_start_join_timer(pub);
 			} else {
 				DHD_ERROR(("%s: didnot start join timer."
-					"open join, set_ssid_rcvd: %d secure_join: %d\n",
-					__FUNCTION__, set_ssid_rcvd, pub->secure_join));
+					"set_ssid_rcvd: %d set_ssid_err_rcvd: %d secure_join: %d\n",
+					__FUNCTION__, set_ssid_rcvd,
+					set_ssid_err_rcvd, pub->secure_join));
 				OSL_ATOMIC_SET(pub->osh, &pub->set_ssid_rcvd, FALSE);
+				OSL_ATOMIC_SET(pub->osh, &pub->set_ssid_err_rcvd, FALSE);
 			}
 		}
 
@@ -6192,14 +6225,14 @@ static int dhd_siocdevprivate(struct net_device *net, struct ifreq *ifr,
 	}
 
 	DHD_OS_WAKE_LOCK(&dhd->pub);
-
+#ifndef WBRC_TEST
 	/* Interface up check for built-in type */
 	if (!dhd_download_fw_on_driverload && dhd->pub.up == FALSE) {
 		DHD_ERROR(("%s: Interface is down\n", __func__));
 		ret = OSL_ERROR(BCME_NOTUP);
 		goto done;
 	}
-
+#endif /* !WBRC_TEST */
 	ifidx = dhd_net2idx(dhd, net);
 	DHD_TRACE(("%s: ifidx %d, cmd 0x%04x\n", __func__, ifidx, cmd));
 
@@ -6699,6 +6732,7 @@ exit:
 	mutex_unlock(&dhd->pub.ndev_op_sync);
 	/* Clear stop in progress flag */
 	dhd->pub.stop_in_progress = false;
+	dhd->pub.if_opened = FALSE;
 	DHD_PRINT(("%s: EXIT\n", __FUNCTION__));
 	return 0;
 }
@@ -6980,8 +7014,12 @@ dhd_open(struct net_device *net)
 	dhd->pub.p2p_disc_busy_cnt = 0;
 
 #if defined(WLAN_ACCEL_BOOT)
-	dhd_verify_firmware_mode_change(dhd);
+	if (firmware_path[0] != '\0' || nvram_path[0] != '\0' ||
+		signature_path[0] != '\0') {
+		dhd_verify_firmware_mode_change(dhd);
+	}
 #endif /* WLAN_ACCEL_BOOT */
+
 	if (ifidx == 0) {
 		atomic_set(&dhd->pend_8021x_cnt, 0);
 
@@ -7003,6 +7041,7 @@ dhd_open(struct net_device *net)
 				goto exit;
 			}
 #endif /* SHOW_LOGTRACE */
+			dhd->pub.if_opened = TRUE;
 #if defined(WLAN_ACCEL_BOOT)
 			ret = wl_android_wifi_accel_on(net, dhd->wl_accel_force_reg_on);
 			/* Enable wl_accel_force_reg_on if ON fails, else disable it */
@@ -7212,6 +7251,7 @@ exit:
 			ret = BCME_ERROR;
 		}
 		dhd_stop(net);
+		dhd->pub.if_opened = FALSE;
 	}
 
 	DHD_OS_WAKE_UNLOCK(&dhd->pub);
@@ -9147,6 +9187,7 @@ dhd_attach(osl_t *osh, struct dhd_bus *bus, uint bus_hdrlen)
 
 #ifdef WBRC
 	dhd->pub.chip_bighammer_count = 0;
+	wl2wbrc_wlan_init(&dhd->pub);
 #endif /* WBRC */
 
 	/* Set network interface name if it was provided as module parameter */
@@ -10103,13 +10144,28 @@ dhd_bus_start(dhd_pub_t *dhdp)
 	int ret = -1;
 	dhd_info_t *dhd = (dhd_info_t*)dhdp->info;
 	unsigned long flags;
+	struct net_device *dev = NULL;
 
 #if defined(DHD_DEBUG) && defined(BCMSDIO)
 	int fw_download_start = 0, fw_download_end = 0, f2_sync_start = 0, f2_sync_end = 0;
 #endif /* DHD_DEBUG && BCMSDIO */
 	ASSERT(dhd);
 
+	BCM_REFERENCE(dev);
+
 	DHD_TRACE(("Enter %s:\n", __FUNCTION__));
+
+#if defined(WBRC) && defined(WBRC_WLAN_ON_FIRST_ALWAYS)
+	/* if BT ON happens first and results in wlan fw download */
+	if (dhd->pub.busstate > DHD_BUS_LOAD) {
+		DHD_PRINT(("%s: Bus is already up, bus state %u\n", __FUNCTION__,
+			dhd->pub.busstate));
+		dev = dhd_linux_get_primary_netdev(dhdp);
+		dhd_net_bus_resume(dev, 1);
+		return BCME_OK;
+	}
+#endif /* WBRC && WBRC_WLAN_ON_FIRST_ALWAYS */
+
 	dhdp->memdump_type = 0;
 
 	dhd_clear_all_errors(dhdp);
@@ -10172,7 +10228,10 @@ dhd_bus_start(dhd_pub_t *dhdp)
 		/* Indicate FW Download has succeeded */
 		dhd->pub.fw_download_status = FW_DOWNLOAD_DONE;
 	}
+
 	if (dhd->pub.busstate != DHD_BUS_LOAD) {
+		DHD_ERROR(("%s: Unexpected bus state %u\n", __FUNCTION__,
+			dhd->pub.busstate));
 		return -ENETDOWN;
 	}
 
@@ -11368,6 +11427,15 @@ dhd_optimised_preinit_ioctls(dhd_pub_t * dhd)
 	}
 #endif /* CUSTOMER_HW4_DEBUG */
 
+#ifdef WBRC_TEST
+	if (wbrc_test_get_error() == WBRC_WLAN_TRAP_ON_LOAD) {
+		uint disconn = 99;
+		DHD_PRINT(("%s: induce_error WLAN_TRAP_ON_LOAD ! \n", __func__));
+		dhd_iovar(dhd, 0, "bus:disconnect", (char *)&disconn,
+			sizeof(disconn), NULL, 0, TRUE);
+	}
+#endif /* WBRC_TEST */
+
 	/* query for 'ver' to get version info from firmware */
 	bzero(buf, sizeof(buf));
 	ptr = buf;
@@ -11579,6 +11647,7 @@ dhd_optimised_preinit_ioctls(dhd_pub_t * dhd)
 		DHD_ERROR(("%s: CLM set failed. Abort initialization.\n", __FUNCTION__));
 		goto done;
 	}
+
 #ifdef SUPPORT_MULTIPLE_CLMBLOB
 	if (dhd_get_platform_naming_for_nvram_clmblob_file(TXCAP_BLOB,
 			customer_txcap_file_name) == BCME_OK) {
@@ -11596,7 +11665,6 @@ dhd_optimised_preinit_ioctls(dhd_pub_t * dhd)
 #endif /* SUPPORT_MULTIPLE_REVISION */
 		apply_txcap = txcap_path;
 	}
-
 
 	if ((ret = dhd_apply_default_txcap(dhd, apply_txcap)) < 0) {
 		DHD_ERROR(("%s: TXCAP set failed\n", __FUNCTION__));
@@ -16298,6 +16366,12 @@ dhd_net_bus_devreset(struct net_device *dev, uint8 flag)
 			dhd_sdtc_etb_deinit(&dhd->pub);
 		}
 #endif /* DHD_SDTC_ETB_DUMP */
+
+#ifdef DHD_SDTC_ETB_DUMP
+		if (dhd->pub.etb_dump_inited) {
+			dhd_etb_dump_deinit(&dhd->pub);
+		}
+#endif /* DHD_SDTC_ETB_DUMP */
 /*
  * Detach only if the module is not attached by default at dhd_attach.
  * If attached by default, we need to keep it till dhd_detach, so that
@@ -20174,13 +20248,17 @@ dhd_mem_dump(void *handle, void *event_info, u8 event)
 			goto exit;
 		}
 #ifdef BOARD_HIKEY
+		DHD_ERROR(("%s: force write dumps...\n", __FUNCTION__));
 		/* For Hikey do force kernel write of socram if HAL dump fails */
-		if (write_dump_to_file(&dhd->pub, dump->buf, dump->bufsize, "mem_dump")) {
+		if (write_dump_to_file(&dhd->pub, dump->buf, dump->bufsize,
+			"data/misc/wifi/mem_dump")) {
 			DHD_ERROR(("%s: writing SoC_RAM dump to the file failed\n", __FUNCTION__));
 		}
 #endif /* BOARD_HIKEY */
 	}
+#ifdef DEBUGABILITY
 	dhdp->skip_memdump_map_read = FALSE;
+#endif /* DEBUGABILITY */
 #elif defined(DHD_DEBUGABILITY_DEBUG_DUMP)
 	dhd_debug_dump_to_ring(dhdp);
 #endif /* DHD_FILE_DUMP_EVENT */
@@ -20838,6 +20916,34 @@ dhd_sdtc_write_ewp_etb_dump(dhd_pub_t *dhdp)
 	return BCME_OK;
 }
 
+static int
+dhd_write_etb_dump(dhd_pub_t *dhdp)
+{
+	int size = 0;
+
+	DHD_TRACE(("Enter %s \n", __FUNCTION__));
+	size = dhd_bus_get_etb_dump(dhdp->bus, dhdp->sdtc_etb_mempool,
+		DHD_SDTC_ETB_MEMPOOL_SIZE);
+	if (size < 0) {
+		dhdp->sdtc_etb_dump_len = 0;
+		return size;
+	}
+
+	/* sdtc_etb_dump_len should be set for HAL pull
+	 * of etb dump
+	 */
+	dhdp->sdtc_etb_dump_len = size;
+#ifdef DHD_DUMP_FILE_WRITE_FROM_KERNEL
+	if (write_dump_to_file(dhdp, dhdp->sdtc_etb_mempool,
+		size, SDTC_ETB_DUMP_FILENAME)) {
+		DHD_ERROR(("%s: failed to dump %s file\n",
+			__FUNCTION__, SDTC_ETB_DUMP_FILENAME));
+	}
+#endif /* DHD_DUMP_FILE_WRITE_FROM_KERNEL */
+
+	return BCME_OK;
+}
+
 void
 dhd_sdtc_etb_dump(dhd_pub_t *dhd)
 {
@@ -20860,6 +20966,18 @@ dhd_sdtc_etb_dump(dhd_pub_t *dhd)
 		}
 		return;
 	}
+
+#if defined(DHD_SDTC_ETB_DUMP)
+	/* if dap etb iovar based dump is enabled */
+	if (dhd->etb_dump_inited) {
+		ret = dhd_write_etb_dump(dhd);
+		if (ret != BCME_OK) {
+			DHD_ERROR(("%s: failed to write etb dump err=%d\n",
+				__FUNCTION__, ret));
+		}
+		return;
+	}
+#endif /* DHD_SDTC_ETB_DUMP */
 
 	bzero(&etb_info, sizeof(etb_info));
 
@@ -25079,4 +25197,18 @@ dhd_os_skbq_dump(struct sk_buff_head *qdump, char *qname)
 	if (p != line) {
 		DHD_PRINT(("%s\n", line));
 	}
+}
+
+void
+dhd_initilize_idsup(uint16 chipid)
+{
+#if defined(BCMSUP_4WAY_HANDSHAKE)
+	/*
+	 *  This is needed to use 4-way HS from wpa_supplicant.
+	 *  Once offload of 4-way HS to FW is ready this will be removed.
+	 */
+	if (chipid == BCM4383_CHIP_ID) {
+		dhd_use_idsup = FALSE;
+	}
+#endif /* BCMSUP_4WAY_HANDSHAKE */
 }

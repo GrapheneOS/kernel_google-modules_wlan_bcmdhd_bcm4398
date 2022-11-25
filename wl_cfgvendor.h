@@ -28,7 +28,6 @@
 
 #ifndef _wl_cfgvendor_h_
 #define _wl_cfgvendor_h_
-
 #define OUI_BRCM    0x001018
 #define OUI_GOOGLE  0x001A11
 #define BRCM_VENDOR_SUBCMD_PRIV_STR	1

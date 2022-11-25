@@ -632,9 +632,8 @@ extern uint32 si_clear_backplane_to(si_t *sih);
 
 extern uint32 si_clear_backplane_to_fiq(si_t *sih);
 extern void si_slave_wrapper_add(si_t *sih);
-
-extern uint32 si_clear_backplane_to_per_core(si_t *sih, uint coreid, uint coreunit, void *wrap);
 #endif /* !BCMDONGLEHOST */
+extern uint32 si_clear_backplane_to_per_core(si_t *sih, uint coreid, uint coreunit, void *wrap);
 
 extern uint32 si_findcoreidx_by_axiid(const si_t *sih, uint32 axiid);
 extern void si_wrapper_get_last_error(const si_t *sih, uint32 *error_status, uint32 *core,
@@ -1040,7 +1039,7 @@ bool si_srpwr_cap(si_t *sih);
 #define MULTIBP_CAP(sih)	(BCM4378_CHIP(sih->chip) || \
 				BCM4383_CHIP(sih->chip) || BCM4387_CHIP(sih->chip) || \
 				BCM4388_CHIP(sih->chip) || BCM4389_CHIP(sih->chip) || \
-				BCM4397_CHIP(sih->chip))
+				BCM4390_CHIP(sih->chip) || BCM4397_CHIP(sih->chip))
 
 // Please leave this UNRELEASEDCHIP MOG wrapper in place even if there is nothing inside it
 
@@ -1157,5 +1156,4 @@ const char *const *si_spm_get_clkstr(si_t *sih);
 int si_spm_get_max_ro(si_t *sih, uint32 *max);
 bool si_buscore_prep(si_t *sih, uint bustype, uint devid, void *sdh);
 bool si_ispcie(const si_t *sih);
-
 #endif	/* _siutils_h_ */

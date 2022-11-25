@@ -1821,7 +1821,7 @@ wl_cfg80211_set_channel(struct wiphy *wiphy, struct net_device *dev,
 				((CHSPEC_IS5G(*sta_chanspec)) &&
 				(!IS_5G_APCS_CHANNEL(wf_chspec_primary20_chan(*sta_chanspec)))) ||
 #else
-				(is_chanspec_dfs(cfg, *sta_chanspec) ||
+				(wl_is_chanspec_restricted(cfg, *sta_chanspec) ||
 #ifdef WL_UNII4_CHAN
 				(CHSPEC_IS5G(*sta_chanspec) &&
 				IS_UNII4_CHANNEL(wf_chspec_primary20_chan(*sta_chanspec))) ||
@@ -4274,11 +4274,11 @@ wl_cfg80211_start_ap(
  */
 #if ((LINUX_VERSION_CODE >= KERNEL_VERSION(3, 6, 0)) && !defined(WL_COMPAT_WIRELESS))
 	if ((err = wl_cfg80211_set_channel(wiphy, dev,
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 20, 0)) || defined(WL_MLO_BKPORT)
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(6, 0, 0)) || defined(WL_MLO_BKPORT)
 		dev->ieee80211_ptr->u.ap.preset_chandef.chan,
 #else
 		dev->ieee80211_ptr->preset_chandef.chan,
-#endif /* LINUX_VERSION_CODE > KERNEL_VERSION(5, 20, 0) || WL_MLO_BKPORT */
+#endif /* LINUX_VERSION_CODE > KERNEL_VERSION(6, 0, 0) || WL_MLO_BKPORT */
 		NL80211_CHAN_HT20)) < 0) {
 		WL_ERR(("Set channel failed \n"));
 		goto fail;
@@ -4359,11 +4359,11 @@ fail:
 	if (err) {
 		WL_ERR(("ADD/SET beacon failed\n"));
 		wl_flush_fw_log_buffer(dev, FW_LOGSET_MASK_ALL);
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 20, 0)) || defined(WL_MLO_BKPORT)
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(6, 0, 0)) || defined(WL_MLO_BKPORT)
 		wl_cfg80211_stop_ap(wiphy, dev, 0);
 #else
 		wl_cfg80211_stop_ap(wiphy, dev);
-#endif /* LINUX_VERSION_CODE > KERNEL_VERSION(5, 20, 0) || WL_MLO_BKPORT */
+#endif /* LINUX_VERSION_CODE > KERNEL_VERSION(6, 0, 0) || WL_MLO_BKPORT */
 		if (dev_role == NL80211_IFTYPE_AP) {
 #ifdef BCMDONGLEHOST
 			/* If there are no other APs active, clear the AP mode */
@@ -4400,7 +4400,7 @@ fail:
 	return err;
 }
 
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 20, 0)) || defined(WL_MLO_BKPORT)
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(6, 0, 0)) || defined(WL_MLO_BKPORT)
 s32
 wl_cfg80211_stop_ap(
 	struct wiphy *wiphy,
@@ -4411,7 +4411,7 @@ s32
 wl_cfg80211_stop_ap(
 	struct wiphy *wiphy,
 	struct net_device *dev)
-#endif /* LINUX_VERSION_CODE > KERNEL_VERSION(5, 20, 0) || WL_MLO_BKPORT */
+#endif /* LINUX_VERSION_CODE > KERNEL_VERSION(6, 0, 0) || WL_MLO_BKPORT */
 {
 	int err = 0;
 	u32 dev_role = 0;
@@ -5199,6 +5199,43 @@ exit:
 	if (iovar_buf) {
 		MFREE(cfg->osh, iovar_buf, iovar_buf_len);
 	}
+}
+
+s32
+wl_cfg80211_ml_ap_link_add(struct bcm_cfg80211 *cfg, struct wireless_dev *wdev,
+	const wl_event_msg_t *e, void *data)
+{
+	wl_mlo_link_info_event_v1_t *info;
+	s32 i;
+
+	/* Notifier for FW ML link creation:
+	 * 1. Extract the link details (ifidx and cfg_idx and allow events from these
+	 *    new interfaces. DHD need to map events to appropriate host interface.
+	 * 2. To start with, maintain a internal data structure only. If open source
+	 *    goes fwd with separate wdev, create and register  wdev from this context.
+	 * 3. Mulitple links are possible. so loop through and create internal
+	 *    mappings.
+	 */
+
+	info = (wl_mlo_link_info_event_v1_t *)data;
+	WL_DBG(("ver:%d len:%d op_code:%d role:%d num_links:%d\n",
+			info->version, info->length, info->opcode, info->role, info->num_links));
+
+	if (info->num_links > MAX_MLO_LINK) {
+		WL_ERR(("unexpected numlinks for mlo\n"));
+		return BCME_ERROR;
+	}
+
+	for (i = 0; i < info->num_links; i++) {
+		wl_mlo_per_link_info_v1_t *link = (wl_mlo_per_link_info_v1_t *)&info->link_info[i];
+
+		WL_INFORM_MEM(("[MLO-AP][LINK-ADD] ifidx:%d cfgidx:%d link_id:%d "
+				"link_idx:%d link_addr:" MACDBG "\n",
+				link->if_idx, link->cfg_idx, link->link_id,
+				link->link_idx, MAC2STRDBG(link->link_addr.octet)));
+		/* MLO_TODO: See whether netinfo needs to store any of these info */
+	}
+	return BCME_OK;
 }
 #endif /* WL_MLO */
 
@@ -6126,7 +6163,8 @@ int wl_chspec_chandef(chanspec_t chanspec,
 }
 
 void
-wl_cfg80211_ch_switch_notify(struct net_device *dev, uint16 chanspec, struct wiphy *wiphy)
+wl_cfg80211_ch_switch_notify(struct net_device *dev, uint16 chanspec,
+	struct wiphy *wiphy, uint8 link_id)
 {
 	u32 freq;
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION (3, 8, 0))
@@ -6159,8 +6197,8 @@ wl_cfg80211_ch_switch_notify(struct net_device *dev, uint16 chanspec, struct wip
 	}
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION (3, 8, 0))
 	freq = chandef.chan ? chandef.chan->center_freq : chandef.center_freq1;
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 20, 0)) || defined(WL_MLO_BKPORT)
-	cfg80211_ch_switch_notify(dev, &chandef, 0);
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 19, 2)) || defined(WL_MLO_BKPORT)
+	cfg80211_ch_switch_notify(dev, &chandef, link_id);
 #else
 	cfg80211_ch_switch_notify(dev, &chandef);
 #endif /* LINUX_VERSION_CODE > KERNEL_VERSION(5, 20, 0) || WL_MLO_BKPORT */
@@ -6175,9 +6213,8 @@ wl_cfg80211_ch_switch_notify(struct net_device *dev, uint16 chanspec, struct wip
 #endif /* LINUX_VERSION_CODE >= (3, 5, 0) */
 
 static void
-wl_ap_channel_ind(struct bcm_cfg80211 *cfg,
-	struct net_device *ndev,
-	chanspec_t chanspec)
+wl_ap_channel_ind(struct bcm_cfg80211 *cfg, struct net_device *ndev, chanspec_t chanspec,
+	uint8 link_id)
 {
 	u32 channel = LCHSPEC_CHANNEL(chanspec);
 
@@ -6194,7 +6231,7 @@ wl_ap_channel_ind(struct bcm_cfg80211 *cfg,
 		 * by the event, notify user space about the channel switch.
 		 */
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 5, 0))
-		wl_cfg80211_ch_switch_notify(ndev, chanspec, bcmcfg_to_wiphy(cfg));
+		wl_cfg80211_ch_switch_notify(ndev, chanspec, bcmcfg_to_wiphy(cfg), link_id);
 #endif /* LINUX_VERSION_CODE >= (3, 5, 0) */
 		cfg->ap_oper_channel = chanspec;
 
@@ -6211,6 +6248,10 @@ const wl_event_msg_t *e, void *data)
 {
 	struct net_device *ndev = NULL;
 	chanspec_t chanspec;
+	uint8 link_id = 0;
+#ifdef WL_MLO
+	wl_mlo_link_t *linkinfo = NULL;
+#endif /* WL_MLO */
 
 	WL_DBG(("Enter\n"));
 	if (unlikely(e->status)) {
@@ -6228,7 +6269,13 @@ const wl_event_msg_t *e, void *data)
 
 		if (wl_get_mode_by_netdev(cfg, ndev) == WL_MODE_AP) {
 			/* For AP/GO role */
-			wl_ap_channel_ind(cfg, ndev, chanspec);
+#ifdef WL_MLO
+			linkinfo = wl_cfg80211_get_ml_link_detail(cfg, e->ifidx, e->bsscfgidx);
+			if (linkinfo) {
+				link_id = linkinfo->link_id;
+			}
+#endif /* WL_MLO */
+			wl_ap_channel_ind(cfg, ndev, chanspec, link_id);
 		}
 	}
 
@@ -6243,6 +6290,10 @@ const wl_event_msg_t *e, void *data)
 	u32 chanspec = 0;
 	struct net_device *ndev = NULL;
 	struct ether_addr bssid;
+	uint8 link_id = 0;
+#ifdef WL_MLO
+	wl_mlo_link_t *linkinfo = NULL;
+#endif /* WL_MLO */
 
 	WL_DBG(("Enter\n"));
 	if (unlikely(e->status)) {
@@ -6269,9 +6320,16 @@ const wl_event_msg_t *e, void *data)
 		}
 
 		WL_INFORM_MEM(("[%s] CSA ind. ch:0x%x\n", ndev->name, chanspec));
+#ifdef WL_MLO
+		linkinfo = wl_cfg80211_get_ml_link_detail(cfg, e->ifidx, e->bsscfgidx);
+		if (linkinfo) {
+			link_id = linkinfo->link_id;
+		}
+#endif /* WL_MLO */
+
 		if (wl_get_mode_by_netdev(cfg, ndev) == WL_MODE_AP) {
 			/* For AP/GO role */
-			wl_ap_channel_ind(cfg, ndev, chanspec);
+			wl_ap_channel_ind(cfg, ndev, chanspec, link_id);
 		} else {
 			/* STA/GC roles */
 			if (!wl_get_drv_status(cfg, CONNECTED, ndev)) {
@@ -6279,7 +6337,8 @@ const wl_event_msg_t *e, void *data)
 				return BCME_ERROR;
 			}
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 5, 0))
-			wl_cfg80211_ch_switch_notify(ndev, chanspec, bcmcfg_to_wiphy(cfg));
+			wl_cfg80211_ch_switch_notify(ndev, chanspec, bcmcfg_to_wiphy(cfg),
+				link_id);
 #endif /* LINUX_VERSION_CODE >= (3, 5, 0) */
 		}
 

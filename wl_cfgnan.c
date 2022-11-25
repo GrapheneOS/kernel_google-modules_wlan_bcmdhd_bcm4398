@@ -3546,6 +3546,11 @@ wl_cfgnan_disable(struct bcm_cfg80211 *cfg)
 	s32 ret = BCME_OK;
 	dhd_pub_t *dhdp = (dhd_pub_t *)(cfg->pub);
 
+	if (!dhdp->up) {
+		WL_ERR(("bus is already down, hence blocking nan disable\n"));
+		return BCME_ERROR;
+	}
+
 	NAN_DBG_ENTER();
 	if ((cfg->nancfg->nan_init_state == TRUE) &&
 			(cfg->nancfg->nan_enable == TRUE)) {
@@ -9797,12 +9802,12 @@ wl_cfgnan_del_ndi_data(struct bcm_cfg80211 *cfg, char *name)
 	int i;
 	wl_nancfg_t *nancfg = cfg->nancfg;
 
-	if (!name) {
+	if (!name || !nancfg) {
 		return -EINVAL;
 	}
 
 	len = MIN(strlen(name), IFNAMSIZ);
-	for (i = 0; i < cfg->nancfg->max_ndi_supported; i++) {
+	for (i = 0; i < nancfg->max_ndi_supported; i++) {
 		if (strncmp(nancfg->ndi[i].ifname, name, len) == 0) {
 			bzero(&nancfg->ndi[i].ifname, IFNAMSIZ);
 			nancfg->ndi[i].in_use = false;

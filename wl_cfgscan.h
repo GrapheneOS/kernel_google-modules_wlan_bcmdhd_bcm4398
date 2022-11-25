@@ -219,7 +219,7 @@ extern int wl_handle_acs_concurrency_cases(struct bcm_cfg80211 *cfg,
 #ifdef WL_SCHED_SCAN
 extern void wl_cfgscan_sched_scan_stop_work(struct work_struct *work);
 #endif /* WL_SCHED_SCAN */
-extern bool is_chanspec_dfs(struct bcm_cfg80211 *cfg, chanspec_t chspec);
+extern bool wl_is_chanspec_restricted(struct bcm_cfg80211 *cfg, chanspec_t chspec);
 #ifdef ESCAN_CHANNEL_CACHE
 void reset_roam_cache(struct bcm_cfg80211 *cfg);
 void add_roam_cache(struct bcm_cfg80211 *cfg, wl_bss_info_v109_t *bi);

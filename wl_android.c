@@ -89,6 +89,10 @@
 #endif /* DHD_PCIE_RUNTIMEPM */
 #endif /* CUSTOMER_HW4 */
 
+#ifdef WBRC
+#include <wb_regon_coordinator.h>
+#endif /* WBRC */
+
 #ifdef WL_STATIC_IF
 #define WL_BSSIDX_MAX	16
 #endif /* WL_STATIC_IF */
@@ -5246,12 +5250,6 @@ int wl_android_wifi_accel_off(struct net_device *dev, bool force_reg_on)
 }
 #endif /* WLAN_ACCEL_BOOT */
 
-#ifdef WBRC
-extern int wbrc_wl2bt_reset(void);
-extern int wbrc_wlan_on_ack(void);
-extern int wbrc_wlan_on_started(void);
-#endif /* WBRC */
-
 /**
  * Global function definitions (declared in wl_android.h)
  */
@@ -5270,29 +5268,54 @@ int wl_android_wifi_on(struct net_device *dev)
 	}
 
 	dhdp = wl_cfg80211_get_dhdp(dev);
+
 	dhd_net_if_lock(dev);
 	if (!g_wifi_on) {
 		do {
 #ifdef WBRC
-			/*
-			 * Inform wbrc that wlan is started to reset wlan_on_ack and
-			 * wlan_on_ack will be set back after successful WLAN ON
-			 * by calling wbrc_wlan_on_ack().
-			 * This is to ensure BT dev_open waits till WLAN ON is finished.
+			/* inform wbrc that wlan on is starting, so that in case
+			 * BT FW download over BAR2 is in progress we can wait.
+			 * But do not call wl2wbrc_wlan_on while holding net_if_lock
+			 * because it can cause deadlock.
+			 * For ex:- if BT ON happens first, it will change
+			 * wbrc state to BT_ON_IN_PROGRESS and then try to switch on
+			 * wlan for which it will wait on net_if_lock. If at the same
+			 * time wlan on happens and it acquires net_if_lock first
+			 * then it will time out waiting for wbrc state to change
+			 * back to IDLE, since wbrc is also waiting for net_if_lock
 			 */
-			(void)wbrc_wlan_on_started();
-
+			dhd_net_if_unlock(dev);
+			ret = wl2wbrc_wlan_on();
+			dhd_net_if_lock(dev);
+			if (ret == WBRC_ERR) {
+				DHD_ERROR(("%s WARNING! wl2wbrc_wlan_on returns %d ! \n",
+					__FUNCTION__, ret));
+			}
+#ifdef WBRC_WLAN_ON_FIRST_ALWAYS
+			else if (ret == WBRC_NOP && g_wifi_on) {
+				/* If wlan is already turned on due to BT ON
+				 * happening first, then no need to do anything
+				 */
+				ret = BCME_OK;
+				DHD_PRINT(("%s wlan is already ON due to BT \n", __FUNCTION__));
+				wl2wbrc_wlan_on_finished();
+				break;
+			}
+#endif /* WBRC_WLAN_ON_FIRST_ALWAYS */
 			if (dhdp->do_chip_bighammer) {
 				dhdp->do_chip_bighammer = FALSE;
-				/* Inform BT to reset which wait till BT OFF is done */
-				if (wbrc_wl2bt_reset()) {
-					DHD_ERROR(("%s:no BT\n", __FUNCTION__));
+				/* Inform BT to reset, this will wait till BT OFF is done */
+				if ((ret = wl2wbrc_req_bt_reset())) {
+					DHD_ERROR(("%s: WARNING! wl2wbrc_req_bt_reset"
+						" returns %d !\n", __FUNCTION__, ret));
 				} else {
 					dhdp->chip_bighammer_count++;
 				}
 			}
 #endif /* WBRC */
+
 			dhd_net_wifi_platform_set_power(dev, TRUE, WIFI_TURNON_DELAY);
+
 #ifdef BCMSDIO
 			ret = dhd_net_bus_resume(dev, 0);
 #endif /* BCMSDIO */
@@ -5317,8 +5340,8 @@ int wl_android_wifi_on(struct net_device *dev)
 #endif /* WBRC */
 			if (ret == 0) {
 #ifdef WBRC
-				/* Ack wbrc driver on wlan ON succeed */
-				(void)wbrc_wlan_on_ack();
+				/* inform wbrc that wlan ON finished */
+				wl2wbrc_wlan_on_finished();
 #endif /* WBRC */
 				break;
 			}
@@ -5329,8 +5352,8 @@ int wl_android_wifi_on(struct net_device *dev)
 #ifdef BCMPCIE
 			dhd_net_bus_devreset(dev, TRUE);
 #endif /* BCMPCIE */
-			dhd_net_wifi_platform_set_power(dev, FALSE, WIFI_TURNOFF_DELAY);
 
+			dhd_net_wifi_platform_set_power(dev, FALSE, WIFI_TURNOFF_DELAY);
 		} while (retry-- > 0);
 		if (ret != 0) {
 			DHD_ERROR(("\nfailed to power up wifi chip, max retry reached **\n\n"));
@@ -5363,6 +5386,9 @@ exit:
 int wl_android_wifi_off(struct net_device *dev, bool force_off)
 {
 	int ret = 0;
+	bool wifi_on = FALSE;
+
+	BCM_REFERENCE(wifi_on);
 
 	DHD_ERROR(("%s g_wifi_on=%d force_off=%d\n", __FUNCTION__, g_wifi_on, force_off));
 	if (!dev) {
@@ -5377,6 +5403,30 @@ int wl_android_wifi_off(struct net_device *dev, bool force_off)
 		return -EBUSY;
 	}
 #endif	/* BCMPCIE && DHD_DEBUG_UART */
+
+#ifdef WBRC
+	/* do not call wl2wbrc_wlan_off while holding net_if_lock
+	 * because it can cause deadlock.
+	 * For ex:- if BT ON happens first, it will change
+	 * wbrc state to BT_ON_IN_PROGRESS and then try to switch on
+	 * wlan for which it will wait on net_if_lock. If at the same
+	 * time wlan off happens and it acquires net_if_lock first
+	 * then it will time out waiting for wbrc state to change
+	 * back to IDLE, since wbrc is also waiting for net_if_lock
+	 */
+	dhd_net_if_lock(dev);
+	wifi_on = g_wifi_on;
+	dhd_net_if_unlock(dev);
+	if (wifi_on || force_off) {
+		/* inform wbrc so that we can wait if BT fw download over BAR2 is in progress */
+		ret = wl2wbrc_wlan_off();
+		if (ret) {
+			DHD_ERROR(("%s: WARNING! wl2wbrc_wlan_off returns %d !\n",
+				__FUNCTION__, ret));
+		}
+	}
+#endif /* WBRC */
+
 	dhd_net_if_lock(dev);
 	if (g_wifi_on || force_off) {
 #if defined(BCMSDIO) || defined(BCMPCIE)
@@ -5386,12 +5436,210 @@ int wl_android_wifi_off(struct net_device *dev, bool force_off)
 #endif /* BCMSDIO */
 #endif /* BCMSDIO || BCMPCIE */
 		dhd_net_wifi_platform_set_power(dev, FALSE, WIFI_TURNOFF_DELAY);
+#ifdef WBRC
+		wl2wbrc_wlan_off_finished();
+#endif /* WBRC */
 		g_wifi_on = FALSE;
 	}
 	dhd_net_if_unlock(dev);
 
 	return ret;
 }
+
+#ifdef WBRC
+/* WBRC2WL - request wlan PCIE link to be up for BT FW download */
+int
+wbrc2wl_wlan_pcie_link_request(void *dhd_pub)
+{
+	struct net_device *dev = NULL;
+	int ret = 0;
+	dhd_pub_t *dhdp = NULL;
+
+	DHD_PRINT(("%s: ENTER \n", __FUNCTION__));
+
+	if (!dhd_pub) {
+		return BCME_ERROR;
+	}
+	dhdp = (dhd_pub_t *)dhd_pub;
+
+	dev = dhd_linux_get_primary_netdev(dhd_pub);
+	if (!dev) {
+		return BCME_NOTFOUND;
+	}
+
+#ifdef WBRC_TEST
+	if (wbrc_test_get_error() == WBRC_WLAN_PCIE_LINK_REQ_FAIL) {
+		return -1;
+	}
+#endif /* WBRC_TEST */
+
+	dhd_net_if_lock(dev);
+	if (!g_wifi_on) {
+		dhd_net_if_unlock(dev);
+		DHD_ERROR(("%s: wlan is not ON !\n", __FUNCTION__));
+		return BCME_NOTREADY;
+	}
+	dhd_net_if_unlock(dev);
+
+	/* only if wlan iface is not up, resume the bus.
+	 * if wlan iface is up, then runtime bus wake
+	 * is called from wbrc2wl_wlan_dwnld_bt_fw
+	 */
+	if (!dhdp->up) {
+		ret = dhd_net_bus_resume(dev, 1);
+		if (ret) {
+			DHD_ERROR(("%s: error %d !\n", __FUNCTION__, ret));
+			if (dhdp->do_chip_bighammer) {
+				ret = WBRC_WL_FATAL_ERR;
+			} else {
+				ret = WBRC_WL_NONFATAL_ERR;
+			}
+		}
+	}
+
+	return ret;
+}
+
+/* WBRC2WL - request wlan to be turned ON */
+int
+wbrc2wl_wlan_on_request(void *dhd_pub)
+{
+	int ret = 0;
+	struct net_device *dev = NULL;
+	dhd_pub_t *dhdp = NULL;
+
+	DHD_PRINT(("%s: ENTER \n", __FUNCTION__));
+
+	if (!dhd_pub) {
+		return BCME_ERROR;
+	}
+	dhdp = (dhd_pub_t *)dhd_pub;
+
+	dev = dhd_linux_get_primary_netdev(dhdp);
+	if (!dev) {
+		DHD_ERROR(("%s: dev is null\n", __FUNCTION__));
+		return BCME_NOTFOUND;
+	}
+
+#ifdef WBRC_TEST
+	if (wbrc_test_get_error() == WBRC_WLAN_FW_DWNLD_FAIL) {
+		return -1;
+	}
+#endif /* WBRC_TEST */
+
+	dhd_net_if_lock(dev);
+	if (!g_wifi_on) {
+		dhd_net_wifi_platform_set_power(dev, TRUE, WIFI_TURNON_DELAY);
+		ret = dhd_net_bus_devreset(dev, FALSE);
+		if (!ret) {
+			/* Keep the link in L2 */
+			DHD_PRINT(("%s: calling suspend\n", __FUNCTION__));
+			dhd_net_bus_suspend(dev);
+			g_wifi_on = TRUE;
+		} else {
+			/* if wlan on fails, turn it off to keep it in a sane state */
+			DHD_ERROR(("%s: wlan on failed! turning wlan off...\n", __FUNCTION__));
+			dhd_net_bus_devreset(dev, TRUE);
+			dhd_net_wifi_platform_set_power(dev, FALSE, WIFI_TURNOFF_DELAY);
+		}
+	} else {
+		DHD_PRINT(("%s: wlan is already ON\n", __FUNCTION__));
+	}
+	dhd_net_if_unlock(dev);
+
+	return ret;
+}
+
+/* WBRC2WL - download BT FW over PCIE BAR2 */
+int
+wbrc2wl_wlan_dwnld_bt_fw(void *dhd_pub, void *fw_blob, uint len)
+{
+	struct net_device *dev = NULL;
+	unsigned long flags = 0;
+	dhd_pub_t *dhdp = NULL;
+	int ret = 0;
+
+	DHD_PRINT(("%s: ENTER \n", __FUNCTION__));
+
+	if (!dhd_pub) {
+		return BCME_ERROR;
+	}
+	dhdp = (dhd_pub_t *)dhd_pub;
+
+	dev = dhd_linux_get_primary_netdev(dhd_pub);
+	if (!dev) {
+		DHD_ERROR(("%s: dev is null\n", __FUNCTION__));
+		return BCME_NOTFOUND;
+	}
+
+	dhd_net_if_lock(dev);
+	if (!g_wifi_on) {
+		dhd_net_if_unlock(dev);
+		DHD_ERROR(("%s: wlan is not ON !\n", __FUNCTION__));
+		return BCME_NOTREADY;
+	}
+	dhd_net_if_unlock(dev);
+
+	DHD_OS_WAKE_LOCK(dhdp);
+
+	DHD_GENERAL_LOCK(dhdp, flags);
+	DHD_BUS_BUSY_SET_IN_BT_FW_DWNLD(dhdp);
+	DHD_GENERAL_UNLOCK(dhdp, flags);
+
+#ifdef DHD_PCIE_RUNTIMEPM
+	if (dhdp->up) {
+		dhdpcie_runtime_bus_wake(dhd_pub, TRUE, wbrc2wl_wlan_dwnld_bt_fw);
+	} else {
+		dhd_net_bus_resume(dev, 1);
+	}
+#endif /* DHD_PCIE_RUNTIMEPM */
+
+	/* download bt fw over pcie bar2 */
+#ifdef WBRC_TEST
+	if (wbrc_test_get_error() == WBRC_BT_FW_DWNLD_SIM) {
+		OSL_DELAY(2000000);
+		ret = 0;
+	} else {
+		ret = dhd_bt_fw_dwnld_blob(dhdp, fw_blob, len);
+	}
+#else
+	ret = dhd_bt_fw_dwnld_blob(dhdp, fw_blob, len);
+#endif /* WBRC_TEST */
+
+	if (ret && dhdp->do_chip_bighammer) {
+		ret = WBRC_WL_FATAL_ERR;
+	} else if (ret) {
+		ret = WBRC_WL_NONFATAL_ERR;
+	} else if (!ret) {
+		DHD_PRINT(("%s: finished bt fw dwnld successfully\n", __FUNCTION__));
+	}
+
+#ifdef WBRC_TEST
+	if (wbrc_test_get_error() == WBRC_BT_FW_DWNLD_FAIL) {
+		ret = BCME_ERROR;
+	}
+#endif /* WBRC_TEST */
+
+	DHD_GENERAL_LOCK(dhdp, flags);
+	DHD_BUS_BUSY_CLEAR_IN_BT_FW_DWNLD(dhdp);
+	DHD_GENERAL_UNLOCK(dhdp, flags);
+
+	/* put back the link to L2 only if wlan iface is not up
+	 * if wlan iface is up, then rpm thread will take care
+	 * of putting back the link to L2
+	 */
+#ifdef DHD_PCIE_RUNTIMEPM
+	if (!dhdp->up && !dhdp->if_opened) {
+		DHD_PRINT(("%s: calling suspend\n", __FUNCTION__));
+		dhd_net_bus_suspend(dev);
+	}
+#endif /* DHD_PCIE_RUNTIMEPM */
+
+	DHD_OS_WAKE_UNLOCK(dhdp);
+
+	return ret;
+}
+#endif /* WBRC */
 
 static int wl_android_set_fwpath(struct net_device *net, char *command, int total_len)
 {
@@ -12783,6 +13031,191 @@ wl_android_twt_softap_enable(struct net_device *ndev, int twt_softap_enable)
 
 exit:
 	return wl_android_twt_bcmerr_to_kernel_err(err);
+}
+
+int
+wl_update_twt_setup_evt_info(struct sk_buff *skb, void *event_data)
+{
+	s32 err = BCME_OK;
+	const wl_twt_setup_cplt_t *setup_cplt = (wl_twt_setup_cplt_t *)event_data;
+	const wl_twt_sdesc_v0_t *sdesc = (const wl_twt_sdesc_v0_t *)&setup_cplt[1];
+
+	WL_DBG(("TWT_SETUP: status %d, reason %d, configID %d, setup_cmd %d, flow_flags 0x%x,"
+		" flow_id %d, channel %d, negotiation_type %d, wake_time_h %u, wake_time_l %u,"
+		" wake_dur %u, wake_int %u\n",
+		(int)setup_cplt->status, (int)setup_cplt->reason_code, (int)setup_cplt->configID,
+		(int)sdesc->setup_cmd, sdesc->flow_flags, (int)sdesc->flow_id, (int)sdesc->channel,
+		(int)sdesc->negotiation_type, sdesc->wake_time_h, sdesc->wake_time_l,
+		sdesc->wake_dur, sdesc->wake_int));
+
+	err = nla_put_u8(skb, WIFI_TWT_ATTR_SUB_EVENT, WIFI_TWT_EVENT_SETUP);
+	if (unlikely(err)) {
+		WL_ERR(("nla_put_u8 WIFI_TWT_ATTR_SUB_EVENT failed\n"));
+		goto fail;
+	}
+	err = nla_put_u8(skb, WIFI_TWT_ATTR_REASON_CODE, setup_cplt->reason_code);
+	if (unlikely(err)) {
+		WL_ERR(("nla_put_u8 WIFI_TWT_ATTR_REASON_CODE failed\n"));
+		goto fail;
+	}
+	err = nla_put_u8(skb, WIFI_TWT_ATTR_STATUS, !!(setup_cplt->status));
+	if (unlikely(err)) {
+		WL_ERR(("nla_put_u8 WIFI_TWT_ATTR_STATUS failed\n"));
+		goto fail;
+	}
+	err = nla_put_u8(skb, WIFI_TWT_ATTR_CONFIG_ID, setup_cplt->configID);
+	if (unlikely(err)) {
+		WL_ERR(("nla_put_u8 WIFI_TWT_ATTR_CONFIG_ID failed\n"));
+		goto fail;
+	}
+	err = nla_put_u8(skb, WIFI_TWT_ATTR_NEGOTIATION_TYPE, sdesc->negotiation_type);
+	if (unlikely(err)) {
+		WL_ERR(("nla_put_u8 WIFI_TWT_ATTR_NEGOTIATION_TYPE failed\n"));
+		goto fail;
+	}
+	err = nla_put_u32(skb, WIFI_TWT_ATTR_WAKETIME_H, sdesc->wake_time_h);
+	if (unlikely(err)) {
+		WL_ERR(("nla_put_u32 WIFI_TWT_ATTR_WAKETIME_H failed\n"));
+		goto fail;
+	}
+	err = nla_put_u32(skb, WIFI_TWT_ATTR_WAKETIME_L, sdesc->wake_time_l);
+	if (unlikely(err)) {
+		WL_ERR(("nla_put_u32 WIFI_TWT_ATTR_WAKETIME_L failed\n"));
+		goto fail;
+	}
+	err = nla_put_u32(skb, WIFI_TWT_ATTR_WAKE_DURATION, sdesc->wake_dur);
+	if (unlikely(err)) {
+		WL_ERR(("nla_put_u32 WIFI_TWT_ATTR_WAKE_DURATION failed\n"));
+		goto fail;
+	}
+	err = nla_put_u32(skb, WIFI_TWT_ATTR_WAKE_INTERVAL, sdesc->wake_int);
+	if (unlikely(err)) {
+		WL_ERR(("nla_put_u32 WIFI_TWT_ATTR_WAKE_INTERVAL failed\n"));
+		goto fail;
+	}
+	err = nla_put_u8(skb, WIFI_TWT_ATTR_FLOW_TYPE,
+		!!(sdesc->flow_flags & WL_TWT_FLOW_FLAG_UNANNOUNCED));
+	if (unlikely(err)) {
+		WL_ERR(("nla_put_u8 WIFI_TWT_ATTR_FLOW_TYPE failed\n"));
+		goto fail;
+	}
+	err = nla_put_u8(skb, WIFI_TWT_ATTR_TRIGGER_TYPE,
+		!!(sdesc->flow_flags & WL_TWT_FLOW_FLAG_TRIGGER));
+	if (unlikely(err)) {
+		WL_ERR(("nla_put_u8 WIFI_TWT_ATTR_TRIGGER_TYPE failed\n"));
+		goto fail;
+	}
+
+fail:
+	return err;
+}
+
+int
+wl_update_twt_teardown_evt_info(struct sk_buff *skb, void *event_data)
+{
+	s32 err = BCME_OK;
+	const wl_twt_teardown_cplt_t *td_cplt = (wl_twt_teardown_cplt_t *)event_data;
+	const wl_twt_teardesc_t *teardesc = (const wl_twt_teardesc_t *)&td_cplt[1];
+
+	WL_DBG(("TWT_TEARDOWN: status %d, reason %d, configID %d, flow_id %d, negotiation_type %d,"
+		" bid %d, alltwt %d\n", (int)td_cplt->status, (int)td_cplt->reason_code,
+		(int)td_cplt->configID, (int)teardesc->flow_id, (int)teardesc->negotiation_type,
+		(int)teardesc->bid, (int)teardesc->alltwt));
+
+	err = nla_put_u8(skb, WIFI_TWT_ATTR_SUB_EVENT, WIFI_TWT_EVENT_TEARDOWN);
+	if (unlikely(err)) {
+		WL_ERR(("nla_put_u8 WIFI_TWT_ATTR_SUB_EVENT failed\n"));
+		goto fail;
+	}
+	err = nla_put_u8(skb, WIFI_TWT_ATTR_REASON_CODE, td_cplt->reason_code);
+	if (unlikely(err)) {
+		WL_ERR(("nla_put_u8 WIFI_TWT_ATTR_REASON_CODE failed\n"));
+		goto fail;
+	}
+	err = nla_put_u8(skb, WIFI_TWT_ATTR_STATUS, !!(td_cplt->status));
+	if (unlikely(err)) {
+		WL_ERR(("nla_put_u8 WIFI_TWT_ATTR_STATUS failed\n"));
+		goto fail;
+	}
+	err = nla_put_u8(skb, WIFI_TWT_ATTR_CONFIG_ID, td_cplt->configID);
+	if (unlikely(err)) {
+		WL_ERR(("nla_put_u8 WIFI_TWT_ATTR_CONFIG_ID failed\n"));
+		goto fail;
+	}
+
+fail:
+	return err;
+}
+
+int
+wl_update_twt_info_frm_evt_info(struct sk_buff *skb, void *event_data)
+{
+	s32 err = BCME_OK;
+	const wl_twt_info_cplt_t *info_cplt = (wl_twt_info_cplt_t *)event_data;
+	const wl_twt_infodesc_t *infodesc =	(const wl_twt_infodesc_t *)&info_cplt[1];
+
+	WL_DBG(("TWT_INFOFRM: status %d, reason %d, configID %d, flow_flags 0x%x, flow_id %d,"
+		" next_twt_h %u, next_twt_l %u\n", (int)info_cplt->status,
+		(int)info_cplt->reason_code, (int)info_cplt->configID, infodesc->flow_flags,
+		(int)infodesc->flow_id, infodesc->next_twt_h, infodesc->next_twt_l));
+
+	err = nla_put_u8(skb, WIFI_TWT_ATTR_SUB_EVENT, WIFI_TWT_EVENT_INFO_FRM);
+	if (unlikely(err)) {
+		WL_ERR(("nla_put_u8 WIFI_TWT_ATTR_SUB_EVENT failed\n"));
+		goto fail;
+	}
+	err = nla_put_u8(skb, WIFI_TWT_ATTR_REASON_CODE, info_cplt->reason_code);
+	if (unlikely(err)) {
+		WL_ERR(("nla_put_u8 WIFI_TWT_ATTR_REASON_CODE failed\n"));
+		goto fail;
+	}
+	err = nla_put_u8(skb, WIFI_TWT_ATTR_STATUS, !!(info_cplt->status));
+	if (unlikely(err)) {
+		WL_ERR(("nla_put_u8 WIFI_TWT_ATTR_STATUS failed\n"));
+		goto fail;
+	}
+	err = nla_put_u8(skb, WIFI_TWT_ATTR_CONFIG_ID, info_cplt->configID);
+	if (unlikely(err)) {
+		WL_ERR(("nla_put_u8 WIFI_TWT_ATTR_CONFIG_ID failed\n"));
+		goto fail;
+	}
+	err = nla_put_u32(skb, WIFI_TWT_ATTR_NEXT_TWT_H, infodesc->next_twt_h);
+	if (unlikely(err)) {
+		WL_ERR(("nla_put_u32 WIFI_TWT_ATTR_NEXT_TWT_H failed\n"));
+		goto fail;
+	}
+	err = nla_put_u32(skb, WIFI_TWT_ATTR_NEXT_TWT_L, infodesc->next_twt_l);
+	if (unlikely(err)) {
+		WL_ERR(("nla_put_u32 WIFI_TWT_ATTR_NEXT_TWT_L failed\n"));
+		goto fail;
+	}
+
+fail:
+	return err;
+}
+
+int
+wl_update_twt_notify_evt_info(struct sk_buff *skb, void *event_data)
+{
+	s32 err = BCME_OK;
+	const wl_twt_notify_t *notif_cplt = (wl_twt_notify_t *)event_data;
+
+	WL_DBG(("TWT_NOTIFY: notification %d\n", (int)notif_cplt->notification));
+
+	err = nla_put_u8(skb, WIFI_TWT_ATTR_SUB_EVENT, WIFI_TWT_EVENT_NOTIFY);
+	if (unlikely(err)) {
+		WL_ERR(("nla_put_u8 WIFI_TWT_ATTR_SUB_EVENT failed\n"));
+		goto fail;
+	}
+
+	err = nla_put_u8(skb, WIFI_TWT_ATTR_NOTIFICATION, notif_cplt->notification);
+	if (unlikely(err)) {
+		WL_ERR(("nla_put_u8 WIFI_TWT_ATTR_NOTIFICATION failed\n"));
+		goto fail;
+	}
+
+fail:
+	return err;
 }
 #endif /* WL_TWT */
 

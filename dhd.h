@@ -196,6 +196,7 @@ enum dhd_bus_devreset_type {
 #define DHD_BUS_BUSY_IN_DUMP_DONGLE_MEM		0x40000
 #define DHD_BUS_BUSY_IN_SYSFS_DUMP		0x80000
 #define DHD_BUS_BUSY_IN_PM_CALLBACK		0x100000
+#define DHD_BUS_BUSY_IN_BT_FW_DWNLD		0x200000
 
 #define DHD_BUS_BUSY_SET_IN_TX(dhdp) \
 	(dhdp)->dhd_bus_busy_state |= DHD_BUS_BUSY_IN_TX
@@ -239,6 +240,8 @@ enum dhd_bus_devreset_type {
 	(dhdp)->dhd_bus_busy_state |= DHD_BUS_BUSY_IN_SYSFS_DUMP
 #define DHD_BUS_BUSY_SET_IN_PM_CALLBACK(dhdp) \
 	(dhdp)->dhd_bus_busy_state |= DHD_BUS_BUSY_IN_PM_CALLBACK
+#define DHD_BUS_BUSY_SET_IN_BT_FW_DWNLD(dhdp) \
+	(dhdp)->dhd_bus_busy_state |= DHD_BUS_BUSY_IN_BT_FW_DWNLD
 
 #define DHD_BUS_BUSY_CLEAR_IN_TX(dhdp) \
 	(dhdp)->dhd_bus_busy_state &= ~DHD_BUS_BUSY_IN_TX
@@ -282,6 +285,8 @@ enum dhd_bus_devreset_type {
 	(dhdp)->dhd_bus_busy_state &= ~DHD_BUS_BUSY_IN_SYSFS_DUMP
 #define DHD_BUS_BUSY_CLEAR_IN_PM_CALLBACK(dhdp) \
 	(dhdp)->dhd_bus_busy_state &= ~DHD_BUS_BUSY_IN_PM_CALLBACK
+#define DHD_BUS_BUSY_CLEAR_IN_BT_FW_DWNLD(dhdp) \
+	(dhdp)->dhd_bus_busy_state &= ~DHD_BUS_BUSY_IN_BT_FW_DWNLD
 
 #define DHD_BUS_BUSY_CHECK_IN_TX(dhdp) \
 	((dhdp)->dhd_bus_busy_state & DHD_BUS_BUSY_IN_TX)
@@ -1758,6 +1763,8 @@ typedef struct dhd_pub {
 	timeout_info_t *timeout_info;
 	uint16 esync_id; /* used to track escans */
 	osl_atomic_t set_ssid_rcvd; /* to track if WLC_E_SET_SSID is received during join IOVAR */
+	/* to track if WLC_E_SET_SSID is received during join IOVAR with error */
+	osl_atomic_t set_ssid_err_rcvd;
 	bool secure_join; /* field to note that the join is secure or not */
 #endif /* REPORT_FATAL_TIMEOUTS */
 #ifdef CUSTOM_SET_ANTNPM
@@ -2041,6 +2048,10 @@ typedef struct dhd_pub {
 #endif /* DEVICE_TX_STUCK_DETECT && ASSOC_CHECK_SR */
 	uint32 p2p_disc_busy_cnt;
 	bool skip_memdump_map_read;
+	bool if_opened;
+#ifdef DHD_SDTC_ETB_DUMP
+	bool etb_dump_inited;
+#endif /* DHD_SDTC_ETB_DUMP */
 } dhd_pub_t;
 
 #if defined(__linux__)
@@ -2293,32 +2304,38 @@ inline static void MUTEX_UNLOCK_SOFTAP_SET(dhd_pub_t * dhdp)
 	} while (0)
 #define DHD_PM_WAKE_LOCK_TIMEOUT(pub, val) \
 	do { \
-		printf("call pm_wake_timeout enable\n"); \
-	dhd_pm_wake_lock_timeout(pub, val); \
+		printf("call pm_wake_timeout enable: %s %d\n", \
+			__FUNCTION__, __LINE__); \
+		dhd_pm_wake_lock_timeout(pub, val); \
 	} while (0)
 #define DHD_PM_WAKE_UNLOCK(pub) \
 	do { \
-		printf("call pm_wake unlock\n"); \
-	dhd_pm_wake_unlock(pub); \
+		printf("call pm_wake unlock: %s %d\n", \
+			__FUNCTION__, __LINE__); \
+		dhd_pm_wake_unlock(pub); \
 	} while (0)
 #define DHD_TXFL_WAKE_LOCK_TIMEOUT(pub, val) \
 	do { \
-		printf("call pm_wake_timeout enable\n"); \
+		printf("call txfl_wake_timeout enable: %s %d\n", \
+			__FUNCTION__, __LINE__); \
 		dhd_txfl_wake_lock_timeout(pub, val); \
 	} while (0)
 #define DHD_TXFL_WAKE_UNLOCK(pub) \
 	do { \
-		printf("call pm_wake unlock\n"); \
+		printf("call txfl_wake unlock: %s %d\n", \
+			__FUNCTION__, __LINE__); \
 		dhd_txfl_wake_unlock(pub); \
 	} while (0)
 #define DHD_NAN_WAKE_LOCK_TIMEOUT(pub, val) \
 	do { \
-		printf("call pm_wake_timeout enable\n"); \
+		printf("call nan_wake_timeout enable: %s %d\n", \
+			__FUNCTION__, __LINE__); \
 		dhd_nan_wake_lock_timeout(pub, val); \
 	} while (0)
 #define DHD_NAN_WAKE_UNLOCK(pub) \
 	do { \
-		printf("call pm_wake unlock\n"); \
+		printf("call nan_wake unlock: %s %d\n", \
+			__FUNCTION__, __LINE__); \
 		dhd_nan_wake_unlock(pub); \
 	} while (0)
 #define DHD_OS_WAKE_LOCK_TIMEOUT(pub) \
@@ -2462,6 +2479,7 @@ extern void dhd_os_oob_irq_wake_unlock(dhd_pub_t *pub);
  * to prevent the system from entering suspend during TX/RX frame processing.
  * It can be adjusted depending on the host platform.
  */
+#define DHD_MONITOR_TIMEOUT_MS	1000
 #define DHD_PACKET_TIMEOUT_MS	100
 #define DHD_HANDSHAKE_TIMEOUT_MS	1000
 #define DHD_EVENT_TIMEOUT_MS	1500
@@ -4394,7 +4412,7 @@ void dhd_send_trap_to_fw_for_timeout(dhd_pub_t * pub, timeout_reasons_t reason);
 extern int dhd_bus_set_device_wake(struct dhd_bus *bus, bool val, const char *context);
 extern void dhd_bus_dw_deassert(dhd_pub_t *dhd, const char *context);
 #endif /* defined(PCIE_OOB) || defined(PCIE_INB_DW) */
-extern void dhd_prhex(const char *msg, volatile uchar *buf, uint nbytes, uint8 dbg_level);
+extern void dhd_prhex(const char *msg, volatile uchar *buf, uint nbytes, uint32 dbg_level);
 int dhd_tput_test(dhd_pub_t *dhd, tput_test_t *tput_data);
 void dhd_tput_test_rx(dhd_pub_t *dhd, void *pkt);
 #ifdef DHD_EFI
@@ -5006,4 +5024,11 @@ int dhd_get_reboot_status(struct dhd_pub *dhdp);
 static INLINE int dhd_get_reboot_status(struct dhd_pub *dhdp) { return 0; }
 #endif /* __linux__ */
 
+#ifdef WBRC
+int dhd_bt_fw_dwnld_blob(void *wl_hdl, char* buf, size_t len);
+#endif
+
+#ifdef DHD_SDTC_ETB_DUMP
+extern void dhd_etb_dump_deinit(dhd_pub_t *dhd);
+#endif /* DHD_SDTC_ETB_DUMP */
 #endif /* _dhd_h_ */

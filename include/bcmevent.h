@@ -319,7 +319,8 @@ typedef union bcm_event_msg_u {
 #define WLC_E_BCN_TSF			205	/* Report Beacon TSF */
 #define WLC_E_OWE_INFO                  206     /* OWE Information */
 #define WLC_E_ULMU_DISABLED_REASON_UPD	207	/* OMI ULMU disable reason code update */
-#define WLC_E_LAST			208	/* highest val + 1 for range checking */
+#define WLC_E_AMSDU_RX_WAKEUP		208	/* When amsdu deagg SM is stuck in D3 condition */
+#define WLC_E_LAST			209	/* highest val + 1 for range checking */
 
 /* define an API for getting the string name of an event */
 extern const char *bcmevent_get_name(uint event_type);

@@ -1299,21 +1299,6 @@ typedef uint32 ratespec_t;
 #define AP_ENV_SPARSE			2 /* "Home" or other sparse environment */
 #define AP_ENV_INDETERMINATE		3 /* AP environment hasn't been identified */
 
-#define TRIGGER_NOW				0
-#define TRIGGER_CRS				0x01
-#define TRIGGER_CRSDEASSERT			0x02
-#define TRIGGER_GOODFCS				0x04
-#define TRIGGER_BADFCS				0x08
-#define TRIGGER_BADPLCP				0x10
-#define TRIGGER_CRSGLITCH			0x20
-#define TRIGGER_ASYNC				0x40
-
-#define	WL_SAMPLEDATA_HEADER_TYPE	1
-#define WL_SAMPLEDATA_HEADER_SIZE	80	/* sample collect header size (bytes) */
-#define	WL_SAMPLEDATA_TYPE		2
-#define	WL_SAMPLEDATA_SEQ		0xff	/* sequence # */
-#define	WL_SAMPLEDATA_MORE_DATA		0x100	/* more data mask */
-
 /* WL_OTA START */
 #define WL_OTA_ARG_PARSE_BLK_SIZE	1200
 #define WL_OTA_TEST_MAX_NUM_RATE	30
@@ -1558,6 +1543,8 @@ typedef uint32 ratespec_t;
 #define WL_CHAN_BAND_6G_PSC        (1u << 11u)   /* 6GHz PSC channel */
 #define WL_CHAN_BAND_6G_LPI        (1u << 12u)   /* 6GHz LPI channel */
 #define WL_CHAN_BAND_6G_SP         (1u << 13u)   /* 6GHz SP channel */
+#define WL_CHAN_INDOOR_ONLY        (1u << 14u)   /* indoor only channel */
+#define WL_CHAN_P2P_PROHIBITED     (1u << 15u)   /* p2p restricted channel */
 
 #define WL_CHAN_OOS_SHIFT          24u           /* shift for OOS field */
 #define WL_CHAN_OOS_MASK           0xFF000000u   /* field specifying minutes remaining for this

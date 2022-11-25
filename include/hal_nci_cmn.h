@@ -47,18 +47,16 @@
 #define IDM_ERRCTLR_BUS			(1u << 1u)	/*  Enable Bus error detection */
 #define IDM_ERRCTLR_UE			(1u << 2u)	/*  uncorrected error */
 
-#ifdef AXI_TIMEOUTS
 static const char BCMPOST_TRAP_RODATA(nci_axi_err_str[][16u]) = {
 	 "AXI Decode Err ",
 	 "AXI Slave Err ",
 	 "AXI Timeout "
 };
 
-// err_types
+/* err_types */
 #define NCI_TYPE_STR_DECODE_ERR		0u
 #define NCI_TYPE_STR_SLAVE_ERR		1u
 #define NCI_TYPE_STR_TIMEOUT		2u
-#endif /* AXI_TIMEOUTS */
 
 #define NI_IDM_RESET_ENTRY 0x1
 /* SpinWait for 5000us */
@@ -199,7 +197,7 @@ typedef struct nci_error_container {
  */
 typedef struct nci_error_logger_container {
 	void *osh;         /**< OS handle. */
-	void *wrapper;     /**< Pointer to the AXI wrapper address for this error. */
+	uint32 wrapper;     /**< AXI wrapper address for this error. */
 	volatile idm_regs_t *idm_regs;  /**< Pointer to the container with e error information. */
 	nci_error_container_t *error_cont;  /**< Pointer to error container. */
 	uint32 error_sts;  /**< error_sts from the idm register. */
@@ -208,13 +206,10 @@ typedef struct nci_error_logger_container {
 	bool is_secure;    /**< True if the error is from secure idm registers, false otherwise. */
 } nci_error_logger_container_t;
 
-#ifdef AXI_TIMEOUTS
-/* Helper for reading nci errors from a wrapper. */
-uint32 nci_error_helper(void *osh, void *wrapper, bool is_master,
-	nci_error_container_t *error_cont);
-
 /* Helper for logging parsed errors. */
 void nci_error_logger(nci_error_logger_container_t *cont);
-#endif  /* AXI_TIMEOUTS */
+/* Helper for reading nci errors from a wrapper. */
+uint32 nci_error_helper(void *osh, void *wrapper, bool is_master,
+	nci_error_container_t *error_cont, uint32 wrapper_daddr);
 
 #endif  /* _hal_nci_cmn_h_ */

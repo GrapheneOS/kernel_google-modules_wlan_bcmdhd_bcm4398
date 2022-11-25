@@ -596,6 +596,7 @@ typedef struct wl_ftm_az_rtt_sample_v1 {
 	uint8				pad;
 	uint32				rtt;	/* RTT in ps unit */
 	uint32				dist;	/* distance in cm unit */
+	int8				rssi[WL_RSSI_ANT_MAX];
 } wl_ftm_az_rtt_sample_v1_t;
 
 #define WL_FTM_AZ_RTT_SAMPLE_VALID(_sp) \
@@ -634,6 +635,7 @@ typedef struct wl_ftm_az_rtt_result_v1 {
 	uint32				rtt_mean;	/* mean RTT (in ps by default) */
 	uint32				rtt_sd;		/* standard deviation of RTT */
 	uint32				dist;		/* Distance (in cm unit by default) */
+	int8				rssi_mean[WL_RSSI_ANT_MAX];
 	uint16				num_sample;	/* number of rtt sample */
 	uint16				sample_fmt;	/* format of rtt sample (TLV ID) */
 	uint8				rtt_samples[];	/* optional variable length fields */

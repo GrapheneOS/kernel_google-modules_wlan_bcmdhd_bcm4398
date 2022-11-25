@@ -376,10 +376,8 @@ static void nci_update_domain_id(si_t *sih);
 void nci_core_reset_enable(const si_t *sih, uint32 bits, uint32 resetbits, bool enable);
 bool nci_is_dump_err_disabled(const si_t *sih, nci_cores_t *core);
 
-#if defined (AXI_TIMEOUTS)
 uint32 nci_dump_and_clr_err_log(si_t *sih, uint32 coreidx, uint32 iface_idx, void *wrapper,
-	bool is_master);
-#endif /* (AXI_TIMEOUTS) */
+	bool is_master, uint32 wrapper_daddr);
 static uint32 nci_find_numcores(si_t *sih);
 static int32 nci_find_first_wrapper_idx(nci_info_t *nci, uint32 coreidx);
 
@@ -2814,8 +2812,16 @@ end:
 	return ret;
 }
 
+uint32 last_axi_error_log_status = 0;
+uint32 last_axi_error_core = 0;
+uint32 last_axi_error_wrap = 0;
+uint32 last_axi_errlog_lo = 0;
+uint32 last_axi_errlog_hi = 0;
+uint32 last_axi_errlog_id = 0;
+uint32 last_axi_errlog_trans_sts = 0;
 
 #if defined (AXI_TIMEOUTS)
+static bool g_backplane_logs_enabled = FALSE;
 /*
  * Clears BP timeout/error if set on all cores.
  */
@@ -2843,15 +2849,6 @@ BCMPOSTTRAPFN(nci_clear_backplane_to)(si_t *sih)
 	}
 	return ret;
 }
-
-static bool g_backplane_logs_enabled = FALSE;
-uint32 last_axi_error_log_status = 0;
-uint32 last_axi_error_core = 0;
-uint32 last_axi_error_wrap = 0;
-uint32 last_axi_errlog_lo = 0;
-uint32 last_axi_errlog_hi = 0;
-uint32 last_axi_errlog_id = 0;
-uint32 last_axi_errlog_trans_sts = 0;
 
 /*
  * Enable/disable backplane timeouts. When enable is true, interrupt on AXI error/timeout will be
@@ -2949,17 +2946,19 @@ BCMPOSTTRAPFN(nci_get_axi_timeout_reg)(void)
 {
 	return (GOODREGS(last_axi_errlog_lo) ? last_axi_errlog_lo : 0);
 }
+#endif /* AXI_TIMEOUTS */
 
 /* Dumps and clear AXI error/timeout for a given wrapper if set. */
 uint32
 BCMPOSTTRAPFN(nci_dump_and_clr_err_log)(si_t *sih, uint32 coreidx, uint32 iface_idx,
-		void *wrapper, bool is_master)
+		void *wrapper, bool is_master, uint32 wrapper_daddr)
 {
 	nci_error_container_t error_cont = {0};
-	uint32 retval = nci_error_helper(SI_INFO(sih)->osh, wrapper, is_master, &error_cont);
+	uint32 retval = nci_error_helper(SI_INFO(sih)->osh, wrapper, is_master,
+		&error_cont, wrapper_daddr);
 	if (retval) {
 		last_axi_error_core = si_coreid(sih);
-		last_axi_error_wrap = (uint32)wrapper;
+		last_axi_error_wrap = wrapper_daddr;
 		last_axi_error_log_status = error_cont.error_log_status;
 		last_axi_errlog_lo = error_cont.errlog_lo;
 		last_axi_errlog_hi = error_cont.errlog_hi;
@@ -2983,6 +2982,7 @@ BCMPOSTTRAPFN(nci_clear_backplane_to_per_core)(si_t *sih, uint coreid, uint core
 	uint32 current_coreidx = si_coreidx(sih);
 	uint32 target_coreidx = nci_findcoreidx(sih, coreid, coreunit);
 	bool restore_core = FALSE;
+	uint32 wrapper_daddr = 0;
 
 	if (coreid && (target_coreidx != current_coreidx)) {
 
@@ -3001,7 +3001,6 @@ BCMPOSTTRAPFN(nci_clear_backplane_to_per_core)(si_t *sih, uint coreid, uint core
 		coreid = nci_coreid(sih, sii->curidx);
 	}
 
-
 	core_info = &nci->cores[target_coreidx];
 	for (iface_idx = 0u; iface_idx < core_info->iface_cnt; iface_idx++) {
 
@@ -3009,10 +3008,12 @@ BCMPOSTTRAPFN(nci_clear_backplane_to_per_core)(si_t *sih, uint coreid, uint core
 			continue;
 		}
 
-		wrapper = (void*)_nci_get_curwrap(nci, target_coreidx, iface_idx);
+		wrapper_daddr = _nci_get_curwrap(nci, target_coreidx, iface_idx);
+		nci_setcoreidx_wrap(sih, target_coreidx, iface_idx);
+		wrapper = (void *)(unsigned long)sii->curwrap;
 
 		ret |= nci_dump_and_clr_err_log(sih, target_coreidx, iface_idx,
-				wrapper, core_info->desc[iface_idx].master);
+				wrapper, core_info->desc[iface_idx].master, wrapper_daddr);
 	}
 end:
 	if (restore_core) {
@@ -3023,8 +3024,6 @@ end:
 	}
 	return ret;
 }
-
-#endif /* AXI_TIMEOUTS */
 
 uint32
 BCMATTACHFN(nci_wrapper_dump_buf_size)(const si_t *sih)

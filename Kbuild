@@ -23,14 +23,14 @@
 # Path to the module source, KERNEL_SRC is defined for out-of-tree Kbuild
 # and BCMDHD_ROOT is passed as KBUILD_OPTIONS for out-of-tree Makefile
 ifeq ($(KERNEL_SRC),)
- ifeq ($(srctree),.)
-  BCMDHD_ROOT=$(src)
- else
-  BCMDHD_ROOT=$(srctree)/$(src)
- endif
- $(warning : ** Regular in-tree build BCMDHD_ROOT=$(BCMDHD_ROOT)**)
+  ifeq ($(srctree),.)
+    BCMDHD_ROOT=$(src)
+  else
+    BCMDHD_ROOT=$(srctree)/$(src)
+  endif
+  $(warning : ** Regular in-tree build BCMDHD_ROOT=$(BCMDHD_ROOT)**)
 else
- $(warning : ** out-of-tree Kbuild BCMDHD_ROOT=$(BCMDHD_ROOT)**)
+  $(warning : ** out-of-tree Kbuild BCMDHD_ROOT=$(BCMDHD_ROOT)**)
 endif
 
 #####################
@@ -43,13 +43,17 @@ endif
 ifeq ($(CONFIG_BCMDHD),)
 CONFIG_BCMDHD=m
 CONFIG_BCMDHD_PCIE=y
-CONFIG_BCM43752=
-CONFIG_BCM4398=y
 CONFIG_DHD_OF_SUPPORT=y
 ifneq ($(CONFIG_SOC_GOOGLE),)
- CONFIG_BCM4389=n
+  ifeq ($(BCMDHD), 4383)
+    CONFIG_BCM4383=y
+  else
+    CONFIG_BCM4398=y
+  endif
 else
- CONFIG_BCM4389=y
+  CONFIG_BCM4398=y
+  CONFIG_BCM4383=y
+  CONFIG_BCM4389=y
 endif
 CONFIG_BROADCOM_WIFI_RESERVED_MEM=y
 CONFIG_DHD_USE_STATIC_BUF=y
@@ -67,6 +71,7 @@ DHDCFLAGS += -DCONFIG_BCMDHD_PCIE=$(CONFIG_BCMDHD_PCIE)
 DHDCFLAGS += -DCONFIG_BCM43752=$(CONFIG_BCM43752)
 DHDCFLAGS += -DCONFIG_BCM4389=$(CONFIG_BCM4389)
 DHDCFLAGS += -DCONFIG_BCM4398=$(CONFIG_BCM4398)
+DHDCFLAGS += -DCONFIG_BCM4383=$(CONFIG_BCM4383)
 DHDCFLAGS += -DCONFIG_DHD_OF_SUPPORT=$(CONFIG_DHD_OF_SUPPORT)
 DHDCFLAGS += -DCONFIG_BROADCOM_WIFI_RESERVED_MEM=$(CONFIG_BROADCOM_WIFI_RESERVED_MEM)
 DHDCFLAGS += -DCONFIG_DHD_USE_STATIC_BUF=$(CONFIG_DHD_USE_STATIC_BUF)
@@ -191,12 +196,14 @@ DHDCFLAGS += -DRTT_GEOFENCE_CONT
 
 #Debug flag
 ifneq ($(CONFIG_FIB_RULES),)
-DHDCFLAGS += -DDEBUGABILITY
-DHDCFLAGS += -DDEBUGABILITY_DISABLE_MEMDUMP
-DHDCFLAGS += -DDHD_DEBUGABILITY_LOG_DUMP_RING
-DHDCFLAGS += -DDHD_PKT_LOGGING_DBGRING
+    ifneq ($(CONFIG_SOC_GOOGLE),)
+	DHDCFLAGS += -DDEBUGABILITY
+	DHDCFLAGS += -DDEBUGABILITY_DISABLE_MEMDUMP
+	DHDCFLAGS += -DDHD_DEBUGABILITY_LOG_DUMP_RING
+	DHDCFLAGS += -DDHD_PKT_LOGGING_DBGRING
+    endif
 else
-DHDCFLAGS += -DDHD_FW_COREDUMP
+	DHDCFLAGS += -DDHD_FW_COREDUMP
 endif
 
 DHDCFLAGS += -DDHD_DUMP_BUF_KVMALLOC
@@ -207,7 +214,7 @@ DHDCFLAGS += -DDHD_LOGLEVEL
 
 # SCAN TYPES, if kernel < 4.17 ..back port support required
 ifneq ($(CONFIG_CFG80211_SCANTYPE_BKPORT),)
- DHDCFLAGS += -DWL_SCAN_TYPE
+  DHDCFLAGS += -DWL_SCAN_TYPE
 endif
 
 # Print out kernel panic point of file and line info when assertion happened
@@ -244,6 +251,8 @@ ifneq ($(CONFIG_BCMDHD_PCIE),)
     ifneq ($(CONFIG_ARCH_HISI),)
         DHDCFLAGS += -DDHD_SSSR_DUMP_BEFORE_SR
     endif
+    # Recover timeouts
+      DHDCFLAGS += -DDHD_RECOVER_TIMEOUT
     # Enable FIS Dump
     # DHDCFLAGS += -DDHD_FIS_DUMP
     # Enable System Debug Trace Controller, Embedded Trace Buffer
@@ -294,8 +303,9 @@ endif
 	DHDCFLAGS += -DENABLE_DHD_GRO
     # Support Monitor Mode
 	DHDCFLAGS += -DWL_MONITOR
-    # WLBR Regon coordinator
+    # WLAN-BT Regon coordinator
 	DHDCFLAGS += -DWBRC
+	DHDCFLAGS += -DWBRC_WLAN_ON_FIRST_ALWAYS
     # FW, NVRAM, CLM load based on VID module string, chipid and chiprev
 	DHDCFLAGS += -DSUPPORT_MULTIPLE_REVISION -DSUPPORT_MULTIPLE_REVISION_MAP
 	DHDCFLAGS += -DSUPPORT_MIXED_MODULES -DUSE_CID_CHECK -DSUPPORT_MULTIPLE_CHIPS
@@ -316,7 +326,7 @@ ifneq ($(CONFIG_SOC_GOOGLE),)
 	DHDCFLAGS += -DDHD_TX_CPL_BOUND=64
 	DHDCFLAGS += -DDHD_TX_POST_BOUND=128
 	DHDCFLAGS += -DDHD_RX_CPL_POST_BOUND=156
-	DHDCFLAGS += -DDHD_CTRL_CPL_POST_BOUND=64
+	DHDCFLAGS += -DDHD_CTRL_CPL_POST_BOUND=8
 	DHDCFLAGS += -DDHD_LB_TXBOUND=32
 	# Detect NON DMA M2M corruption (MFG only)
 	DHDCFLAGS += -DDHD_NON_DMA_M2M_CORRUPTION
@@ -325,22 +335,16 @@ ifneq ($(CONFIG_SOC_GOOGLE),)
 endif
 endif
 
-ifneq ($(CONFIG_FIB_RULES),)
-    # Debugability
-    # HAL File dump is supported only for iptable builds(brcm_wlan_iptables_defconfig)
-    ifneq ($(CONFIG_SOC_GOOGLE),)
-	DHDCFLAGS += -DDHD_FILE_DUMP_EVENT
-	DHDCFLAGS += -DDHD_HAL_RING_DUMP
-	DHDCFLAGS += -DDHD_HAL_RING_DUMP_MEMDUMP
-	# Pixel platform only, to support ring data flushing properly
-	DHDCFLAGS += -DDHD_DUMP_START_COMMAND
-        # MLO related back port changes
-        DHDCFLAGS += -DWL_MLO_BKPORT
-    else
-	DHDCFLAGS += -DDHD_FILE_DUMP_EVENT
-	# The debug dump file path is blank in DHD, it is defined in HAL.
-	DHDCFLAGS += -DDHD_COMMON_DUMP_PATH="\"/\""
-    endif
+ifneq ($(CONFIG_SOC_GOOGLE),)
+    DHDCFLAGS += -DDHD_FILE_DUMP_EVENT
+    DHDCFLAGS += -DDHD_HAL_RING_DUMP
+    DHDCFLAGS += -DDHD_HAL_RING_DUMP_MEMDUMP
+    # Pixel platform only, to support ring data flushing properly
+    DHDCFLAGS += -DDHD_DUMP_START_COMMAND
+    # MLO related back port changes
+    DHDCFLAGS += -DWL_MLO_BKPORT
+    # CROSS AKM related back port changes
+    DHDCFLAGS += -DWL_CROSS_AKM_BKPORT
     DHDCFLAGS := $(filter-out -DDHD_DUMP_FILE_WRITE_FROM_KERNEL ,$(DHDCFLAGS))
 endif
 
@@ -654,6 +658,7 @@ DHDCFLAGS += -DWL_NAN_INSTANT_MODE
 DHDCFLAGS += -DFTM
 
 DHDCFLAGS += -DQOS_MAP_SET
+DHDCFLAGS += -DDHD_DSCP_POLICY
 
 # Thermal mitigation flag
 DHDCFLAGS += -DWL_THERMAL_MITIGATION
@@ -772,7 +777,7 @@ DRIVER_TYPE ?= $(CONFIG_BCMDHD)
 # Chip dependent feature
 #########################
 
-ifneq ($(filter y, $(CONFIG_BCM4389) $(CONFIG_BCM4398)),)
+ifneq ($(filter y, $(CONFIG_BCM4389) $(CONFIG_BCM4398) $(CONFIG_BCM4383)),)
     #6GHz support
     DHDCFLAGS += -DWL_6G_BAND
   # UNII4 channel support
@@ -782,7 +787,7 @@ ifneq ($(filter y, $(CONFIG_BCM4389) $(CONFIG_BCM4398)),)
 endif
 
 # For 4389 and 43752
-ifneq ($(filter y, $(CONFIG_BCM4389) $(CONFIG_BCM4398) $(CONFIG_BCM43752) $(CONFIG_BCM4375) $(CONFIG_BCM4385)),)
+ifneq ($(filter y, $(CONFIG_BCM4389) $(CONFIG_BCM4398) $(CONFIG_BCM4383) $(CONFIG_BCM43752) $(CONFIG_BCM4375) $(CONFIG_BCM4385)),)
     DHDCFLAGS += -DUSE_WL_TXBF
     DHDCFLAGS += -DCUSTOM_DPC_CPUCORE=0
 
@@ -889,6 +894,8 @@ ifneq ($(CONFIG_SOC_GOOGLE),)
 	DHDCFLAGS += -DLB_RXP_STOP_THR=500 -DLB_RXP_STRT_THR=499
 	# Dongle init fail
 	DHDCFLAGS += -DPOWERUP_MAX_RETRY=0
+	# Increase assoc beacon wait time
+	DHDCFLAGS += -DDEFAULT_RECREATE_BI_TIMEOUT=40
     # Add chip specific suffix to the output on customer release
     ifneq ($(filter y, $(CONFIG_BCM4389)),)
 	    BCM_WLAN_CHIP_SUFFIX = 4389
@@ -899,6 +906,11 @@ ifneq ($(CONFIG_SOC_GOOGLE),)
 	    BCM_WLAN_CHIP_SUFFIX = 4398
 	    DHDCFLAGS += -DBCMPCI_DEV_ID=0x4444
 	    DHDCFLAGS += -DBCMPCI_NOOTP_DEV_ID=0x4398 -DBCM4398_CHIP_DEF
+    endif
+    ifneq ($(filter y, $(CONFIG_BCM4383)),)
+	    BCM_WLAN_CHIP_SUFFIX = 4383
+	    DHDCFLAGS += -DBCMPCI_DEV_ID=0x4449
+	    DHDCFLAGS += -DBCMPCI_NOOTP_DEV_ID=0x4383 -DBCM4383_CHIP_DEF
     endif
     ifneq ($(CONFIG_BCMDHD_PCIE),)
     ifneq ($(filter y, $(CONFIG_SOC_GS201) $(CONFIG_SOC_ZUMA)),)
@@ -957,8 +969,12 @@ DHDCFLAGS += $(BCMINTERNAL_DFLAGS)
 DHDOFILES += $(BCMINTERNAL_DHDOFILES)
 
 # extra Source files
+ifneq ($(filter -DDHD_DSCP_POLICY, $(DHDCFLAGS)),)
+	DHDOFILES += dhd_cfg_dscp_policy.o
+endif
+
 ifneq ($(filter -DSOCI_NCI_BUS, $(DHDCFLAGS)),)
-	DHDOFILES += nciutils.o nciutils_host.o
+	DHDOFILES += nciutils.o nciutils_host.o hal_nci_cmn.o
 endif
 
 # if DHD_LINUX_STD_FW_API not defined add fwpkg_utils.c

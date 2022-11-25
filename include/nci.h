@@ -89,8 +89,8 @@ uint32 nci_wrapper_dump_last_timeout(const si_t *sih, uint32 *error,
 uint32 nci_get_core_baaddr(const si_t *sih, uint32 *size, int32 baidx);
 #ifdef AXI_TIMEOUTS
 uint32 nci_clear_backplane_to(si_t *sih);
-uint32 nci_clear_backplane_to_per_core(si_t *sih, uint coreid, uint coreunit);
 #endif /* AXI_TIMEOUTS */
+uint32 nci_clear_backplane_to_per_core(si_t *sih, uint coreid, uint coreunit);
 bool nci_ignore_errlog(const si_info_t *sii, const aidmp_t *ai,
 	uint32 lo_addr, uint32 hi_addr, uint32 err_axi_id, uint32 errsts);
 void nci_wrapper_get_last_error(const si_t *sih, uint32 *error_status, uint32 *core, uint32 *lo,
