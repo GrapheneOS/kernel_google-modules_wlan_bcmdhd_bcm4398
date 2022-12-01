@@ -1521,6 +1521,12 @@ osl_sysuptime_us(void)
 }
 
 uint64
+osl_sysuptime_ns(void)
+{
+	return ktime_get_real_ns();
+}
+
+uint64
 osl_localtime_ns(void)
 {
 	uint64 ts_nsec = 0;
@@ -2244,3 +2250,47 @@ osl_dma_lock_init(osl_t *osh)
 	osh->dma_lock_bh = FALSE;
 }
 #endif /* USE_DMA_LOCK */
+
+
+#if defined(NIC_REG_ACCESS_LEGACY) || defined(NIC_REG_ACCESS_LEGACY_DBG)
+osl_pcie_window_t osl_reg_access_pcie_window;
+/**
+ * Initialize osl_reg_access_pcie_window.
+ * @param[in]  osh                      OS handle.
+ * @param[in]  bp_access_lock           Lock for restricting backplane access.
+ * @param[in]  window_offset            Config space window base register offset.
+ * @param[in]  bar_addr                 ioremap address of this window.
+ */
+void
+osl_reg_access_pcie_window_init(osl_t *osh, void *bp_access_lock, unsigned long window_offset,
+		volatile void *bar_addr)
+{
+	osl_reg_access_pcie_window.bp_access_lock = bp_access_lock;
+	osl_reg_access_pcie_window.window_offset = window_offset;
+	osl_reg_access_pcie_window.bar_addr = bar_addr;
+	osl_reg_access_pcie_window.bp_addr = OSL_PCI_READ_CONFIG(osh,
+		osl_reg_access_pcie_window.window_offset, sizeof(uint32));
+}
+
+/**
+ * Check that the osl_reg_access_pcie_window is configured to access the reg_addr and return the
+ * window address. If the window is not properly configured, then it will be reconfigured.
+ * @param[in]  osh        OS handle.
+ * @param[in]  reg_addr   Address that the window should be able to access after this function call.
+ * @return                Address of the pcie bar window that is configured to access the provided
+ *                        address.
+ */
+volatile void *
+osl_update_pcie_win(osl_t *osh, volatile void *reg_addr)
+{
+	unsigned long r_addr = (unsigned long)reg_addr;
+	unsigned long base_addr = (r_addr & BAR0_WINDOW_ADDRESS_MASK);
+	if (base_addr != osl_reg_access_pcie_window.bp_addr) {
+		osl_reg_access_pcie_window.bp_addr = base_addr;
+		OSL_PCI_WRITE_CONFIG(osh, osl_reg_access_pcie_window.window_offset, sizeof(uint32),
+			osl_reg_access_pcie_window.bp_addr);
+	}
+	return (volatile void *)(((volatile uint8 *)osl_reg_access_pcie_window.bar_addr) +
+		(r_addr & BAR0_WINDOW_OFFSET_MASK));
+}
+#endif /* defined(NIC_REG_ACCESS_LEGACY) || defined(NIC_REG_ACCESS_LEGACY_DBG) */

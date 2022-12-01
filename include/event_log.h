@@ -221,7 +221,8 @@ typedef struct event_log_set {
 	uint32 blockcount;		/* Number of blocks */
 	uint16 logtrace_count;		/* Last count for logtrace */
 	uint16 blockfill_count;		/* Fill count for logtrace */
-	uint32 reserved;		/* Reserved */
+	bool is_shdw_set;		/* true if log set is a shadow set */
+	uint8 pad[3];			/* explicit padding */
 	uint32 cyclecount;		/* Cycles at last timestamp event */
 	event_log_set_destination_t destination;
 	uint16 size;			/* same size for all buffers in one  set */

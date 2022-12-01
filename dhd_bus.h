@@ -303,6 +303,8 @@ extern int dhd_bus_get_linkdown(dhd_pub_t *dhdp);
 extern void dhd_bus_inform_ep_loaded_to_rc(dhd_pub_t *dhdp, bool up);
 #endif /* CONFIG_ARCH_MSM  && CONFIG_SEC_PCIE_L1SS */
 extern int dhd_bus_checkdied(struct dhd_bus *bus, char *data, uint size);
+void
+dhd_prot_get_driver_state(dhd_pub_t *dhdp, driver_state_t *driver_state);
 #else
 #define dhd_bus_dump_console_buffer(x)
 static INLINE void dhd_bus_intr_count_dump(dhd_pub_t *dhdp) { UNUSED_PARAMETER(dhdp); }
@@ -436,6 +438,8 @@ bool dhd_bus_get_txcso_supported(struct dhd_bus *bus);
 #define RXCSO_ENAB(dhd) (FALSE)
 #endif /* RX_CSO */
 
+extern bool dhd_recover_timeout_by_scheduling_dpc(struct dhd_bus *bus);
+
 extern int dhd_socram_dump(struct dhd_bus *bus);
 
 extern int dhdpcie_get_max_eventbufpost(struct dhd_bus *bus);
@@ -459,4 +463,9 @@ void dhd_bus_dealloc_ewp_etb_config_mem(struct dhd_bus *bus);
 
 void dhd_bus_update_flow_watermark_stats(struct dhd_bus *bus, uint16 flowid, uint16 rd,
 	uint16 wr, uint16 ringsz, bool upd_watermark);
+void dhd_initilize_idsup(uint16 chipid);
+#ifdef DHD_SDTC_ETB_DUMP
+int dhd_bus_get_etb_dump(struct dhd_bus *bus, uint8 *buf, uint bufsize);
+#endif /* DHD_SDTC_ETB_DUMP */
+int dhd_bus_get_etb_config(struct dhd_bus *bus, uint32 etb_config_info_addr);
 #endif /* _dhd_bus_h_ */

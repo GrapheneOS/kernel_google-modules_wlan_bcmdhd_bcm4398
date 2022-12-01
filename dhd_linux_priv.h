@@ -362,6 +362,10 @@ typedef struct dhd_info {
 	struct kobject dhd_dpc_bounds_kobj;
 	bool dhd_dpc_bounds_kobj_inited;
 
+	/* DHD Logger sysfs */
+	struct kobject dhd_logger_kobj;
+	bool dhd_logger_kobj_inited;
+
 #if defined(DNGL_AXI_ERROR_LOGGING) && defined(DHD_USE_WQ_FOR_DNGL_AXI_ERROR)
 	struct work_struct	  axi_error_dispatcher_work;
 #endif /* DNGL_AXI_ERROR_LOGGING && DHD_USE_WQ_FOR_DNGL_AXI_ERROR */

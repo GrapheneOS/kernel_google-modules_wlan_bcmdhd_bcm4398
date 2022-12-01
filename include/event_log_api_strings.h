@@ -1,4 +1,8 @@
 /*
+ * EVENT_LOG API strings definitions
+ * The strings defined in this file are "API" strings and therefore can't be changed without
+ * consulting the consumers of these strings
+ *
  * Copyright (C) 2022, Broadcom.
  *
  *      Unless you and Broadcom execute a separate written software license
@@ -17,37 +21,20 @@
  *
  *
  * <<Broadcom-WL-IPTag/Dual:>>
- *
  */
 
-#ifndef _epivers_h_
-#define _epivers_h_
+#ifndef _EVENT_LOG_API_STRINGS_H_
+#define _EVENT_LOG_API_STRINGS_H_
 
-#define EPI_MAJOR_VERSION	103
+#define WLC_RRM_RX_NEIGHBOR_REPORT_TOKEN_STR	"received neighbor report (token = %d)\n"
 
-#define EPI_MINOR_VERSION	10
+#define WLC_ASSOC_TGT_SEL_JOIN_PREF_FIELD_STR	\
+	"wl%d: RSSI is %d; %d roaming target[s]; Join preference fields are 0x%x\n"
 
-#define EPI_RC_NUMBER		138
+#define WLC_ASSOC_TGT_SEL_TGTS_AFTER_PRUNE_STR	"result: %d target(s) after prune\n"
+#define WLC_ASSOC_SCAN_START_ALL_CHNLS_STR	"scan start: all channels\n"
+#define WLC_ASSOC_ROAM_SCAN_RSN_STR		"roam scan: reason=%d rssi=%d\n"
+#define WLC_ASSOC_FULL_SCAN_STR			"starting full scan\n"
+#define WLC_ASSOC_FULL_SCAN_LP_STR		"starting full scan (LP:%d)\n"
 
-#define EPI_INCREMENTAL_NUMBER	0
-
-#define EPI_BUILD_NUMBER	0
-
-#define EPI_VERSION		103, 10, 138, 0
-
-#define EPI_VERSION_NUM		0x670a8a00
-
-#define EPI_VERSION_DEV		103.10.138
-
-/* Driver Version String, ASCII, 32 chars max */
-#if defined (WLTEST)
-#define EPI_VERSION_STR		"103.10.138 (TOB) (wlan=r1001152 WLTEST)"
-#elif (defined (BCMDBG_ASSERT) && \
-	!defined (BCMDBG_ASSERT_DISABLED) && \
-	!defined (ASSERT_FP_DISABLE))
-#define EPI_VERSION_STR		"103.10.138 (TOB) (wlan=r1001152 ASSRT)"
-#else
-#define EPI_VERSION_STR		"103.10.138 (TOB) (wlan=r1001152)"
-#endif /* BCMINTERNAL */
-
-#endif /* _epivers_h_ */
+#endif /* _EVENT_LOG_API_STRINGS_H_ */

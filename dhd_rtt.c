@@ -1396,8 +1396,7 @@ dhd_rtt_handle_ac_az_config_options(wl_proxd_session_id_t session_id, wl_proxd_t
 	uint64 flags_mask = WL_FTM_FLAG_NONE;
 	uint64 new_mask;		/* cmdline input */
 	ftm_ac_az_config_options_info_t *p_option_info;
-	uint16 type = (session_id == WL_PROXD_SESSION_ID_GLOBAL) ?
-			WL_FTM_TLV_ID_FLAGS_MASK : WL_FTM_TLV_ID_SESSION_FLAGS_MASK;
+	uint16 type;
 
 	for (cfg_idx = 0; cfg_idx < ftm_cfg_cnt; cfg_idx++) {
 		p_option_info = (ftm_configs + cfg_idx);
@@ -1415,6 +1414,8 @@ dhd_rtt_handle_ac_az_config_options(wl_proxd_session_id_t session_id, wl_proxd_t
 	flags = htol64(flags);
 	flags_mask = htol64(flags_mask);
 	/* setup flags_mask TLV */
+	type = (session_id == WL_PROXD_SESSION_ID_GLOBAL) ?
+			WL_FTM_TLV_ID_FLAGS_MASK : WL_FTM_TLV_ID_SESSION_FLAGS_MASK;
 	ret = bcm_pack_xtlv_entry((uint8 **)p_tlv, p_buf_space_left,
 		type, sizeof(flags_mask), (uint8 *)&flags_mask, BCM_XTLV_OPTION_ALIGN32);
 	if (ret != BCME_OK) {
@@ -1424,6 +1425,8 @@ dhd_rtt_handle_ac_az_config_options(wl_proxd_session_id_t session_id, wl_proxd_t
 	}
 
 	/* setup flags TLV */
+	type = (session_id == WL_PROXD_SESSION_ID_GLOBAL)?
+			WL_FTM_TLV_ID_FLAGS : WL_FTM_TLV_ID_SESSION_FLAGS;
 	ret = bcm_pack_xtlv_entry((uint8 **)p_tlv, p_buf_space_left,
 			type, sizeof(flags), (uint8 *)&flags, BCM_XTLV_OPTION_ALIGN32);
 		if (ret != BCME_OK) {

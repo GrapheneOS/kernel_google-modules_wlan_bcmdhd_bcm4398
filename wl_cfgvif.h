@@ -281,5 +281,8 @@ extern s32 wl_cfgvif_scb_authorized(struct bcm_cfg80211 *cfg, bcm_struct_cfgdev 
 #endif /* WL_IDAUTH */
 #ifdef WL_MLO
 extern void wl_mlo_update_linkaddr(wl_mlo_config_v1_t *mlo_config);
+extern s32
+wl_cfg80211_ml_ap_link_add(struct bcm_cfg80211 *cfg, struct wireless_dev *wdev,
+	const wl_event_msg_t *e, void *data);
 #endif /* WL_MLO */
 #endif /* _wl_cfgvif_h_ */

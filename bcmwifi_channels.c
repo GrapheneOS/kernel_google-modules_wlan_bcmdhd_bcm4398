@@ -3292,3 +3292,29 @@ wf_chspec_get_primary_sb(chanspec_t chspec)
 	}
 	return pri_sb;
 }
+
+/*
+ * Returns the lower and uppper 20MHz chanel of the given chanspec.
+ * separation is the next channel number from pervious.
+ */
+bool
+wf_chspec_get_20m_lower_upper_channel(chanspec_t chspec, uint* lower, uint* upper, uint *separation)
+{
+	bool ret = FALSE;
+	uint center_chan;
+	if (wf_chspec_valid(chspec) && lower && upper && separation) {
+
+		center_chan = wf_chspec_center_channel(chspec);
+		*lower = center_chan - center_chan_to_edge(CHSPEC_BW(chspec));
+		*upper = center_chan + center_chan_to_edge(CHSPEC_BW(chspec));
+
+		if (CHSPEC_IS2G(chspec)) {
+			*separation = 1u;
+		} else {
+			*separation = CH_20MHZ_APART;
+		}
+		ret = TRUE;
+	}
+
+	return ret;
+}

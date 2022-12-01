@@ -87,6 +87,10 @@
 
 #include <dhd_plat.h>
 
+#if defined(WBRC) && defined(WBRC_TEST)
+#include <wb_regon_coordinator.h>
+#endif /* WBRC && WBRC_TEST */
+
 #define PCI_CFG_RETRY		10		/* PR15065: retry count for pci cfg accesses */
 #define OS_HANDLE_MAGIC		0x1234abcd	/* Magic # to recognize osh */
 #define BCM_MEM_FILENAME_LEN	24		/* Mem. filename length */
@@ -3448,7 +3452,7 @@ bool dhd_runtimepm_state(dhd_pub_t *dhd)
 			DHD_GENERAL_UNLOCK(dhd, flags);
 #ifdef WL_CFG80211
 			ps_mode_off_dur = dhd_ps_mode_managed_dur(dhd);
-			DHD_PRINT(("%s: DHD Idle state!! -  idletime :%d, wdtick :%d, "
+			DHD_RPM(("%s: DHD Idle state!! -  idletime :%d, wdtick :%d, "
 				"PS mode off dur: %d sec \n", __FUNCTION__,
 				bus->idletime, dhd_runtimepm_ms, ps_mode_off_dur));
 #else
@@ -3549,7 +3553,7 @@ bool dhd_runtimepm_state(dhd_pub_t *dhd)
 
 			smp_wmb();
 			wake_up(&bus->rpm_queue);
-			DHD_PRINT(("%s : runtime resume ended \n", __FUNCTION__));
+			DHD_RPM(("%s : runtime resume ended \n", __FUNCTION__));
 			return TRUE;
 		} else {
 			DHD_GENERAL_UNLOCK(dhd, flags);
@@ -3596,7 +3600,7 @@ bool dhd_runtime_bus_wake(dhd_bus_t *bus, bool wait, void *func_addr)
 
 			DHD_GENERAL_UNLOCK(bus->dhd, flags);
 
-			DHD_PRINT(("Runtime Resume is called in %ps\n", func_addr));
+			DHD_RPM(("Runtime Resume is called in %ps\n", func_addr));
 			smp_wmb();
 			wake_up(&bus->rpm_queue);
 		/* No need to wake up the RPM state thread */
@@ -3710,3 +3714,138 @@ dhd_bus_check_driver_up(void)
 	return isup;
 }
 
+
+#ifdef WBRC
+
+#define BT_BASE 0x19000000u
+#define ADDR_SIZE 4u
+
+#ifdef WBRC_TEST
+static bool
+dhd_bt_fw_verify_read_back(dhd_pub_t *dhdp, const char* buf, size_t len)
+{
+	bool verify = true;
+	int ret = 0;
+	uint32 address = 0;
+	uint8 read_len;
+	uint8 read_buf[255];
+	uint8 *buf_ptr = (uint8 *)buf;
+
+	while (len > 0 && ret == 0) {
+		/* save data len */
+		read_len = (*(uint8_t *)buf_ptr) - ADDR_SIZE;
+		buf_ptr++;
+		len--;
+		/* save address */
+		address = *(uint32 *)(buf_ptr);
+		buf_ptr += ADDR_SIZE;
+		len -= ADDR_SIZE;
+		DHD_INFO(("%s: address 0x%X, write_len %u\n", __FUNCTION__,
+			address, read_len));
+		ret = dhdpcie_bus_membytes(dhdp->bus, FALSE, DHD_PCIE_MEM_BAR2,
+			(BT_BASE | address), read_buf, read_len);
+		/* compare */
+		if (0 != memcmp(buf_ptr, read_buf, read_len))
+		{
+			DHD_ERROR_RLMT(("%s: Read back failed at address : 0x%X, with len : %u\n",
+				__FUNCTION__, address, read_len));
+			verify = false;
+			break;
+		}
+
+		buf_ptr += read_len;
+		len -= read_len;
+	}
+
+	if (verify) {
+		DHD_ERROR(("%s: Read back verified successfully\n", __FUNCTION__));
+	}
+
+	return verify;
+}
+#endif /* WBRC_TEST */
+
+int
+dhd_bt_fw_dwnld_blob(void *wl_hdl, char* buf, size_t len)
+{
+	dhd_pub_t *dhdp = (dhd_pub_t *)wl_hdl;
+	uint32 address = 0;
+	int ret = 0;
+	uint8 write_len;
+	uint8 *write_buf = (uint8 *)buf;
+	size_t total_len = len;
+	unsigned long flags = 0;
+
+	BCM_REFERENCE(total_len);
+
+	DHD_ERROR(("%s: len : %lu\n", __FUNCTION__, len));
+
+	if (dhdp == NULL || dhdp->bus == NULL || dhdp->bus->bar2 == 0) {
+		DHD_ERROR(("%s: bar2 not available\n", __FUNCTION__));
+		return BCME_NOTFOUND;
+	}
+
+	if (dhd_query_bus_erros(dhdp)) {
+		DHD_ERROR(("%s: bus error !\n", __FUNCTION__));
+		return BCME_NOTUP;
+	}
+
+	DHD_INFO(("%s: acquiring pwr_req\n", __FUNCTION__));
+	dhd_bt_dwnld_pwr_req(dhdp->bus);
+
+	/* on certain platforms it is observed that if BT FW dwnld is
+	 * attempted twice in quick succession, the sw bar2 win variable and the
+	 * pcie config reg value go out of sync leading to AXI errors.
+	 * So reset bar2 win always before starting BT FW dwnld
+	 */
+	DHD_BUS_BAR2_SWITCH_LOCK(dhdp->bus, flags);
+	dhdpcie_setbar2win(dhdp->bus, 0x00000000);
+	DHD_BUS_BAR2_SWITCH_UNLOCK(dhdp->bus, flags);
+
+	while (len > 0 && ret == 0) {
+		/* save data len */
+		write_len = (*(uint8_t *)write_buf) - ADDR_SIZE;
+		write_buf++;
+		len--;
+		/* save address */
+		address = *(uint32 *)(write_buf);
+		write_buf += ADDR_SIZE;
+		len -= ADDR_SIZE;
+		DHD_INFO(("%s: address 0x%X, write_len %u\n", __FUNCTION__, address, write_len));
+
+		ret = dhdpcie_bus_membytes(dhdp->bus, TRUE, DHD_PCIE_MEM_BAR2,
+			(BT_BASE | address),
+			write_buf, write_len);
+
+		if (dhd_query_bus_erros(dhdp)) {
+			DHD_ERROR(("%s: bus error !!!\n", __FUNCTION__));
+			ret = BCME_NOTUP;
+			break;
+		}
+
+		write_buf += write_len;
+		len -= write_len;
+
+#ifdef WBRC_TEST
+		if (wbrc_test_get_error() == WBRC_SLOWDOWN_BT_FW_DWNLD) {
+			OSL_DELAY(500000);
+		}
+#endif /* WBRC_TEST */
+	}
+
+#ifdef WBRC_TEST
+	if (wbrc_test_is_verify_bt_dwnld()) {
+		dhd_bt_fw_verify_read_back(dhdp, buf, total_len);
+	}
+#endif /* WBRC_TEST */
+
+	DHD_INFO(("%s: clearing pwr_req\n", __FUNCTION__));
+	dhd_bt_dwnld_pwr_req_clear(dhdp->bus);
+
+	if (ret != 0) {
+		DHD_ERROR(("%s: BT FW download over wlan pcie failed : %d\n", __FUNCTION__, ret));
+	}
+
+	return ret;
+}
+#endif /* WBRC */

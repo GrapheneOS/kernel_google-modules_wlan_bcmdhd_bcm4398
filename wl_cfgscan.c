@@ -500,7 +500,7 @@ wl_inform_bss(struct bcm_cfg80211 *cfg)
 	s32 i;
 
 	bss_list = cfg->bss_list;
-	WL_MEM(("scanned AP count (%d)\n", bss_list->count));
+	WL_DBG_MEM(("scanned AP count (%d)\n", bss_list->count));
 #ifdef ESCAN_CHANNEL_CACHE
 	reset_roam_cache(cfg);
 #endif /* ESCAN_CHANNEL_CACHE */
@@ -1160,14 +1160,23 @@ wl_escan_handler(struct bcm_cfg80211 *cfg, bcm_struct_cfgdev *cfgdev,
 				err = BCME_ERROR;
 				goto exit;
 			}
+
+#ifdef USE_CACHED_SCANRESULT_FOR_ABORT
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 8, 0))
-			if (p2p_scan(cfg) && cfg->scan_request &&
-				(cfg->scan_request->flags & NL80211_SCAN_FLAG_FLUSH)) {
+			if (cfg->scan_request->flags & NL80211_SCAN_FLAG_FLUSH) {
 				WL_ERR(("scan list is changed"));
 				cfg->bss_list = wl_escan_get_buf(cfg, FALSE);
 			} else
-#endif
+#endif /* LINUX_VERSION_CODE >= KERNEL_VERSION(3, 8, 0) */
+			{
+				/* use prev cache for scan abort case */
 				cfg->bss_list = wl_escan_get_buf(cfg, TRUE);
+			}
+#else
+			/* use the current scan cache */
+			cfg->bss_list = wl_escan_get_buf(cfg, FALSE);
+#endif /* USE_CACHED_SCANRESULT_FOR_ABORT */
+
 
 			if (!scan_req_match(cfg)) {
 				WL_TRACE_HW4(("SCAN ABORTED: scanned AP count=%d\n",
@@ -1188,13 +1197,10 @@ wl_escan_handler(struct bcm_cfg80211 *cfg, bcm_struct_cfgdev *cfgdev,
 				/* sync id is matching, abort the scan */
 				WL_INFORM_MEM(("scan aborted for sync_id: %d \n",
 					cfg->escan_info.cur_sync_id));
-				wl_inform_bss(cfg);
-				wl_notify_escan_complete(cfg, ndev, true);
 			}
-#else
-			wl_inform_bss(cfg);
-			wl_notify_escan_complete(cfg, ndev, true);
 #endif /* DUAL_ESCAN_RESULT_BUFFER */
+			/* report scan results for aborted case */
+			wl_notify_escan_complete(cfg, ndev, true);
 		} else {
 			/* If there is no pending host initiated scan, do nothing */
 			WL_DBG(("ESCAN ABORT: No pending scans. Ignoring event.\n"));
@@ -2915,20 +2921,22 @@ wl_notify_escan_complete(struct bcm_cfg80211 *cfg,
 	/* clear scan enq time on complete */
 	CLR_TS(cfg, scan_enq);
 	CLR_TS(cfg, scan_start);
-#if defined (ESCAN_RESULT_PATCH)
-	if (likely(cfg->scan_request)) {
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 8, 0))
-		if (aborted && p2p_scan(cfg) &&
-			(cfg->scan_request->flags & NL80211_SCAN_FLAG_FLUSH)) {
-			WL_ERR(("scan list is changed"));
-			cfg->bss_list = wl_escan_get_buf(cfg, !aborted);
-		} else
-#endif
-			cfg->bss_list = wl_escan_get_buf(cfg, aborted);
 
+
+	if (!cfg->bss_list) {
+		/* bss_list could be null in pre-emption/abort cases */
+#ifdef USE_CACHED_SCANRESULT_FOR_ABORT
+		cfg->bss_list = wl_escan_get_buf(cfg, TRUE);
+#else
+		/* use the current scan cache */
+		cfg->bss_list = wl_escan_get_buf(cfg, FALSE);
+#endif /* USE_CACHED_SCANRESULT_FOR_ABORT */
+	}
+
+	if (cfg->bss_list) {
+		/* Inform scan results to the cfg80211 layer */
 		wl_inform_bss(cfg);
 	}
-#endif /* ESCAN_RESULT_PATCH */
 
 	WL_CFG_DRV_LOCK(&cfg->cfgdrv_lock, flags);
 	if (likely(cfg->scan_request)) {
@@ -6477,51 +6485,6 @@ done2:
 	return ret;
 }
 
-
-#ifdef DHD_ACS_CHECK_SCC_2G_ACTIVE_CH
-bool wl_check_active_2g_chan(struct bcm_cfg80211 *cfg, drv_acs_params_t *parameter,
-	chanspec_t sta_chanspec)
-{
-	struct net_device *dev = bcmcfg_to_prmry_ndev(cfg);
-	bool scc = FALSE;
-	s32 ret = BCME_OK;
-	uint bitmap = 0;
-	u8 ioctl_buf[WLC_IOCTL_SMLEN];
-
-	bzero(ioctl_buf, WLC_IOCTL_SMLEN);
-	ret = wldev_iovar_getbuf(dev, "per_chan_info",
-			(void *)&sta_chanspec, sizeof(sta_chanspec),
-			ioctl_buf, WLC_IOCTL_SMLEN, NULL);
-	if (ret != BCME_OK) {
-		WL_ERR(("Failed to get per_chan_info chspec:0x%x, error:%d\n",
-				sta_chanspec, ret));
-		goto exit;
-	}
-
-	bitmap = dtoh32(*(uint *)ioctl_buf);
-	if (bitmap & (WL_CHAN_PASSIVE | WL_CHAN_RESTRICTED | WL_CHAN_CLM_RESTRICTED)) {
-		WL_INFORM_MEM(("chspec is not active chanspec:0x%x bitmap:%d\n",
-				sta_chanspec, bitmap));
-		goto exit;
-	}
-
-#ifdef WL_CELLULAR_CHAN_AVOID
-	if (wl_cellavoid_mandatory_isset(cfg->cellavoid_info, NL80211_IFTYPE_AP) &&
-		!wl_cellavoid_is_safe(cfg->cellavoid_info, sta_chanspec)) {
-		WL_INFORM_MEM(("Not allow unsafe channel and mandatory chspec:0x%x\n",
-			sta_chanspec));
-		goto exit;
-	}
-#endif /* WL_CELLULAR_CHAN_AVOID */
-
-	scc = TRUE;
-
-exit:
-	WL_INFORM_MEM(("STA chanspec:0x%x per_chan_info:0x%x scc:%d\n", sta_chanspec, bitmap, scc));
-	return scc;
-}
-#endif /* DHD_ACS_CHECK_SCC_2G_ACTIVE_CH */
-
 #define MAX_ACS_FREQS	256u
 static int
 wl_convert_freqlist_to_chspeclist(struct bcm_cfg80211 *cfg,
@@ -6958,27 +6921,32 @@ wl_get_ap_chanspecs(struct bcm_cfg80211 *cfg, wl_ap_oper_data_t *ap_data)
 	}
 }
 
-inline bool
-is_chanspec_dfs(struct bcm_cfg80211 *cfg, chanspec_t chspec)
+bool wl_is_chanspec_restricted(struct bcm_cfg80211 *cfg, chanspec_t sta_chanspec)
 {
-	u32 ch;
-	s32 err;
-	u8 buf[WLC_IOCTL_SMLEN];
-	struct net_device *ndev = bcmcfg_to_prmry_ndev(cfg);
+	struct net_device *dev = bcmcfg_to_prmry_ndev(cfg);
+	s32 ret = BCME_OK;
+	uint bitmap = 0;
+	u8 ioctl_buf[WLC_IOCTL_SMLEN];
 
-	ch = (u32)chspec;
-	err = wldev_iovar_getbuf_bsscfg(ndev, "per_chan_info", (void *)&ch,
-			sizeof(u32), buf, WLC_IOCTL_SMLEN, 0, NULL);
-	if (unlikely(err)) {
-		WL_ERR(("get per chan info failed:%d\n", err));
+	bzero(ioctl_buf, WLC_IOCTL_SMLEN);
+	ret = wldev_iovar_getbuf(dev, "per_chan_info",
+			(void *)&sta_chanspec, sizeof(sta_chanspec),
+			ioctl_buf, WLC_IOCTL_SMLEN, NULL);
+	if (ret != BCME_OK) {
+		WL_ERR(("Failed to get per_chan_info chspec:0x%x, error:%d\n",
+				sta_chanspec, ret));
 		return FALSE;
 	}
 
-	/* Check the channel flags returned by fw */
-	if ((*((u32 *)buf) & WL_CHAN_PASSIVE) ||
-		(*((u32 *)buf) & WL_CHAN_RADAR)) {
+	bitmap = dtoh32(*(uint *)ioctl_buf);
+	if (bitmap & (WL_CHAN_PASSIVE | WL_CHAN_RADAR |
+		WL_CHAN_RESTRICTED | WL_CHAN_CLM_RESTRICTED)) {
+		WL_INFORM_MEM(("chanspec:0x%x is restricted by per_chan_info:0x%x\n",
+			sta_chanspec, bitmap));
 		return TRUE;
 	}
+
+	WL_INFORM_MEM(("STA chanspec:0x%x per_chan_info:0x%x\n", sta_chanspec, bitmap));
 	return FALSE;
 }
 
@@ -7029,7 +6997,14 @@ wl_acs_check_scc(struct bcm_cfg80211 *cfg, drv_acs_params_t *parameter,
 	 * get active channels and check it
 	 */
 	if (scc == FALSE && CHSPEC_IS2G(sta_chanspec)) {
-		scc = wl_check_active_2g_chan(cfg, parameter, sta_chanspec);
+#ifdef WL_CELLULAR_CHAN_AVOID
+		scc = wl_cellavoid_operation_allowed(cfg->cellavoid_info,
+			sta_chanspec, NL80211_IFTYPE_AP);
+		if (scc == FALSE) {
+			WL_INFORM_MEM(("Not allow unsafe channel and mandatory chspec:0x%x\n",
+			sta_chanspec));
+		}
+#endif /* WL_CELLULAR_CHAN_AVOID */
 	}
 #endif /* DHD_ACS_CHECK_SCC_2G_ACTIVE_CH */
 
@@ -7107,7 +7082,8 @@ wl_handle_acs_concurrency_cases(struct bcm_cfg80211 *cfg, drv_acs_params_t *para
 		bool scc_case = false;
 		u32 sta_band = CHSPEC_TO_WLC_BAND(chspec);
 		if (sta_band == WLC_BAND_2G) {
-			if (parameter->freq_bands & (WLC_BAND_5G | WLC_BAND_6G)) {
+			if (wl_is_chanspec_restricted(cfg, chspec) ||
+				(parameter->freq_bands & (WLC_BAND_5G | WLC_BAND_6G))) {
 				/* Remove the 2g band from incoming ACS bands */
 				parameter->freq_bands &= ~WLC_BAND_2G;
 			} else if (wl_acs_check_scc(cfg, parameter, chspec, qty, pList)) {
@@ -7118,14 +7094,13 @@ wl_handle_acs_concurrency_cases(struct bcm_cfg80211 *cfg, drv_acs_params_t *para
 				return -EINVAL;
 			}
 		} else if (sta_band == WLC_BAND_5G) {
-			if (is_chanspec_dfs(cfg, chspec) ||
+			if (wl_is_chanspec_restricted(cfg, chspec) ||
 #ifdef WL_UNII4_CHAN
-				(CHSPEC_IS5G(chspec) &&
-				IS_UNII4_CHANNEL(wf_chspec_primary20_chan(chspec))) ||
+				IS_UNII4_CHANNEL(wf_chspec_primary20_chan(chspec)) ||
 #endif /* WL_UNII4_CHAN */
 				FALSE) {
 				/*
-				 * If STA is in DFS/UNII4 channel,
+				 * If STA is in DFS/Restricted/UNII4 channel,
 				 * check for 2G availability in ACS list
 				 */
 				if (!(parameter->freq_bands & WLC_BAND_2G)) {

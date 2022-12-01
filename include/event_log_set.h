@@ -192,14 +192,14 @@
 #define EVENT_LOG_SET_MEM_API_BLOCK_SIZE	(EVENT_LOG_BLOCK_SIZE_512B)
 #endif
 
-/* set 17: Console buffer */
-#define EVENT_LOG_SET_RTE_CONS_BUF	(17u)
-#ifndef EVENT_LOG_SET_RTE_CONS_BUF_NUM_BLOCKS
-#define EVENT_LOG_SET_RTE_CONS_BUF_NUM_BLOCKS	(2u)
+/* set 17: summary log set to hold various summaries i.e. channel switch, scan, etc */
+#define EVENT_LOG_SET_SUMMARY	(17u)
+#ifndef EVENT_LOG_SET_SUMMARY_NUM_BLOCKS
+#define EVENT_LOG_SET_SUMMARY_NUM_BLOCKS	(2u)
 #endif
 
-#ifndef EVENT_LOG_SET_RTE_CONS_BUF_BLOCK_SIZE
-#define EVENT_LOG_SET_RTE_CONS_BUF_BLOCK_SIZE	(EVENT_LOG_BLOCK_SIZE_512B)
+#ifndef EVENT_LOG_SET_SUMMARY_BLOCK_SIZE
+#define EVENT_LOG_SET_SUMMARY_BLOCK_SIZE	(EVENT_LOG_MAX_BLOCK_SIZE)
 #endif
 
 /* three log sets for general debug purposes */

@@ -128,6 +128,9 @@ struct wl_ibss;
 #define WL_NMI_IF
 #endif /* LINUX_VERSION_CODE >= (4, 17, 0) && !(WL_NMI_IF) */
 
+/* check whether local admin bit is set */
+#define IS_LOCAL_ETHERADDR(ea)  (((const uint8 *)(ea))[0] & 2)
+
 /* Define to default v6 */
 #define USE_STA_INFO_V6
 #ifdef USE_STA_INFO_V6
@@ -729,7 +732,7 @@ do {									\
 #else
 #define IFACE_MAX_CNT           5
 #endif /* WL_MLO */
-#define WL_SCAN_CONNECT_DWELL_TIME_MS		200
+#define WL_SCAN_CONNECT_DWELL_TIME_MS		100
 #define WL_SCAN_JOIN_PROBE_INTERVAL_MS		20
 #define WL_SCAN_JOIN_ACTIVE_DWELL_TIME_MS	320
 #define WL_BCAST_SCAN_JOIN_ACTIVE_DWELL_TIME_MS	80
@@ -810,7 +813,8 @@ do {									\
 #define WL_AKM_SUITE_SHA256_PSK 0x000FAC06
 
 #define WLAN_AKM_SUITE_SAE_SHA256		0x000FAC08
-
+#define WLAN_AKM_SUITE_SAE_EXT			0x000FAC24
+#define MAX_NUM_MULTI_AKM_SUITES		4u
 #ifndef WLAN_AKM_SUITE_FILS_SHA256
 #define WLAN_AKM_SUITE_FILS_SHA256		0x000FAC0E
 #define WLAN_AKM_SUITE_FILS_SHA384		0x000FAC0F
@@ -968,7 +972,9 @@ typedef wifi_p2psd_gas_pub_act_frame_t wl_dpp_gas_af_t;
 #define DEFAULT_FULL_ROAM_PRD 0x78u
 #define DEFAULT_ASSOC_RETRY 0x3u
 #define DEFAULT_WNM_CONF 0x505u
+#ifndef DEFAULT_RECREATE_BI_TIMEOUT
 #define DEFAULT_RECREATE_BI_TIMEOUT 20u
+#endif
 
 struct preinit_iov;
 typedef int (*wl_iov_fn) (struct bcm_cfg80211 *cfg, struct net_device *dev, struct preinit_iov *v);
@@ -1302,10 +1308,19 @@ typedef struct wl_eap_exp wl_eap_exp_t;
 typedef struct wl_mlo_link {
 	u8 link_id;
 	u8 link_idx;
+	u8 if_idx;
+	u8 cfg_idx;
 	u8 link_addr[ETH_ALEN];
-	struct net_device *mld_dev;
+	u8 peer_link_addr[ETH_ALEN];
 	chanspec_t chspec;
 } wl_mlo_link_t;
+
+typedef struct wl_mlo_link_info {
+	u8 num_links;
+	u8 active_links;
+	struct net_device *mld_dev;
+	wl_mlo_link_t links[MAX_MLO_LINK];
+} wl_mlo_link_info_t;
 
 typedef struct wl_ml_ap_link {
 	chanspec_t chspec;
@@ -1357,8 +1372,7 @@ struct net_info {
 	u8* passphrase_cfg;
 	u16 passphrase_cfg_len;
 #ifdef WL_MLO
-	wl_mlo_link_t mlinfo;	/* For MLO Link interface */
-	u8 mlo_num_links;			/* For MLD interface */
+	wl_mlo_link_info_t mlinfo;	/* For MLO Link interface */
 #endif /* WL_MLO */
 	u8 *qos_up_table;
 };
@@ -1880,7 +1894,7 @@ typedef enum {
 #define SAR_CONFIG_SCENARIO_COUNT	100
 typedef struct wl_sar_config_info {
 	int8 scenario;
-	int8 sar_tx_power_val;
+	uint8 sar_tx_power_val;
 	int8 airplane_mode;
 } wl_sar_config_info_t;
 #endif /* WL_SAR_TX_POWER && WL_SAR_TX_POWER_CONFIG */
@@ -1935,25 +1949,6 @@ typedef struct {
 	u32 band;
 	u32 bw_cap;
 } wl_bw_cap_t;
-
-#ifdef WL_USABLE_CHAN
-#define USABLE_CHAN_MAX_SIZE 400
-typedef struct usable_channel {
-	wifi_channel freq;
-	wifi_channel_width_t width;
-	u32 iface_mode_mask;
-	chanspec_t chspec;	/* used only for inter processing */
-} usable_channel_t;
-
-typedef struct usable_channel_info {
-	u32 band_mask;
-	u32 iface_mode_mask;
-	u32 filter_mask;
-	u32 max_size;
-	u32 size;
-	usable_channel_t *channels;
-} usable_channel_info_t;
-#endif /* WL_USABLE_CHAN */
 
 #ifdef TPUT_DEBUG_DUMP
 struct tput_debug_cmd_config {
@@ -2547,6 +2542,43 @@ wl_get_netinfo_by_fw_idx(struct bcm_cfg80211 *cfg, s32 bssidx, u8 ifidx)
 }
 
 static inline void
+wl_dealloc_netinfo(struct bcm_cfg80211 *cfg, struct net_info *_net_info)
+{
+	wl_cfgbss_t *bss = &_net_info->bss;
+
+	if (bss->wpa_ie) {
+		MFREE(cfg->osh, bss->wpa_ie, bss->wpa_ie[1]
+			+ WPA_RSN_IE_TAG_FIXED_LEN);
+		bss->wpa_ie = NULL;
+	}
+
+	if (bss->rsn_ie) {
+		MFREE(cfg->osh, bss->rsn_ie,
+			bss->rsn_ie[1] + WPA_RSN_IE_TAG_FIXED_LEN);
+		bss->rsn_ie = NULL;
+	}
+
+	if (bss->wps_ie) {
+		MFREE(cfg->osh, bss->wps_ie, bss->wps_ie[1] + 2);
+		bss->wps_ie = NULL;
+	}
+
+	if (_net_info->passphrase_cfg) {
+		MFREE(cfg->osh, _net_info->passphrase_cfg,
+			_net_info->passphrase_cfg_len);
+		_net_info->passphrase_cfg = NULL;
+	}
+
+	if (_net_info->qos_up_table) {
+		MFREE(cfg->osh, _net_info->qos_up_table, UP_TABLE_MAX);
+		_net_info->qos_up_table = NULL;
+	}
+	list_del(&_net_info->list);
+	cfg->iface_cnt--;
+	MFREE(cfg->osh, _net_info, sizeof(struct net_info));
+}
+
+static inline void
 wl_dealloc_netinfo_by_wdev(struct bcm_cfg80211 *cfg, struct wireless_dev *wdev)
 {
 	struct net_info *_net_info, *next;
@@ -2560,38 +2592,7 @@ wl_dealloc_netinfo_by_wdev(struct bcm_cfg80211 *cfg, struct wireless_dev *wdev)
 	BCM_LIST_FOR_EACH_ENTRY_SAFE(_net_info, next, &cfg->net_list, list) {
 		GCC_DIAGNOSTIC_POP();
 		if (wdev && (_net_info->wdev == wdev)) {
-			wl_cfgbss_t *bss = &_net_info->bss;
-
-			if (bss->wpa_ie) {
-				MFREE(cfg->osh, bss->wpa_ie, bss->wpa_ie[1]
-					+ WPA_RSN_IE_TAG_FIXED_LEN);
-				bss->wpa_ie = NULL;
-			}
-
-			if (bss->rsn_ie) {
-				MFREE(cfg->osh, bss->rsn_ie,
-					bss->rsn_ie[1] + WPA_RSN_IE_TAG_FIXED_LEN);
-				bss->rsn_ie = NULL;
-			}
-
-			if (bss->wps_ie) {
-				MFREE(cfg->osh, bss->wps_ie, bss->wps_ie[1] + 2);
-				bss->wps_ie = NULL;
-			}
-
-			if (_net_info->passphrase_cfg) {
-				MFREE(cfg->osh, _net_info->passphrase_cfg,
-					_net_info->passphrase_cfg_len);
-				_net_info->passphrase_cfg = NULL;
-			}
-
-			if (_net_info->qos_up_table) {
-				MFREE(cfg->osh, _net_info->qos_up_table, UP_TABLE_MAX);
-				_net_info->qos_up_table = NULL;
-			}
-			list_del(&_net_info->list);
-			cfg->iface_cnt--;
-			MFREE(cfg->osh, _net_info, sizeof(struct net_info));
+			wl_dealloc_netinfo(cfg, _net_info);
 		}
 	}
 	WL_CFG_NET_LIST_SYNC_UNLOCK(&cfg->net_list_sync, flags);
@@ -3772,10 +3773,6 @@ extern s32 wl_cfgvendor_notify_twt_event(struct bcm_cfg80211 *cfg,
 extern int wl_get_all_sideband_chanspecs(uint center_channel, chanspec_band_t band,
 	chanspec_bw_t bw, chanspec_t *chspecs, int *cnt);
 
-#ifdef WL_USABLE_CHAN
-int wl_get_usable_channels(struct bcm_cfg80211 *cfg, usable_channel_info_t *u_info);
-#endif /* WL_USABLE_CHAN */
-
 extern int wl_cfg80211_reassoc(struct net_device *dev, struct ether_addr *bssid,
 	chanspec_t chanspec);
 extern void wl_cfg80211_set_suspend_bcn_li_dtim(struct bcm_cfg80211 *cfg,
@@ -3796,6 +3793,10 @@ extern void wl_cfg80211_wdev_unlock(struct wireless_dev *wdev);
 extern u8 *wl_get_up_table_netinfo(struct bcm_cfg80211 *cfg, struct net_device *ndev);
 extern void wl_store_up_table_netinfo(struct bcm_cfg80211 *cfg,
 	struct net_device *ndev, u8 *uptable);
+#ifdef WL_MLO
+extern wl_mlo_link_t * wl_cfg80211_get_ml_link_detail(struct bcm_cfg80211 *cfg,
+	u8 ifidx, u8 bsscfgidx);
+#endif /* WL_MLO */
 
 /* Added wl_reassoc_params_cvt_v1 due to mis-sync between DHD and FW
  * Because Dongle use wl_reassoc_params_v1_t for WLC_REASSOC
@@ -3824,4 +3825,8 @@ struct wl_cp_coex {
 	int ch_5g;
 };
 #endif /* WL_CP_COEX */
+
+extern s32 wl_cfg80211_actframe_fillup_v2(struct bcm_cfg80211 *cfg, bcm_struct_cfgdev *cfgdev,
+	struct net_device *dev, wl_af_params_v2_t *af_params_v2_p,
+	wl_af_params_v1_t *af_params, const u8 *sa, uint16 wl_af_params_size);
 #endif /* _wl_cfg80211_h_ */

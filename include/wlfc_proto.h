@@ -502,7 +502,8 @@ typedef enum {
 	APP_STS_CRYPTO_UNSUPPORTED	= 2u,	/* Secuirity type doesn't support APP */
 	APP_STS_80211_FRAGMENTATION	= 3u,   /* 802.11 fragmentation enabled */
 	APP_STS_DISABLE_FOR_BTCX	= 4u,	/* BTCX requested APP disable */
-	APP_STS_MAX			= 5u	/* MAX */
+	APP_STS_DISABLE_FOR_QOS		= 5u,	/* Disable APP for QoS */
+	APP_STS_MAX			= 6u	/* MAX */
 } app_disable_reason_s;
 
 /* shared structure between wlc and pciedev layer to set/reset a reason code */

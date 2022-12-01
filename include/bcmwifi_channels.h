@@ -200,11 +200,6 @@ typedef struct {
 #define LOWER_40_SB(channel)	((channel) - CH_20MHZ_APART)
 #define UPPER_40_SB(channel)	((channel) + CH_20MHZ_APART)
 
-#ifndef CHSPEC_WLCBANDUNIT
-#define CHSPEC_WLCBANDUNIT(chspec) \
-	((CHSPEC_IS5G(chspec) || CHSPEC_IS6G(chspec)) ? BAND_5G_INDEX : BAND_2G_INDEX)
-#endif
-
 #define CH20MHZ_CHSPEC(channel)	\
 	(chanspec_t)((chanspec_t)(channel) | WL_CHANSPEC_BW_20 | WL_CHANNEL_BAND(channel))
 #define CH6G20MHZ_CHSPEC(channel) \
@@ -444,13 +439,6 @@ uint wf_chspec_first_20_sb(chanspec_t chspec);
 	((((chspec) & WL_CHANSPEC_CTL_SB_MASK) == WL_CHANSPEC_CTL_SB_LOWER) && \
 	(((chspec) & WL_CHANSPEC_BW_MASK) == WL_CHANSPEC_BW_40))
 
-#ifdef WL_BAND6G
-#define CHSPEC2WLC_BAND(chspec) (CHSPEC_IS2G(chspec) ? WLC_BAND_2G : CHSPEC_IS5G(chspec) ? \
-	WLC_BAND_5G : WLC_BAND_6G)
-#else
-#define CHSPEC2WLC_BAND(chspec) (CHSPEC_IS2G(chspec) ? WLC_BAND_2G : WLC_BAND_5G)
-#endif
-
 #define CHSPEC_BW_CHANGED(prev_chspec, curr_chspec) \
 	(((prev_chspec) & WL_CHANSPEC_BW_MASK) != ((curr_chspec) & WL_CHANSPEC_BW_MASK))
 
@@ -566,8 +554,6 @@ extern bool wf_chspec_coexist(chanspec_t chspec1, chanspec_t chspec2);
  * The value corresponds to 5940 MHz.
  */
 #define WF_CHAN_FACTOR_6_G		11900u	/* 6   GHz band, 5950 MHz */
-
-#define WLC_2G_25MHZ_OFFSET		5	/* 2.4GHz band channel offset */
 
 /**
  *  No of sub-band value of the specified Mhz chanspec
@@ -1019,6 +1005,8 @@ int channel_5g_160mhz_to_id(uint ch);
 int channel_6g_160mhz_to_id(uint ch);
 
 int channel_6g_320mhz_to_id(uint ch);
+bool wf_chspec_get_20m_lower_upper_channel(chanspec_t chspec, uint* lower, uint* upper,
+	uint *separation);
 #if defined(WL_BW320MHZ)
 /*
  * Returns center channel for a contiguous chanspec and

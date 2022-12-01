@@ -730,6 +730,7 @@ dhd_find_naming_info_by_cid(dhd_pub_t *dhdp, char *cid_info)
 
 	return info;
 }
+
 /*
  * dhd_get_clm_name - returns clm blob name appended with the given chip id
  * and chip revision.
@@ -1006,6 +1007,7 @@ dhd_find_naming_info_by_chip_rev(dhd_pub_t *dhdp, bool *is_murata_fem)
 	return info;
 }
 #endif /* USE_CID_CHECK */
+
 #ifdef USE_DIRECT_VID_TAG
 int
 concate_nvram_by_vid(dhd_pub_t *dhdp, char *nv_path, char *chipstr)

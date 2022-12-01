@@ -496,6 +496,8 @@ typedef struct {
 		(_pa).loaddr = (_val);		\
 	} while (0)
 
+#define PHYSADDR64ISZERO(_pa) (PHYSADDR64LO(_pa) == 0 && PHYSADDR64HI(_pa) == 0)
+
 #ifdef BCMDMA64OSL
 typedef dma64addr_t dmaaddr_t;
 #define PHYSADDRHI(_pa) PHYSADDR64HI(_pa)

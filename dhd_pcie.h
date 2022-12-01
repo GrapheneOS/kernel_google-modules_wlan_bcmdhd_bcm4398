@@ -645,6 +645,8 @@ typedef struct dhd_bus {
 	uint32 fw_boot_intr; /* interrupt from FW upon boot complete */
 	dhd_pcie_link_state_type_t link_state;
 
+	uint32 rot_dpc_sched_count;
+
 	bool lpm_mode;	/* lpm enabled */
 	bool lpm_keep_in_reset; /* during LPM keep in FLR, if FLR force is enabled */
 	bool lpm_mem_kill; /* kill WLAN memories in LPM */
@@ -675,6 +677,7 @@ typedef struct dhd_bus {
 	uint32 *flowring_cur_items;
 	uint32 lpbk_xfer_data_pattern_type; /*  data Pattern type DMA lpbk */
 	bool ltr_active_set_during_init;
+	uint32 etb_config_addr;
 } dhd_bus_t;
 
 #define LPBK_DMA_XFER_DTPTRN_DEFAULT	0
@@ -1071,7 +1074,16 @@ bool dhd_ptm_sync_prerequisite(dhd_pub_t *dhd);
 void dhd_assoc_check_sr(dhd_pub_t *dhd, bool state);
 #endif /* DEVICE_TX_STUCK_DETECT && ASSOC_CHECK_SR */
 
+#define DHD_BUS_BAR2_SWITCH_LOCK(bus, flags) \
+	DHD_BAR2_SWITCH_LOCK((bus)->bar2_switch_lock, flags)
+
+#define DHD_BUS_BAR2_SWITCH_UNLOCK(bus, flags) \
+	DHD_BAR2_SWITCH_UNLOCK((bus)->bar2_switch_lock, flags)
+
+void dhdpcie_setbar2win(dhd_bus_t *bus, uint32 addr);
 void dhd_init_bar1_switch_lock(dhd_bus_t *bus);
 int dhd_pcie_nci_wrapper_dump(dhd_pub_t *dhd);
 int dhd_bus_get_armca7_pc(struct dhd_bus *bus, bool loop_print);
+void dhd_bt_dwnld_pwr_req(dhd_bus_t *bus);
+void dhd_bt_dwnld_pwr_req_clear(dhd_bus_t *bus);
 #endif /* dhd_pcie_h */

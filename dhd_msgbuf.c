@@ -11643,27 +11643,10 @@ dhd_msgbuf_wait_ioctl_cmplt(dhd_pub_t *dhd, uint32 len, void *buf)
 #endif /* else GDB_PROXY */
 
 #ifdef DHD_RECOVER_TIMEOUT
-	if (prot->ioctl_received == 0) {
-		uint32 intstatus = si_corereg(dhd->bus->sih,
-			dhd->bus->sih->buscoreidx, dhd->bus->pcie_mailbox_int, 0, 0);
-		int host_irq_disbled = dhdpcie_irq_disabled(dhd->bus);
-		if ((intstatus) && (intstatus != (uint32)-1) &&
-			(timeleft == 0) && (!dhd_query_bus_erros(dhd))) {
-			DHD_ERROR(("%s: resumed on timeout for IOVAR happened. intstatus=%x"
-				" host_irq_disabled=%d\n",
-				__FUNCTION__, intstatus, host_irq_disbled));
-			dhd_pcie_intr_count_dump(dhd);
-			dhd_print_tasklet_status(dhd);
-			dhd_prot_ctrl_info_print(dhd);
-			/* Clear Interrupts */
-			dhdpcie_bus_clear_intstatus(dhd->bus);
-			if (dhd_prot_check_pending_ctrl_cmpls(dhd)) {
-				DHD_PRINT(("##### %s: iovar timeout trying again #####\n",
-					__FUNCTION__));
-				dhd_schedule_delayed_dpc_on_dpc_cpu(dhd, 0);
-				timeleft = dhd_os_ioctl_resp_wait(dhd,
-						(uint *)&prot->ioctl_received);
-			}
+	if ((prot->ioctl_received == 0) && (timeleft == 0) && !dhd_query_bus_erros(dhd)) {
+		DHD_PRINT(("%s: resumed on timeout for IOVAR\n", __FUNCTION__));
+		if (dhd_recover_timeout_by_scheduling_dpc(dhd->bus)) {
+			timeleft = dhd_os_ioctl_resp_wait(dhd, (uint *)&prot->ioctl_received);
 		}
 	}
 #endif /* DHD_RECOVER_TIMEOUT */
@@ -12158,6 +12141,66 @@ void dhd_prot_counters(dhd_pub_t *dhd, struct bcmstrbuf *b,
 	bcm_bprintf(b, "\n");
 }
 
+/*
+ * update driver_state_t, which has importent driver information like
+ * bus states, msgrings info, counters ...etc
+ */
+void
+dhd_prot_get_driver_state(dhd_pub_t *dhd, driver_state_t *driver_state)
+{
+	struct dhd_bus *bus;
+	struct dhd_prot *prot;
+	msgbuf_ring_t *ring;
+	log_msgbuf_ring_t *log_ring;
+
+	/* bzero for user not to get stale */
+	bzero(driver_state, sizeof(driver_state_t));
+
+	driver_state->length = sizeof(driver_state_t);
+
+	/* If msgbuf/PCIe IPC rings are not inited, or in the process of reinit, return */
+	if (dhd->ring_attached == FALSE)
+	{
+		return;
+	}
+
+	bus = dhd->bus;
+	prot = dhd->prot;
+	/* if bus or prot are not inited return */
+	if ((bus == NULL) || (prot == NULL)) {
+		return;
+	}
+	driver_state->max_eventbufpost = prot->max_eventbufpost;
+	driver_state->cur_event_bufs_posted = prot->cur_event_bufs_posted;
+	driver_state->max_ioctlrespbufpost = prot->max_ioctlrespbufpost;
+	driver_state->cur_ioctlresp_bufs_posted = prot->cur_ioctlresp_bufs_posted;
+	/* ctrl post indices both local and DMA */
+	ring =  &prot->h2dring_ctrl_subn;
+	log_ring = &driver_state->log_h2dring_ctrl_subn;
+	log_ring->hlrd = ring->rd;
+	log_ring->hlwr = ring->wr;
+	if (dhd->dma_d2h_ring_upd_support) {
+		log_ring->hdrd = dhd_prot_dma_indx_get(dhd, H2D_DMA_INDX_RD_UPD, ring->idx);
+		log_ring->hdwr = dhd_prot_dma_indx_get(dhd, H2D_DMA_INDX_WR_UPD, ring->idx);
+	}
+	/* ctrl cmpl indices both local and DMA */
+	ring =  &prot->d2hring_ctrl_cpln;
+	log_ring = &driver_state->log_d2hring_ctrl_cpln;
+	log_ring->hlrd = ring->rd;
+	log_ring->hlwr = ring->wr;
+	if (dhd->dma_d2h_ring_upd_support) {
+		log_ring->hdrd = dhd_prot_dma_indx_get(dhd, D2H_DMA_INDX_RD_UPD, ring->idx);
+		log_ring->hdwr = dhd_prot_dma_indx_get(dhd, D2H_DMA_INDX_WR_UPD, ring->idx);
+	}
+	/* d3 d0 counters */
+	driver_state->d3_inform_cnt = bus->d3_inform_cnt;
+	driver_state->d0_inform_cnt = bus->d0_inform_cnt;
+	driver_state->hostready_count = bus->hostready_count;
+	/* interrupt counters */
+	driver_state->host_irq_enable_count =  bus->host_irq_enable_count;
+	driver_state->host_irq_disable_count = bus->host_irq_disable_count;
+}
+
 /* Update local copy of dongle statistics */
 void dhd_prot_dstats(dhd_pub_t *dhd)
 {
@@ -12242,14 +12285,15 @@ BCMFASTPATH(dhd_prot_alloc_ring_space)(dhd_pub_t *dhd, msgbuf_ring_t *ring,
 	ret_buf = dhd_prot_get_ring_space(ring, nitems, alloced, exactly_nitems);
 
 	if (ret_buf == NULL) {
+		uint16 new_rd;
 		/* if alloc failed , invalidate cached read ptr */
 		if (dhd->dma_d2h_ring_upd_support) {
-			ring->rd = dhd_prot_dma_indx_get(dhd, H2D_DMA_INDX_RD_UPD, ring->idx);
+			new_rd = dhd_prot_dma_indx_get(dhd, H2D_DMA_INDX_RD_UPD, ring->idx);
 		} else {
-			dhd_bus_cmn_readshared(dhd->bus, &(ring->rd), RING_RD_UPD, ring->idx);
+			dhd_bus_cmn_readshared(dhd->bus, &new_rd, RING_RD_UPD, ring->idx);
 #ifdef SUPPORT_LINKDOWN_RECOVERY
 			/* Check if ring->rd is valid */
-			if (ring->rd >= ring->max_items) {
+			if (new_rd >= ring->max_items) {
 				dhd->bus->read_shm_fail = TRUE;
 				DHD_ERROR(("%s: Invalid rd idx=%d\n", ring->name, ring->rd));
 				dhd_bus_dump_imp_cfg_registers(dhd->bus);
@@ -12258,6 +12302,16 @@ BCMFASTPATH(dhd_prot_alloc_ring_space)(dhd_pub_t *dhd, msgbuf_ring_t *ring,
 			}
 #endif /* SUPPORT_LINKDOWN_RECOVERY */
 		}
+
+		/* Validate new RD pointer */
+		if (!BCMPCIE_IS_READ_VALID(new_rd, ring->rd, ring->wr)) {
+			DHD_ERROR(("%s new_rd:%d rd:%d wr:%d\n",
+				ring->name, new_rd, ring->rd, ring->wr));
+			ASSERT(0);
+			return NULL;
+		}
+		/* Update RD pointer */
+		ring->rd = new_rd;
 
 		/* Try allocating once more */
 		ret_buf = dhd_prot_get_ring_space(ring, nitems, alloced, exactly_nitems);
@@ -13008,6 +13062,7 @@ BCMFASTPATH(dhd_prot_get_ring_space)(msgbuf_ring_t *ring, uint16 nitems, uint16 
 {
 	void *ret_ptr = NULL;
 	uint16 ring_avail_cnt;
+	uint16 new_wr;
 
 	ASSERT(nitems <= ring->max_items);
 
@@ -13026,14 +13081,24 @@ BCMFASTPATH(dhd_prot_get_ring_space)(msgbuf_ring_t *ring, uint16 nitems, uint16 
 
 	/* Update write index */
 	if ((ring->wr + *alloced) == ring->max_items)
-		ring->wr = 0;
+		new_wr = 0;
 	else if ((ring->wr + *alloced) < ring->max_items)
-		ring->wr += *alloced;
+		new_wr = ring->wr + *alloced;
 	else {
 		/* Should never hit this */
 		ASSERT(0);
 		return NULL;
 	}
+
+	/* Validate new WR pointer */
+	if (!BCMPCIE_IS_WRITE_VALID(new_wr, ring->rd, ring->wr)) {
+		DHD_ERROR(("%s new_wr:%d rd:%d wr:%d\n",
+			ring->name, new_wr, ring->rd, ring->wr));
+		ASSERT(0);
+		return NULL;
+	}
+	/* Update write pointer */
+	ring->wr = new_wr;
 
 	return ret_ptr;
 } /* dhd_prot_get_ring_space */
@@ -14079,6 +14144,7 @@ dhd_prot_flow_ring_create(dhd_pub_t *dhd, flow_ring_node_t *flow_ring_node)
 	uint8 role;
 	bool mesh_over_nan = FALSE;
 #endif /* defined(DHD_MESH) */
+	driver_state_t driver_state;
 
 	h2d_txpost_size = dhd_prot_get_h2d_txpost_size(dhd);
 	if (h2d_txpost_size == 0) {
@@ -14213,6 +14279,8 @@ dhd_prot_flow_ring_create(dhd_pub_t *dhd, flow_ring_node_t *flow_ring_node)
 
 	/* update control subn ring's WR index and ring doorbell to dongle */
 	dhd_prot_ring_write_complete(dhd, ctrl_ring, flow_create_rqst, 1);
+	DHD_LOG_MSGTYPE(dhd, dhd->logger, &driver_state, MSG_TYPE_FLOW_RING_CREATE,
+		flow_create_rqst, sizeof(tx_flowring_create_request_t));
 
 	DHD_RING_UNLOCK(ctrl_ring->ring_lock, flags);
 
@@ -14227,7 +14295,10 @@ static void
 dhd_prot_flow_ring_create_response_process(dhd_pub_t *dhd, void *msg)
 {
 	tx_flowring_create_response_t *flow_create_resp = (tx_flowring_create_response_t *)msg;
+	driver_state_t driver_state;
 
+	DHD_LOG_MSGTYPE(dhd, dhd->logger, &driver_state, MSG_TYPE_FLOW_RING_CREATE_CMPLT,
+		flow_create_resp, sizeof(tx_flowring_create_response_t));
 	DHD_PRINT(("%s: Flow Create Response status = %d Flow %d\n", __FUNCTION__,
 		ltoh16(flow_create_resp->cmplt.status),
 		ltoh16(flow_create_resp->cmplt.flow_ring_id)));
@@ -14566,6 +14637,7 @@ dhd_prot_flow_ring_delete(dhd_pub_t *dhd, flow_ring_node_t *flow_ring_node)
 	unsigned long flags;
 	uint16 alloced = 0;
 	msgbuf_ring_t *ring = &prot->h2dring_ctrl_subn;
+	driver_state_t driver_state;
 
 #ifdef PCIE_INB_DW
 	if (dhd_prot_inc_hostactive_devwake_assert(dhd->bus, __FUNCTION__) != BCME_OK)
@@ -14607,6 +14679,8 @@ dhd_prot_flow_ring_delete(dhd_pub_t *dhd, flow_ring_node_t *flow_ring_node)
 
 	/* update ring's WR index and ring doorbell to dongle */
 	dhd_prot_ring_write_complete(dhd, ring, flow_delete_rqst, 1);
+	DHD_LOG_MSGTYPE(dhd, dhd->logger, &driver_state, MSG_TYPE_FLOW_RING_DELETE,
+		flow_delete_rqst, sizeof(tx_flowring_delete_request_t));
 
 	DHD_RING_UNLOCK(ring->ring_lock, flags);
 
@@ -14649,6 +14723,10 @@ static void
 dhd_prot_flow_ring_delete_response_process(dhd_pub_t *dhd, void *msg)
 {
 	tx_flowring_delete_response_t *flow_delete_resp = (tx_flowring_delete_response_t *)msg;
+	driver_state_t driver_state;
+
+	DHD_LOG_MSGTYPE(dhd, dhd->logger, &driver_state, MSG_TYPE_FLOW_RING_DELETE_CMPLT,
+		flow_delete_resp, sizeof(tx_flowring_delete_response_t));
 
 	DHD_PRINT(("%s: Flow Delete Response status = %d Flow %d\n", __FUNCTION__,
 		flow_delete_resp->cmplt.status, flow_delete_resp->cmplt.flow_ring_id));
@@ -14667,6 +14745,10 @@ dhd_prot_process_flow_ring_resume_response(dhd_pub_t *dhd, void* msg)
 #ifdef IDLE_TX_FLOW_MGMT
 	tx_idle_flowring_resume_response_t	*flow_resume_resp =
 		(tx_idle_flowring_resume_response_t *)msg;
+	driver_state_t driver_state;
+
+	DHD_LOG_MSGTYPE(dhd, dhd->logger, &driver_state, MSG_TYPE_FLOW_RING_RESUME_CMPLT,
+		flow_resume_resp, sizeof(tx_idle_flowring_resume_response_t));
 
 	DHD_PRINT(("%s Flow resume Response status = %d Flow %d\n", __FUNCTION__,
 		flow_resume_resp->cmplt.status, flow_resume_resp->cmplt.flow_ring_id));
@@ -14683,6 +14765,11 @@ dhd_prot_process_flow_ring_suspend_response(dhd_pub_t *dhd, void* msg)
 	int16 status;
 	tx_idle_flowring_suspend_response_t	*flow_suspend_resp =
 		(tx_idle_flowring_suspend_response_t *)msg;
+	driver_state_t driver_state;
+
+	DHD_LOG_MSGTYPE(dhd, dhd->logger, &driver_state, MSG_TYPE_FLOW_RING_SUSPEND_CMPLT,
+		flow_suspend_resp, sizeof(tx_idle_flowring_suspend_response_t));
+
 	status = flow_suspend_resp->cmplt.status;
 
 	DHD_PRINT(("%s Flow id %d suspend Response status = %d\n",
@@ -14706,6 +14793,7 @@ dhd_prot_flow_ring_flush(dhd_pub_t *dhd, flow_ring_node_t *flow_ring_node)
 	unsigned long flags;
 	uint16 alloced = 0;
 	msgbuf_ring_t *ring = &prot->h2dring_ctrl_subn;
+	driver_state_t driver_state;
 
 #ifdef PCIE_INB_DW
 	if (dhd_prot_inc_hostactive_devwake_assert(dhd->bus, __FUNCTION__) != BCME_OK)
@@ -14741,6 +14829,8 @@ dhd_prot_flow_ring_flush(dhd_pub_t *dhd, flow_ring_node_t *flow_ring_node)
 
 	/* update ring's WR index and ring doorbell to dongle */
 	dhd_prot_ring_write_complete(dhd, ring, flow_flush_rqst, 1);
+	DHD_LOG_MSGTYPE(dhd, dhd->logger, &driver_state, MSG_TYPE_FLOW_RING_FLUSH,
+		flow_flush_rqst, sizeof(tx_flowring_flush_request_t));
 
 	DHD_RING_UNLOCK(ring->ring_lock, flags);
 
@@ -14754,6 +14844,10 @@ static void
 dhd_prot_flow_ring_flush_response_process(dhd_pub_t *dhd, void *msg)
 {
 	tx_flowring_flush_response_t *flow_flush_resp = (tx_flowring_flush_response_t *)msg;
+	driver_state_t driver_state;
+
+	DHD_LOG_MSGTYPE(dhd, dhd->logger, &driver_state, MSG_TYPE_FLOW_RING_FLUSH_CMPLT,
+		flow_flush_resp, sizeof(tx_flowring_flush_response_t));
 
 	DHD_INFO(("%s: Flow Flush Response status = %d\n", __FUNCTION__,
 		flow_flush_resp->cmplt.status));
@@ -16005,6 +16099,7 @@ dhd_prot_flow_ring_resume(dhd_pub_t *dhd, flow_ring_node_t *flow_ring_node)
 	unsigned long flags;
 	uint16 alloced = 0;
 	msgbuf_ring_t *ctrl_ring = &prot->h2dring_ctrl_subn;
+	driver_state_t driver_state;
 
 	/* Fetch a pre-initialized msgbuf_ring from the flowring pool */
 	flow_ring = dhd_prot_flowrings_pool_fetch(dhd, flow_ring_node->flowid);
@@ -16065,6 +16160,8 @@ dhd_prot_flow_ring_resume(dhd_pub_t *dhd, flow_ring_node_t *flow_ring_node)
 
 	/* update control subn ring's WR index and ring doorbell to dongle */
 	dhd_prot_ring_write_complete(dhd, ctrl_ring, flow_resume_rqst, 1);
+	DHD_LOG_MSGTYPE(dhd, dhd->logger, &driver_state, MSG_TYPE_FLOW_RING_RESUME,
+		flow_resume_rqst, sizeof(tx_idle_flowring_resume_request_t));
 
 	DHD_RING_UNLOCK(ctrl_ring->ring_lock, flags);
 
@@ -16083,6 +16180,7 @@ dhd_prot_flow_ring_batch_suspend_request(dhd_pub_t *dhd, uint16 *ringid, uint16 
 	uint16 index;
 	uint16 alloced = 0;
 	msgbuf_ring_t *ring = &prot->h2dring_ctrl_subn;
+	driver_state_t driver_state;
 
 #ifdef PCIE_INB_DW
 	if (dhd_prot_inc_hostactive_devwake_assert(dhd->bus, __FUNCTION__) != BCME_OK)
@@ -16123,6 +16221,8 @@ dhd_prot_flow_ring_batch_suspend_request(dhd_pub_t *dhd, uint16 *ringid, uint16 
 
 	/* update ring's WR index and ring doorbell to dongle */
 	dhd_prot_ring_write_complete(dhd, ring, flow_suspend_rqst, 1);
+	DHD_LOG_MSGTYPE(dhd, dhd->logger, &driver_state, MSG_TYPE_FLOW_RING_SUSPEND,
+		flow_suspend_rqst, sizeof(tx_idle_flowring_suspend_request_t));
 
 	DHD_RING_UNLOCK(ring->ring_lock, flags);
 
@@ -17659,6 +17759,7 @@ dhd_dump_bus_flow_ring_status_dpc_trace(dhd_bus_t *bus, struct bcmstrbuf *strbuf
 	dhd_dump_bus_flow_ring_status_trace(bus, strbuf, bus->frs_dpc_trace,
 		dumpsz, "DPC FLOW RING TRACE DRD-DWR");
 }
+
 static void
 dhd_bus_flow_ring_status_trace(dhd_pub_t *dhd, dhd_frs_trace_t *frs_trace)
 {

@@ -31,6 +31,8 @@
 
 #ifndef _DHD_LOGGER_H_
 #define _DHD_LOGGER_H_
+#include <bcm_wifishark.h>
+#include <bcmmsgbuf.h>
 
 /*
  * A note on packet logger used in conjuction with dhd_logger:
@@ -74,12 +76,10 @@ typedef struct dhd_logger_info dhd_logger_t;
 /* TODO: Add instructions to add new "type" */
 typedef enum dhd_log_type {
 	/* ONBOARD PKT = ARP, DHCP */
-	LOG_TYPE_ONBOARD_PKT	= 0,
-	LOG_TYPE_DATA_PKT	= 1,
-	LOG_TYPE_IOVAR		= 2,
-	LOG_TYPE_EVENTS		= 3,
-	LOG_TYPE_PCIE_IPC	= 4,
-	LOG_TYPE_ERROR		= 5, /* Error messages like FW trap ..etc */
+	LOG_TYPE_IOVAR		= 0,
+	LOG_TYPE_EVENTS		= 1,
+	LOG_TYPE_PCIE_IPC	= 2,
+	LOG_TYPE_ERROR		= 3, /* Error messages like FW trap ..etc */
 } dhd_log_type_t;
 
 /*
@@ -120,6 +120,10 @@ dhd_log_ioctlres(dhd_logger_t *pdl, uint32 cmd, int ifidx,
 void
 dhd_log_error(dhd_logger_t *pdl, char *buf, int len);
 
+void
+dhd_log_msgtype(dhd_logger_t *pdl, driver_state_t *driver_state,
+	bcmpcie_msg_type_t msgtype, void *buf, int len);
+
 #define DHD_LOG_IOCTL_REQ(pdl, cmd, action, ifidx, \
 		trans_id, output_buf_len, ioct_buf, input_buf_len) \
 do { \
@@ -136,12 +140,33 @@ do { \
 					xt_id, ioctl_status, retbuf_va, ioctl_resplen); \
 		} \
 	} while (0)
+
 #define DHD_LOG_ERROR(pdl, buf, len) \
 	do { \
 		if (dhd_logger == TRUE) { \
 			dhd_log_error(pdl, buf, len); \
 		} \
 	} while (0)
+
+/*
+ * For scenarios where,
+ * 1. Ring updates are aggregated and then sent to FW
+ *      a. Descreptor log is logged on to logger interface. In this case driver_state is NULL.
+ *      b. When the treshold is reached or after timeout,
+ *         when dorbell is rung driver state is logged. In this case buf is NULL.
+ * 2. Dorebell is rung as well as ring is updated, both are logged on to logger interface.
+ *    In this case both driver_state and buf are not NULL
+ */
+#define DHD_LOG_MSGTYPE(dhdp, pdl, driver_state, msgtype, buf, len) \
+	do { \
+		if (dhd_logger == TRUE) { \
+			if (driver_state != NULL) { \
+				dhd_prot_get_driver_state(dhdp, driver_state); \
+			} \
+			dhd_log_msgtype(pdl, driver_state, msgtype, buf, len); \
+		} \
+	} while (0)
+
 
 /* Log Filter APIs */
 int32
@@ -151,10 +176,14 @@ int32
 dhd_log_disable_type(dhd_logger_t *pdl, uint32 type);
 
 /* Sysfs control APIs */
-int32
+uint32
 dhd_log_get_qdump(dhd_logger_t *pdl);
 int32
 dhd_log_set_qdump(dhd_logger_t *pdl, int32 qdump);
+uint32
+dhd_log_show_filter(dhd_logger_t *pdl);
+int32
+dhd_log_set_filter(dhd_logger_t *pdl, uint32 filter);
 
 #else
 /*
@@ -200,6 +229,11 @@ dhd_log_pkt(dhd_logger_t *pdl, uint32 type, void *pkt, uint32 len)
 		trans_id, output_buf_len, ioct_buf, input_buf_len)
 #define DHD_LOG_IOCTL_RES(pdl, cmd, ifidx, xt_id, ioctl_status, retbuf_va, ioctl_resplen)
 #define DHD_LOG_ERROR(pdl, buf, len)
+#define DHD_LOG_MSGTYPE(dhdp, pdl, driver_state, msgtype, buf, len) \
+	do { \
+		BCM_REFERENCE(driver_state); \
+	} while (0)
+
 /* Log Filter APIs */
 static INLINE int32
 dhd_log_enable_type(dhd_logger_t *pdl, uint32 type)
@@ -216,14 +250,28 @@ dhd_log_disable_type(dhd_logger_t *pdl, uint32 type)
 	BCM_REFERENCE(type);
 	return 0;
 }
+
 /* Sysfs control APIs */
-static INLINE int32
+static INLINE uint32
 dhd_log_get_qdump(dhd_logger_t *pdl)
 {
 	return 0;
 }
+
 static INLINE int32
 dhd_log_set_qdump(dhd_logger_t *pdl, int32 qdump)
+{
+	return 0;
+}
+
+static INLINE uint8
+dhd_log_show_filter(dhd_logger_t *pdl)
+{
+	return 0;
+}
+
+static INLINE uint32
+dhd_log_set_filter(dhd_logger_t *pdl, uint32 filter)
 {
 	return 0;
 }

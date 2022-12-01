@@ -3082,13 +3082,14 @@ BCMPOSTTRAPFN(si_clear_backplane_to_per_core)(si_t *sih, uint coreid, uint coreu
 {
 	uint32 ret = AXI_WRAP_STS_NONE;
 
-#if defined(AXI_TIMEOUTS)
+#ifdef AXI_TIMEOUTS
 	if (CHIPTYPE(sih->socitype) == SOCI_AI) {
 		ret = ai_clear_backplane_to_per_core(sih, coreid, coreunit, wrap);
-	} else if (CHIPTYPE(sih->socitype) == SOCI_NCI) {
+	} else
+#endif /* AXI_TIMEOUTS */
+	if (CHIPTYPE(sih->socitype) == SOCI_NCI) {
 		ret = nci_clear_backplane_to_per_core(sih, coreid, coreunit);
 	}
-#endif /* AXI_TIMEOUTS */
 
 	return ret;
 }
