@@ -2228,6 +2228,10 @@ dhd_log_dump_trigger(dhd_pub_t *dhdp, int subcmd)
 	dhdp->memdump_type = DUMP_TYPE_BY_SYSDUMP;
 	dhd_bus_mem_dump(dhdp);
 #endif /* BCMPCIE && DHD_FW_COREDUMP */
+
+#if defined(DHD_PKT_LOGGING) && defined(DHD_DUMP_FILE_WRITE_FROM_KERNEL)
+	dhd_schedule_pktlog_dump(dhdp);
+#endif /* DHD_PKT_LOGGING && DHD_DUMP_FILE_WRITE_FROM_KERNEL */
 }
 
 

@@ -20256,9 +20256,7 @@ dhd_mem_dump(void *handle, void *event_info, u8 event)
 		}
 #endif /* BOARD_HIKEY */
 	}
-#ifdef DEBUGABILITY
 	dhdp->skip_memdump_map_read = FALSE;
-#endif /* DEBUGABILITY */
 #elif defined(DHD_DEBUGABILITY_DEBUG_DUMP)
 	dhd_debug_dump_to_ring(dhdp);
 #endif /* DHD_FILE_DUMP_EVENT */
