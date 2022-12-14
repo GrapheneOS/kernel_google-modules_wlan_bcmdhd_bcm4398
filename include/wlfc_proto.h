@@ -131,6 +131,9 @@ typedef enum {
 	WLFC_CTL_TYPE_D2HQ_STATUS		= 38,
 	WLFC_CTL_TYPE_LLW_LATENCY		= 39, /* LLW latency TLV */
 
+	WLFC_CTL_TYPE_CHECK_CTLCPL_FULL		= 40, /* Query current complietion ring is full */
+	WLFC_CTL_TYPE_CHECK_HLTH_THRTL		= 41, /* Query health resources to throttle */
+
 	WLFC_CTL_TYPE_FILLER			= 255
 } wlfc_ctl_type_t;
 

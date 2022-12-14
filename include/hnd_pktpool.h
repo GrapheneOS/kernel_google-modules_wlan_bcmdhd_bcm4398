@@ -42,7 +42,7 @@ extern "C" {
 #ifdef BCMPKTPOOL
 #define POOL_ENAB(pool)		((pool) && (pool)->inited)
 #else /* BCMPKTPOOL */
-#define POOL_ENAB(bus)		0
+#define POOL_ENAB(bus)		(FALSE)
 #endif /* BCMPKTPOOL */
 
 #ifndef PKTPOOL_LEN_MAX

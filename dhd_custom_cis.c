@@ -135,6 +135,9 @@ vid_info_t vid_naming_table_4398[] = {
 	{ 3, { 0x53, 0x99, }, { "_USI_G5SN_9953_V13" } },
 	{ 3, { 0x53, 0x98, }, { "_USI_G5RN_9853_V13" } },
 	{ 3, { 0x53, 0x97, }, { "_USI_G5BB_9753_V13" } },
+
+	/* 4398d0 */
+	{ 3, { 0x55, 0x99, }, { "_USI_G5SN_9955_V15" } },
 };
 
 #ifdef DHD_USE_CISINFO

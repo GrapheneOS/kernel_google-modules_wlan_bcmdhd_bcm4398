@@ -1039,7 +1039,8 @@ bool si_srpwr_cap(si_t *sih);
 #define MULTIBP_CAP(sih)	(BCM4378_CHIP(sih->chip) || \
 				BCM4383_CHIP(sih->chip) || BCM4387_CHIP(sih->chip) || \
 				BCM4388_CHIP(sih->chip) || BCM4389_CHIP(sih->chip) || \
-				BCM4390_CHIP(sih->chip) || BCM4397_CHIP(sih->chip))
+				BCM4390_CHIP(sih->chip) || BCM4397_CHIP(sih->chip) || \
+				BCM4399_CHIP(sih->chip))
 
 // Please leave this UNRELEASEDCHIP MOG wrapper in place even if there is nothing inside it
 

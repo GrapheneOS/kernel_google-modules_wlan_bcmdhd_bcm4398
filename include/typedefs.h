@@ -203,9 +203,12 @@ typedef unsigned __int64 uint64;
 #ifdef USE_TYPEDEF_DEFAULTS
 #undef USE_TYPEDEF_DEFAULTS
 
+#ifndef BCMWIFI_DISSECTOR_BUILD
+/* BWD build throws errors for two or more data types in declaration */
 #ifndef TYPEDEF_BOOL
 typedef	/* @abstract@ */ unsigned char	bool;
 #endif /* endif TYPEDEF_BOOL */
+#endif /* !BCMWIFI_DISSECTOR_BUILD */
 
 /* define uchar, ushort, uint, ulong */
 

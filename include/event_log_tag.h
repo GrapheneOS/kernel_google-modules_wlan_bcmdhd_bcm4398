@@ -602,10 +602,13 @@
 #define EVENT_LOG_TAG_API_STRING		459
 
 /* Channel Switch Function Runtime Profiling */
-#define EVENT_LOG_TAG_CHANSW_PROFILING		458
+#define EVENT_LOG_TAG_CHANSW_PROFILING		460
+
+/* Event throttling logs */
+#define EVENT_LOG_TAG_THROTTLE			461
 
 /* EVENT_LOG_TAG_MAX	= Set to the same value of last tag, not last tag + 1 */
-#define EVENT_LOG_TAG_MAX			459
+#define EVENT_LOG_TAG_MAX			461
 
 typedef enum wl_el_set_type_def {
 	EVENT_LOG_SET_TYPE_DEFAULT = 0, /* flush the log buffer when it is full - Default option */

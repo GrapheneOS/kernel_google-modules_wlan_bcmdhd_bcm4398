@@ -773,7 +773,7 @@ dhd_rx_frame(dhd_pub_t *dhdp, int ifidx, void *pktbuf, int numpkt, uint8 chan)
 		skb->len = len;
 
 		/* TODO: re-look into dropped packets. */
-		DHD_DBG_PKT_MON_RX(dhdp, skb, FRAME_TYPE_ETHERNET_II);
+		DHD_DBG_PKT_MON_RX(dhdp, skb, FRAME_TYPE_ETHERNET_II, FALSE);
 		/* Strip header, count, deliver upward */
 		skb_pull(skb, ETH_HLEN);
 

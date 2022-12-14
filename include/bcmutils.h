@@ -510,7 +510,7 @@ uint16 bcmhex2bin(const uint8* hex, uint hex_len, uint8 *buf, uint buf_len);
 #define CONCAT(a, b)        CONCATENATE(a, b)
 #endif
 
-#ifndef COUNT_ARGS
+#ifdef COUNT_ARGS
 /* returns the count of argument passed to COUNT_ARGS
  * order or arguments to COUNT_ARGS_ is dummy, __VA_ARGS__, 30..0
  * a30 is returned if NARGS is 30 and a0 if NARGS is 0
@@ -519,11 +519,13 @@ uint16 bcmhex2bin(const uint8* hex, uint hex_len, uint8 *buf, uint buf_len);
  * 5 Args present, dummy, a30-a26(args passed) a25-a1==30-6, and a0 == 5
  */
 #undef __COUNT_ARGS
+#undef COUNT_ARGS
+#endif /* COUNT_ARGS */
+
 #define __COUNT_ARGS(dummy, a30, a29, a28, a27, a26, a25, a24, a23, a22, a21, a20, a19, a18, \
 	a17, a16, a15, a14, a13, a12, a11, a10, a9, a8, a7, a6, a5, a4, a3, a2, a1, a0, ...) a0
 #define COUNT_ARGS(...)  __COUNT_ARGS(dummy, ##__VA_ARGS__, 30, 29, 28, 27, 26, 25, 24, 23, 22, \
 	21, 20, 19, 18, 17, 16, 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0)
-#endif
 
 #ifndef ABS
 #define	ABS(a)			(((a) < 0) ? -(a) : (a))
@@ -1617,5 +1619,7 @@ extern uint16 bcm_mwbmap_total_pktid(struct bcm_mwbmap * mwbmap_hdl);
 
 extern uint64 div_1K(uint64 q);
 extern uint64 div_1M(uint64 q);
+
+#define NS_PER_MS			(1000000u)
 
 #endif	/* _bcmutils_h_ */

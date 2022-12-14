@@ -1155,8 +1155,8 @@ wl_cntbuf_to_xtlv_format(void *ctx, void *cntbuf, int buflen, uint32 corerev)
 	}
 
 #ifdef BCMDRIVER
-	wlccnt = MALLOC(osh, sizeof(*wlccnt));
-	macstat = MALLOC(osh, WL_CNT_MCST_STRUCT_SZ);
+	wlccnt = MALLOCZ(osh, sizeof(*wlccnt));
+	macstat = MALLOCZ(osh, WL_CNT_MCST_STRUCT_SZ);
 #else
 	wlccnt = (wl_cnt_wlc_t *)malloc(sizeof(*wlccnt));
 	macstat = (uint32 *)malloc(WL_CNT_MCST_STRUCT_SZ);

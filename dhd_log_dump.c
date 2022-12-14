@@ -697,6 +697,9 @@ dhd_get_init_dump_len(void *ndev, dhd_pub_t *dhdp, int section)
 	if (!dhdp)
 		return length;
 
+	if (!dhdp->ewp_dacs_fw_enable)
+		return length;
+
 	switch (section) {
 		case LOG_DUMP_SECTION_EWP_HW_INIT_LOG:
 			if (dhdp->ewphw_initlog_buf) {
@@ -2010,6 +2013,7 @@ dhd_log_dump_deinit(dhd_pub_t *dhd)
 		VMFREE(dhd->osh, dhd->ewphw_initlog_buf, dhd->ewphw_buf_totlen);
 		dhd->ewphw_initlog_buf = NULL;
 	}
+	dhd->ewp_dacs_fw_enable = FALSE;
 #endif /* EWP_DACS */
 
 #ifdef EWP_ECNTRS_LOGGING
@@ -2228,7 +2232,6 @@ dhd_log_dump_trigger(dhd_pub_t *dhdp, int subcmd)
 	dhdp->memdump_type = DUMP_TYPE_BY_SYSDUMP;
 	dhd_bus_mem_dump(dhdp);
 #endif /* BCMPCIE && DHD_FW_COREDUMP */
-
 #if defined(DHD_PKT_LOGGING) && defined(DHD_DUMP_FILE_WRITE_FROM_KERNEL)
 	dhd_schedule_pktlog_dump(dhdp);
 #endif /* DHD_PKT_LOGGING && DHD_DUMP_FILE_WRITE_FROM_KERNEL */

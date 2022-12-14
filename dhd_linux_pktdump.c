@@ -410,6 +410,20 @@ dhd_dump_pkt_cnts_inc(dhd_pub_t *dhdp, bool tx, uint16 *pktfate, uint16 pkttype)
 	}
 }
 
+void
+dhd_dump_pktcnt_stats(dhd_pub_t *dhdp, struct bcmstrbuf *strbuf)
+{
+	pkt_cnts_log_t *pktcnts = (pkt_cnts_log_t *)(dhdp->pktcnts);
+	bcm_bprintf(strbuf, "============= PACKET COUNT SUMMARY ============\n");
+	bcm_bprintf(strbuf, "- ARP PACKETS: tx_success:%d tx_fail:%d rx_cnt:%d\n",
+		pktcnts->arp_cnt.tx_cnt, pktcnts->arp_cnt.tx_err_cnt,
+		pktcnts->arp_cnt.rx_cnt);
+	bcm_bprintf(strbuf, "- DNS PACKETS: tx_success:%d tx_fail:%d rx_cnt:%d\n",
+		pktcnts->dns_cnt.tx_cnt, pktcnts->dns_cnt.tx_err_cnt,
+		pktcnts->dns_cnt.rx_cnt);
+	bcm_bprintf(strbuf, "============= END OF COUNT SUMMARY ============\n");
+}
+
 static void
 dhd_dump_pkt_timer(unsigned long data)
 {
@@ -482,6 +496,7 @@ dhd_dump_pkt_init(dhd_pub_t *dhdp)
 
 	/* init timers */
 	init_timer_compat(&pktcnts->pktcnt_timer, dhd_dump_pkt_timer, dhdp);
+	pktcnts->enabled = TRUE;
 	dhdp->pktcnts = pktcnts;
 }
 

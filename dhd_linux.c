@@ -1140,6 +1140,7 @@ dhd_set_excess_pm_awake(dhd_pub_t *dhd, bool suspend)
 	}
 	return;
 }
+
 void
 dhd_init_excess_pm_awake(dhd_pub_t *dhd)
 {
@@ -1223,6 +1224,7 @@ int dhd_send_twt_info_suspend(dhd_pub_t *dhdp, bool suspend)
 	return ret;
 
 }
+
 int dhd_config_twt_event_mask_in_suspend(dhd_pub_t *dhdp, bool suspend)
 {
 	int ret = BCME_OK;
@@ -1293,7 +1295,9 @@ fail:
 
 }
 #endif /* WL_TWT */
-static int dhd_pm_callback(struct notifier_block *nfb, unsigned long action, void *ignored)
+
+static int
+dhd_pm_callback(struct notifier_block *nfb, unsigned long action, void *ignored)
 {
 	int ret = NOTIFY_DONE;
 	bool suspend = FALSE;
@@ -3109,6 +3113,7 @@ int dhd_get_psta_mode(dhd_pub_t *dhdp)
 	dhd_info_t *dhd = dhdp->info;
 	return (int)dhd->psta_mode;
 }
+
 /* Set psta/psr configuration configuration */
 int dhd_set_psta_mode(dhd_pub_t *dhdp, uint32 val)
 {
@@ -3690,6 +3695,7 @@ BCMFASTPATH(dhd_start_xmit_wrapper)(struct sk_buff *skb, struct net_device *net)
 exit:
 	return ret;
 }
+
 void
 dhd_bus_wakeup_work(dhd_pub_t *dhdp)
 {
@@ -3743,6 +3749,7 @@ BCMFASTPATH(dhd_l2_filter_chainable)(dhd_pub_t *dhdp, uint8 *eh, int ifidx)
 	return TRUE;
 #endif /* DHD_L2_FILTER */
 }
+
 /* Returns FALSE if WET is enabled */
 bool
 BCMFASTPATH(dhd_wet_chainable)(dhd_pub_t *dhdp)
@@ -4793,6 +4800,7 @@ dhd_sched_policy(int prio)
 	}
 }
 #endif /* ENABLE_ADAPTIVE_SCHED */
+
 #ifdef DEBUG_CPU_FREQ
 static int dhd_cpufreq_notifier(struct notifier_block *nb, unsigned long val, void *data)
 {
@@ -4811,6 +4819,7 @@ exit:
 	return 0;
 }
 #endif /* DEBUG_CPU_FREQ */
+
 static int
 dhd_dpc_thread(void *data)
 {
@@ -5279,14 +5288,19 @@ dhd_80211_mon_pkt(dhd_pub_t *dhdp, host_rxbuf_cmpl_t* msg, void *pkt, int ifidx)
 {
 	/* Distinguish rx/tx frame */
 	wl_aml_header_v1_t hdr;
+	bool wpa_sup;
+	frame_type type;
 
 	hdr = *(wl_aml_header_v1_t *)PKTDATA(dhdp->osh, pkt);
 	PKTPULL(dhdp->osh, pkt, sizeof(hdr));
+	wpa_sup = !!(hdr.flags & WL_AML_F_EAPOL);
+	type = wpa_sup ? FRAME_TYPE_ETHERNET_II : FRAME_TYPE_80211_MGMT;
+
 	if (hdr.flags & WL_AML_F_DIRECTION) {
 		bool ack = !!(hdr.flags & WL_AML_F_ACKED);
-		DHD_DBG_PKT_MON_TX(dhdp, pkt, 0, FRAME_TYPE_80211_MGMT, (uint8)ack);
+		DHD_DBG_PKT_MON_TX(dhdp, pkt, 0, type, (uint8)ack, TRUE);
 	} else {
-		DHD_DBG_PKT_MON_RX(dhdp, (struct sk_buff *)pkt, FRAME_TYPE_80211_MGMT);
+		DHD_DBG_PKT_MON_RX(dhdp, (struct sk_buff *)pkt, type, TRUE);
 	}
 }
 #endif /* DBG_PKT_MON && PCIE_FULL_DONGLE */
@@ -6718,14 +6732,6 @@ exit:
 
 	DHD_OS_WAKE_UNLOCK(&dhd->pub);
 
-	/* Destroy wakelock */
-	if (!dhd_download_fw_on_driverload &&
-		(dhd->dhd_state & DHD_ATTACH_STATE_WAKELOCKS_INIT) &&
-		(skip_reset == false)) {
-		DHD_OS_WAKE_LOCK_DESTROY(dhd);
-		dhd->dhd_state &= ~DHD_ATTACH_STATE_WAKELOCKS_INIT;
-	}
-
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 19, 0) && defined(DHD_TCP_LIMIT_OUTPUT)
 	dhd_ctrl_tcp_limit_output_bytes(0);
 #endif /* LINUX_VERSION_CODE > 4.19.0 && DHD_TCP_LIMIT_OUTPUT */
@@ -6919,11 +6925,6 @@ dhd_open(struct net_device *net)
 			DHD_ERROR(("%s: WLAN driver is not initialized\n", __FUNCTION__));
 			mutex_unlock(&dhd->pub.ndev_op_sync);
 			return -1;
-		}
-		/* Init wakelock */
-		if (!(dhd->dhd_state & DHD_ATTACH_STATE_WAKELOCKS_INIT)) {
-			DHD_OS_WAKE_LOCK_INIT(dhd);
-			dhd->dhd_state |= DHD_ATTACH_STATE_WAKELOCKS_INIT;
 		}
 
 #ifdef SHOW_LOGTRACE
@@ -10453,7 +10454,9 @@ auto_mode:
 exit:
 	return ret;
 }
-int dhd_tdls_enable(struct net_device *dev, bool tdls_on, bool auto_on, struct ether_addr *mac)
+
+int
+dhd_tdls_enable(struct net_device *dev, bool tdls_on, bool auto_on, struct ether_addr *mac)
 {
 	dhd_info_t *dhd = DHD_DEV_INFO(dev);
 	int ret = 0;
@@ -10463,6 +10466,7 @@ int dhd_tdls_enable(struct net_device *dev, bool tdls_on, bool auto_on, struct e
 		ret = BCME_ERROR;
 	return ret;
 }
+
 int
 dhd_tdls_set_mode(dhd_pub_t *dhd, bool wfd_mode)
 {
@@ -10500,8 +10504,10 @@ dhd_tdls_set_mode(dhd_pub_t *dhd, bool wfd_mode)
 	dhd->tdls_mode = mode;
 	return ret;
 }
+
 #ifdef PCIE_FULL_DONGLE
-int dhd_tdls_update_peer_info(dhd_pub_t *dhdp, wl_event_msg_t *event)
+int
+dhd_tdls_update_peer_info(dhd_pub_t *dhdp, wl_event_msg_t *event)
 {
 	dhd_pub_t *dhd_pub = dhdp;
 	tdls_peer_node_t *cur = dhd_pub->peer_tbl.node;
@@ -15940,6 +15946,7 @@ dhdpcie_trigger_rpm_fast(dhd_pub_t *dhdp)
 
 }
 #endif /* RPM_FAST_TRIGGER */
+
 void
 dhd_os_runtimepm_timer(void *bus, uint tick)
 {
@@ -16729,6 +16736,7 @@ dhd_dev_get_feature_set_matrix(struct net_device *dev, int num)
 
 	return ret;
 }
+
 #if defined(CUSTOM_FORCE_NODFS_FLAG) && defined(CUSTOM_COUNTRY_CODE)
 int
 dhd_dev_set_nodfs(struct net_device *dev, u32 nodfs)
@@ -17001,6 +17009,7 @@ dhd_dev_pno_stop_for_ssid(struct net_device *dev)
 
 	return (dhd_pno_stop_for_ssid(&dhd->pub));
 }
+
 /* Linux wrapper to call common dhd_pno_set_for_ssid */
 int
 dhd_dev_pno_set_for_ssid(struct net_device *dev, wlc_ssid_ext_t* ssids_local, int nssid,
@@ -17029,6 +17038,7 @@ dhd_dev_pno_set_for_hotlist(struct net_device *dev, wl_pfn_bssid_t *p_pfn_bssid,
 	dhd_info_t *dhd = DHD_DEV_INFO(dev);
 	return (dhd_pno_set_for_hotlist(&dhd->pub, p_pfn_bssid, hotlist_params));
 }
+
 /* Linux wrapper to call common dhd_dev_pno_stop_for_batch */
 int
 dhd_dev_pno_stop_for_batch(struct net_device *dev)
@@ -17036,6 +17046,7 @@ dhd_dev_pno_stop_for_batch(struct net_device *dev)
 	dhd_info_t *dhd = DHD_DEV_INFO(dev);
 	return (dhd_pno_stop_for_batch(&dhd->pub));
 }
+
 /* Linux wrapper to call common dhd_dev_pno_set_for_batch */
 int
 dhd_dev_pno_set_for_batch(struct net_device *dev, struct dhd_pno_batch_params *batch_params)
@@ -17043,6 +17054,7 @@ dhd_dev_pno_set_for_batch(struct net_device *dev, struct dhd_pno_batch_params *b
 	dhd_info_t *dhd = DHD_DEV_INFO(dev);
 	return (dhd_pno_set_for_batch(&dhd->pub, batch_params));
 }
+
 /* Linux wrapper to call common dhd_dev_pno_get_for_batch */
 int
 dhd_dev_pno_get_for_batch(struct net_device *dev, char *buf, int bufsize)
@@ -17071,6 +17083,7 @@ dhd_dev_set_epno(struct net_device *dev)
 	}
 	return dhd_pno_set_epno(&dhd->pub);
 }
+
 int
 dhd_dev_flush_fw_epno(struct net_device *dev)
 {
@@ -17118,6 +17131,7 @@ dhd_dev_pno_lock_access_batch_results(struct net_device *dev)
 
 	return (dhd_pno_lock_batch_results(&dhd->pub));
 }
+
 /* Linux wrapper to call common dhd_pno_unlock_batch_results */
 void
 dhd_dev_pno_unlock_access_batch_results(struct net_device *dev)
@@ -17191,6 +17205,7 @@ dhd_dev_retrieve_batch_scan(struct net_device *dev)
 
 	return (dhd_retreive_batch_scan_results(&dhd->pub));
 }
+
 /* Linux wrapper to call common dhd_pno_process_epno_result */
 void * dhd_dev_process_epno_result(struct net_device *dev,
 	const void  *data, uint32 event, int *send_evt_bytes)
@@ -17258,6 +17273,7 @@ dhd_dev_lazy_roam_enable(struct net_device *dev, uint32 enable)
 	}
 	return err;
 }
+
 int
 dhd_dev_set_lazy_roam_bssid_pref(struct net_device *dev,
        wl_bssid_pref_cfg_t *bssid_pref, uint32 flush)
@@ -17281,6 +17297,7 @@ dhd_dev_set_lazy_roam_bssid_pref(struct net_device *dev,
 	return err;
 }
 #endif /* GSCAN_SUPPORT */
+
 #if defined(GSCAN_SUPPORT) || defined(ROAMEXP_SUPPORT)
 int
 dhd_dev_set_blacklist_bssid(struct net_device *dev, maclist_t *blacklist,
@@ -17307,6 +17324,7 @@ dhd_dev_set_blacklist_bssid(struct net_device *dev, maclist_t *blacklist,
 	}
 	return err;
 }
+
 int
 dhd_dev_set_whitelist_ssid(struct net_device *dev, wl_ssid_whitelist_t *ssid_whitelist,
     uint32 len, uint32 flush)
@@ -18265,6 +18283,7 @@ void dhd_get_customized_country_code(struct net_device *dev, char *country_iso_c
 #endif /* KEEP_JP_REGREV */
 	BCM_REFERENCE(dhd);
 }
+
 void dhd_bus_country_set(struct net_device *dev, wl_country_t *cspec, bool notify)
 {
 	dhd_info_t *dhd = DHD_DEV_INFO(dev);
@@ -19364,7 +19383,9 @@ void dhd_set_version_info(dhd_pub_t *dhdp, char *fw)
 #endif /* USE_CID_CHECK */
 }
 #endif /* BCMSDIO || BCMPCIE */
-int dhd_ioctl_entry_local(struct net_device *net, wl_ioctl_t *ioc, int cmd)
+
+int
+dhd_ioctl_entry_local(struct net_device *net, wl_ioctl_t *ioc, int cmd)
 {
 	int ifidx;
 	int ret = 0;
@@ -19719,8 +19740,10 @@ void dhd_set_cpucore(dhd_pub_t *dhd, int set)
 	return;
 }
 #endif /* CUSTOM_SET_CPUCORE */
+
 #if defined(DHD_TCP_WINSIZE_ADJUST)
-static int dhd_port_list_match(int port)
+static
+int dhd_port_list_match(int port)
 {
 	int i;
 	for (i = 0; i < MAX_TARGET_PORTS; i++) {
@@ -19729,7 +19752,9 @@ static int dhd_port_list_match(int port)
 	}
 	return 0;
 }
-static void dhd_adjust_tcp_winsize(int op_mode, struct sk_buff *skb)
+
+static
+void dhd_adjust_tcp_winsize(int op_mode, struct sk_buff *skb)
 {
 	struct iphdr *ipheader;
 	struct tcphdr *tcpheader;
@@ -20119,6 +20144,7 @@ void dhd_schedule_memdump(dhd_pub_t *dhdp, uint8 *buf, uint32 size)
 	dhd_deferred_schedule_work(dhdp->info->dhd_deferred_wq, (void *)dump,
 		DHD_WQ_WORK_SOC_RAM_DUMP, dhd_mem_dump, DHD_WQ_WORK_PRIORITY_HIGH);
 }
+
 #ifdef DHD_SSSR_DUMP
 #define DUMP_SSSR_DUMP_MAX_COUNT	8
 #endif
@@ -21465,6 +21491,7 @@ dhd_os_get_pktlogdump_filename(struct net_device *dev, char *dump_path, int len)
 	dhd_pktlog_get_filename(dhdp, dump_path, len);
 }
 #endif /* DHD_PKT_LOGGING */
+
 #ifdef DNGL_AXI_ERROR_LOGGING
 int
 dhd_os_get_axi_error_dump(void *dev, const void *user_buf, uint32 len)
@@ -21507,9 +21534,11 @@ dhd_os_get_axi_error_filename(struct net_device *dev, char *dump_path, int len)
 		DHD_COMMON_DUMP_PATH DHD_DUMP_AXI_ERROR_FILENAME);
 }
 #endif /* DNGL_AXI_ERROR_LOGGING */
+
 #ifdef DHD_WMF
 /* Returns interface specific WMF configuration */
-dhd_wmf_t* dhd_wmf_conf(dhd_pub_t *dhdp, uint32 idx)
+dhd_wmf_t *
+dhd_wmf_conf(dhd_pub_t *dhdp, uint32 idx)
 {
 	dhd_info_t *dhd = dhdp->info;
 	dhd_if_t *ifp;
@@ -21522,7 +21551,8 @@ dhd_wmf_t* dhd_wmf_conf(dhd_pub_t *dhdp, uint32 idx)
 #endif /* DHD_WMF */
 
 #if defined(BCM_ROUTER_DHD)
-void traffic_mgmt_pkt_set_prio(dhd_pub_t *dhdp, void * pktbuf)
+void
+traffic_mgmt_pkt_set_prio(dhd_pub_t *dhdp, void * pktbuf)
 {
 	struct ether_header *eh;
 	struct ethervlan_header *evh;
@@ -22159,6 +22189,7 @@ dhd_schedule_dmaxfer_free(dhd_pub_t *dhdp, dmaxref_mem_map_t *dmmap)
 		DHD_WQ_WORK_DMA_LB_MEM_REL, dmaxfer_free_dmaaddr_handler, DHD_WQ_WORK_PRIORITY_LOW);
 }
 #endif /* PCIE_FULL_DONGLE */
+
 /* ---------------------------- End of sysfs implementation ------------------------------------- */
 
 int
@@ -22537,6 +22568,7 @@ exit:
 	return ret;
 }
 #endif /* FILTER_IE */
+
 #ifdef DHD_WAKE_STATUS
 wake_counts_t*
 dhd_get_wakecount(dhd_pub_t *dhdp)
@@ -22993,11 +23025,13 @@ dhd_protocol_matches_profile(uint8 *p, int plen, const dhd_tx_profile_protocol_t
 #endif /* defined(DHD_TX_PROFILE) */
 
 #ifdef DHD_TIMESYNC
+#define IPV6_MAX_EXTN_CNT	7u
 void
 BCMFASTPATH(dhd_parse_proto)(uint8 *pktdata, dhd_pkt_parse_t *parse)
 {
 	uint8 *pkt = NULL;
 	struct iphdr *iph = NULL;
+	struct ipv6hdr *iph6 = NULL;
 	struct ether_header *eh = (struct ether_header *)pktdata;
 
 	if (ntoh16(eh->ether_type) < ETHER_TYPE_MIN) {
@@ -23011,27 +23045,97 @@ BCMFASTPATH(dhd_parse_proto)(uint8 *pktdata, dhd_pkt_parse_t *parse)
 	parse->t1 = 0;
 	parse->t2 = 0;
 
-	/* check IP header */
-	if ((IPV4_HLEN(iph) != IPV4_HLEN_MIN) || (IP_VER(iph) != IP_VER_4)) {
-		return;
-	}
+	/* IPv4/IPv6? */
+	if (IP_VER(iph) == IP_VER_4) {
+		if (iph->protocol == IP_PROT_ICMP) {
+			struct icmphdr *icmph;
+			uint8 iphdr_len;
 
-	if (iph->protocol == IP_PROT_ICMP) {
-		struct icmphdr *icmph;
+			parse->proto = iph->protocol;
+			iphdr_len = (iph->ihl << 2);
+			icmph = (struct icmphdr *)((uint8 *)pkt + iphdr_len);
 
-		parse->proto = iph->protocol;
-		icmph = (struct icmphdr *)((uint8 *)pkt + sizeof(struct iphdr));
-
-		if ((icmph->type == ICMP_ECHO) || (icmph->type == ICMP_ECHOREPLY)) {
-			parse->t1 = icmph->type;
-			parse->t2 = ntoh16(icmph->un.echo.sequence);
-		} else {
-			parse->t1 = icmph->type;
-			parse->t2 = icmph->code;
+			if ((icmph->type == ICMP_ECHO) || (icmph->type == ICMP_ECHOREPLY)) {
+				parse->t1 = icmph->type;
+				parse->t2 = ntoh16(icmph->un.echo.sequence);
+			} else {
+				parse->t1 = icmph->type;
+				parse->t2 = icmph->code;
+			}
 		}
-	} else {
-		parse->proto = iph->protocol;
+	 } else if (IP_VER(iph) == IP_VER_6) {
+		uint8 next_hdr_type, next_extn_cnt;
+		struct ipv6_opt_hdr *opt_hdr;
+		uint8 *next_hdr_ptr;
+		uint8 hdr_len;
+
+		iph6 = (struct ipv6hdr *)pkt;
+
+		next_hdr_ptr = (uint8 *)(iph6 + 1);
+		next_hdr_type = iph6->nexthdr;
+		next_extn_cnt = hdr_len = 0;
+
+		/* RFC 8200 specifies the skip length */
+		/* No ordering check, parses upto 7 extns as in in6.h */
+		while (next_extn_cnt < IPV6_MAX_EXTN_CNT) {
+			opt_hdr = (struct ipv6_opt_hdr *)next_hdr_ptr;
+
+			switch (next_hdr_type) {
+				case IPPROTO_HOPOPTS:
+				case IPPROTO_DSTOPTS:
+				case IPPROTO_ROUTING:
+				case IPPROTO_MH:
+					hdr_len = (opt_hdr->hdrlen + 1) * 8u;
+
+					next_hdr_type = opt_hdr->nexthdr;
+					next_hdr_ptr += hdr_len;
+					break;
+
+				case IPPROTO_FRAGMENT:
+					hdr_len = 8u;
+
+					next_hdr_type = opt_hdr->nexthdr;
+					next_hdr_ptr += hdr_len;
+					break;
+
+				case IPPROTO_ICMPV6:
+					break;
+
+				case IPPROTO_NONE:
+				default:
+					goto exit;
+			}
+
+			DHD_INFO(("dhd_parse_proto(): next_hdr_type = %d next_entn_cnt = %d\n",
+					next_hdr_type, next_extn_cnt));
+
+			if (next_hdr_type == IPPROTO_ICMPV6) {
+				break;
+			}
+
+			next_extn_cnt++;
+		}
+
+		if (next_hdr_type == IPPROTO_ICMPV6) {
+			struct icmp6hdr *icmp6h;
+
+			parse->proto = next_hdr_type;
+			icmp6h = (struct icmp6hdr *)next_hdr_ptr;
+
+			if ((icmp6h->icmp6_type == ICMPV6_ECHO_REQUEST) ||
+				(icmp6h->icmp6_type == ICMPV6_ECHO_REPLY)) {
+				parse->t1 = icmp6h->icmp6_type;
+				parse->t2 = ntoh16(icmp6h->icmp6_dataun.u_echo.sequence);
+			} else {
+				parse->t1 = icmp6h->icmp6_type;
+				parse->t2 = icmp6h->icmp6_code;
+			}
+		}
 	}
+
+exit:
+	DHD_INFO(("dhd_parse_proto(): proto = %d, t1_n  %d t2_n = %d\n",
+			parse->proto, parse->t1, parse->t2));
 
 	return;
 }
@@ -23372,13 +23476,17 @@ static void dhd_blk_tsfl_handler(struct work_struct * work)
 		}
 	}
 }
-void dhd_reset_tcpsync_info_by_ifp(dhd_if_t *ifp)
+
+void
+dhd_reset_tcpsync_info_by_ifp(dhd_if_t *ifp)
 {
 	ifp->tsync_rcvd = 0;
 	ifp->tsyncack_txed = 0;
 	ifp->last_sync = DIV_U64_BY_U32(OSL_LOCALTIME_NS(), NSEC_PER_SEC);
 }
-void dhd_reset_tcpsync_info_by_dev(struct net_device *dev)
+
+void
+dhd_reset_tcpsync_info_by_dev(struct net_device *dev)
 {
 	dhd_if_t *ifp = NULL;
 	if (dev) {
@@ -23808,6 +23916,7 @@ __dhd_fixed_ring_lock_free(dhd_fixed_ring_info_t *ring)
 	ring->lock_count = 0;
 	return;
 }
+
 static inline void *
 __dhd_fixed_ring_lock_get_first(dhd_fixed_ring_info_t *ring)
 {
@@ -24407,6 +24516,7 @@ dhd_ring_whole_unlock(void *_ring)
 	}
 	DHD_RING_SYNC_UNLOCK(ring->ring_sync, flags);
 }
+
 /* END of DHD RING */
 
 int
@@ -24451,6 +24561,7 @@ dhd_file_delete(char *path)
 
 	return err;
 }
+
 #ifdef DHD_DUMP_MNGR
 static int
 dhd_dump_file_manage_idx(dhd_dump_file_manage_t *fm_ptr, char *fname)
@@ -24566,6 +24677,7 @@ dhd_os_hp2punlock(dhd_pub_t *pub, unsigned long flags)
 	}
 }
 #endif /* DHD_HP2P */
+
 #ifdef DNGL_AXI_ERROR_LOGGING
 static void
 dhd_axi_error_dump(void *handle, void *event_info, u8 event)
@@ -24756,6 +24868,7 @@ dhd_generate_rand_mac_addr(struct ether_addr *ea_addr)
 		__FUNCTION__, MAC2STRDBG(ea_addr->octet)));
 	return;
 }
+
 #ifdef WL_AUTO_QOS
 void
 dhd_wl_sock_qos_set_status(dhd_pub_t *dhdp, unsigned long on_off)
@@ -24882,6 +24995,7 @@ dhd_cfg80211_resume(dhd_pub_t *dhdp)
 	wl_cfg80211_resume(cfg);
 }
 #endif /* DHD_CFG80211_SUSPEND_RESUME */
+
 #if defined(WLAN_ACCEL_BOOT)
 int
 dhd_dev_set_accel_force_reg_on(struct net_device *dev)
@@ -25045,6 +25159,7 @@ dhd_schedule_socram_dump(dhd_pub_t *dhdp)
 		DHD_WQ_WORK_SOC_RAM_COLLECT, dhd_deferred_socram_dump, DHD_WQ_WORK_PRIORITY_HIGH);
 	return ret;
 }
+
 #ifdef TPUT_DEBUG_DUMP
 bool dhd_get_napi_sched_cnt(dhd_pub_t * dhdp,
 	uint32 **napi_cnts, uint32 **txp_cnts, uint32 **tx_start_cnts)

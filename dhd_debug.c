@@ -2210,7 +2210,8 @@ dhd_dbg_start_pkt_monitor(dhd_pub_t *dhdp)
 }
 
 int
-dhd_dbg_monitor_tx_pkts(dhd_pub_t *dhdp, void *pkt, uint32 pktid, frame_type type, uint8 mgmt_acked)
+dhd_dbg_monitor_tx_pkts(dhd_pub_t *dhdp, void *pkt, uint32 pktid, frame_type type, uint8 mgmt_acked,
+	bool aml)
 {
 	dhd_dbg_tx_report_t *tx_report;
 	dhd_dbg_tx_info_t *tx_pkts;
@@ -2236,7 +2237,7 @@ dhd_dbg_monitor_tx_pkts(dhd_pub_t *dhdp, void *pkt, uint32 pktid, frame_type typ
 			pkt_hash = __dhd_dbg_pkt_hash((uintptr_t)pkt, pktid);
 			driver_ts = __dhd_dbg_driver_ts_usec();
 
-			if (type == FRAME_TYPE_80211_MGMT) {
+			if (aml) {
 				tx_pkts[pkt_pos].info.pkt = pkt;
 				if (mgmt_acked) {
 					tx_pkts[pkt_pos].fate = TX_PKT_FATE_ACKED;
@@ -2258,11 +2259,11 @@ dhd_dbg_monitor_tx_pkts(dhd_pub_t *dhdp, void *pkt, uint32 pktid, frame_type typ
 			/* TX mgmt packet is updated with the final fate reason,
 			 * so status_pos should be also increased.
 			 */
-			if (type == FRAME_TYPE_80211_MGMT) {
+			if (aml) {
 				tx_report->status_pos++;
 			}
 		} else {
-			if (type == FRAME_TYPE_80211_MGMT) {
+			if (aml) {
 				PKTFREE(dhdp->osh, pkt, TRUE);
 			}
 			dhdp->dbg->pkt_mon.tx_pkt_state = PKT_MON_STOPPED;
@@ -2359,7 +2360,7 @@ dhd_dbg_monitor_tx_status(dhd_pub_t *dhdp, void *pkt, uint32 pktid,
 }
 
 int
-dhd_dbg_monitor_rx_pkts(dhd_pub_t *dhdp, void *pkt, frame_type type)
+dhd_dbg_monitor_rx_pkts(dhd_pub_t *dhdp, void *pkt, frame_type type, bool aml)
 {
 	dhd_dbg_rx_report_t *rx_report;
 	dhd_dbg_rx_info_t *rx_pkts;
@@ -2384,7 +2385,7 @@ dhd_dbg_monitor_rx_pkts(dhd_pub_t *dhdp, void *pkt, frame_type type)
 			rx_pkts = rx_report->rx_pkts;
 			driver_ts = __dhd_dbg_driver_ts_usec();
 
-			if (type == FRAME_TYPE_80211_MGMT) {
+			if (aml) {
 				rx_pkts[pkt_pos].info.pkt = pkt;
 			} else {
 				rx_pkts[pkt_pos].info.pkt = PKTDUP(dhdp->osh, pkt);
@@ -2398,7 +2399,7 @@ dhd_dbg_monitor_rx_pkts(dhd_pub_t *dhdp, void *pkt, frame_type type)
 
 			rx_report->pkt_pos++;
 		} else {
-			if (type == FRAME_TYPE_80211_MGMT) {
+			if (aml) {
 				PKTFREE(dhdp->osh, pkt, TRUE);
 			}
 			dhdp->dbg->pkt_mon.rx_pkt_state = PKT_MON_STOPPED;

@@ -234,7 +234,8 @@ typedef int bcmerror_t;
 
 /* FTM error codes [-1024, -2047] */
 enum {
-	WL_FTM_E_LAST			= -1088,
+	WL_FTM_E_LAST			= -1089,
+	WL_FTM_E_PRIMARY_CLONE_START	= -1089,
 	WL_FTM_E_DEFER_ACK_LOST		= -1088,
 	WL_FTM_E_NSTS_INCAPABLE		= -1087,
 	WL_FTM_E_KDK_NOT_READY		= -1086,

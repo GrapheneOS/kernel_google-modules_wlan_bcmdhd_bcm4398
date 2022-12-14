@@ -130,7 +130,7 @@ BCMFASTPATH(spktq_enq_chain)(struct spktq *dspq, struct spktq *sspq)
  * osl simple, non-priority packet queue
  */
 void *
-BCMFASTPATH(spktq_enq)(struct spktq *spq, void *p)
+BCMPOSTTRAPFASTPATH(spktq_enq)(struct spktq *spq, void *p)
 {
 	struct pktq_prec *q;
 
@@ -269,7 +269,7 @@ done:
 }
 
 void *
-BCMFASTPATH(spktq_deq)(struct spktq *spq)
+BCMPOSTTRAPFASTPATH(spktq_deq)(struct spktq *spq)
 {
 	struct pktq_prec *q;
 	void *p;
@@ -859,7 +859,7 @@ done:
 }
 
 static void
-_pktq_pfilter(struct pktq *pq, int prec, pktq_filter_t fltr, void* fltr_ctx,
+BCMPOSTTRAPFN(_pktq_pfilter)(struct pktq *pq, int prec, pktq_filter_t fltr, void* fltr_ctx,
               defer_free_pkt_fn_t defer, void *defer_ctx)
 {
 	struct pktq_prec wq;
@@ -928,7 +928,7 @@ _pktq_pfilter(struct pktq *pq, int prec, pktq_filter_t fltr, void* fltr_ctx,
 }
 
 void
-pktq_pfilter(struct pktq *pq, int prec, pktq_filter_t fltr, void* fltr_ctx,
+BCMPOSTTRAPFN(pktq_pfilter)(struct pktq *pq, int prec, pktq_filter_t fltr, void* fltr_ctx,
 	defer_free_pkt_fn_t defer, void *defer_ctx, flush_free_pkt_fn_t flush, void *flush_ctx)
 {
 	_pktq_pfilter(pq, prec, fltr, fltr_ctx, defer, defer_ctx);
@@ -1070,7 +1070,7 @@ pktq_init(struct pktq *pq, uint num_prec, uint max_pkts)
 }
 
 bool
-spktq_init(struct spktq *spq, uint max_pkts)
+BCMPOSTTRAPFN(spktq_init)(struct spktq *spq, uint max_pkts)
 {
 	bzero(spq, sizeof(struct spktq));
 
@@ -1306,7 +1306,7 @@ pktq_pflush(osl_t *osh, struct pktq *pq, int prec, bool dir)
 }
 
 void
-spktq_flush_ext(osl_t *osh, struct spktq *spq, bool dir,
+BCMPOSTTRAPFN(spktq_flush_ext)(osl_t *osh, struct spktq *spq, bool dir,
 	void (*pktq_flush_cb)(void *ctx, void *pkt), void *pktq_flush_ctx)
 {
 	void *pkt;

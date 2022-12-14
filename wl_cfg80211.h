@@ -821,6 +821,7 @@ do {									\
 #define WLAN_AKM_SUITE_FT_FILS_SHA256		0x000FAC10
 #define WLAN_AKM_SUITE_FT_FILS_SHA384		0x000FAC11
 #endif /* WLAN_AKM_SUITE_FILS_SHA256 */
+#define WLAN_AKM_SUITE_SAE_EXT_PSK		0x000FAC18
 
 #define MIN_VENDOR_EXTN_IE_LEN		2
 
@@ -2336,6 +2337,9 @@ struct bcm_cfg80211 {
 #ifdef WL_IDAUTH
 	bool idauth_enabled;
 #endif /* WL_IDAUTH */
+	struct delayed_work	remove_iface_work;
+	/* to track the wiphy lock held context for deleting iface */
+	bool wiphy_lock_held;
 };
 
 /* Max auth timeout allowed in case of EAP is 70sec, additional 5 sec for
@@ -3265,6 +3269,15 @@ wl_iftype_to_str(int wl_iftype)
 #define EHT_PHY_CAP_MAX_EHT_LTF_SUP_VAL	9
 #endif /* (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 18, 0)) || WL_MLO_BKPORT */
 
+#ifdef WL_MLO_BKPORT_NEW_PORT_AUTH
+#define CFG80211_PORT_AUTHORIZED(ndev, bssid, tdmode, tdlen, kflags) \
+	cfg80211_port_authorized(ndev, bssid, tdmode, tdlen, kflags)
+#else
+#define CFG80211_PORT_AUTHORIZED(ndev, bssid, tdmode, tdlen, kflags) \
+	cfg80211_port_authorized(ndev, bssid, kflags)
+#endif /* WL_MLO_BKPORT_NEW_PORT_AUTH */
+
+
 extern s32 wl_cfg80211_attach(struct net_device *ndev, void *context);
 extern void wl_cfg80211_detach(struct bcm_cfg80211 *cfg);
 
@@ -3796,6 +3809,10 @@ extern void wl_store_up_table_netinfo(struct bcm_cfg80211 *cfg,
 #ifdef WL_MLO
 extern wl_mlo_link_t * wl_cfg80211_get_ml_link_detail(struct bcm_cfg80211 *cfg,
 	u8 ifidx, u8 bsscfgidx);
+extern struct net_info * wl_cfg80211_get_mld_netinfo_by_cfg(struct bcm_cfg80211 *cfg);
+extern wl_mlo_link_t * wl_cfg80211_get_ml_link_by_linkidx(struct bcm_cfg80211 *cfg,
+	struct net_info *mld_netinfo, u8 linkidx);
+extern s32 wl_mlo_set_multilink(struct bcm_cfg80211 *cfg, struct net_device *dev, u8 enable);
 #endif /* WL_MLO */
 
 /* Added wl_reassoc_params_cvt_v1 due to mis-sync between DHD and FW

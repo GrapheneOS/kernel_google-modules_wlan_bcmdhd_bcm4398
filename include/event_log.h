@@ -316,9 +316,9 @@ extern bool d3_preserve_enab;
 #if defined(ROM_ENAB_RUNTIME_CHECK)
 	#define D3_PRESERVE_ENAB()   (d3_preserve_enab)
 #elif defined(EVENTLOG_D3_PRESERVE_DISABLED)
-	#define D3_PRESERVE_ENAB()   (0)
+	#define D3_PRESERVE_ENAB()   (FALSE)
 #else
-	#define D3_PRESERVE_ENAB()   (1)
+	#define D3_PRESERVE_ENAB()   (TRUE)
 #endif
 
 #if defined(EVENTLOG_PRSV_PERIODIC)
@@ -326,9 +326,9 @@ extern bool prsv_periodic_enab;
 #if defined(ROM_ENAB_RUNTIME_CHECK)
 	#define PRSV_PRD_ENAB()   (prsv_periodic_enab)
 #elif defined(EVENTLOG_PRSV_PERIODIC_DISABLED)
-	#define PRSV_PRD_ENAB()   (0)
+	#define PRSV_PRD_ENAB()   (FALSE)
 #else
-	#define PRSV_PRD_ENAB()   (1)
+	#define PRSV_PRD_ENAB()   (TRUE)
 #endif
 #endif /* EVENTLOG_PRSV_PERIODIC */
 

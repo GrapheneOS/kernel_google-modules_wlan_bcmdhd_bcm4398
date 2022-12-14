@@ -573,9 +573,9 @@ typedef uint32 ratespec_t;
 #define WSEC_TKIP_ENABLED(wsec)	((wsec) & TKIP_ENABLED)
 #define WSEC_AES_ENABLED(wsec)	((wsec) & AES_ENABLED)
 #else /* WLWSEC */
-#define WSEC_WEP_ENABLED(wsec) NULL
-#define WSEC_TKIP_ENABLED(wsec) NULL
-#define WSEC_AES_ENABLED(wsec) NULL
+#define WSEC_WEP_ENABLED(wsec)	(FALSE)
+#define WSEC_TKIP_ENABLED(wsec) (FALSE)
+#define WSEC_AES_ENABLED(wsec)	(FALSE)
 #endif /* WLWSEC */
 
 /* Macros to check if algorithm is enabled */
@@ -604,7 +604,7 @@ typedef uint32 ratespec_t;
 #endif /* BCMWAPI_WPI */
 #endif /* BCMCCX */
 #else /* WLWSEC */
-#define WSEC_ENABLED(wsec) 0
+#define WSEC_ENABLED(wsec)	(FALSE)
 #endif /* WLWSEC */
 
 #define WSEC_SES_OW_ENABLED(wsec)	((wsec) & SES_OW_ENABLED)
@@ -652,6 +652,7 @@ typedef uint32 ratespec_t;
 #define WPA3_AUTH_1X_SUITE_B_SHA384	0x400000 /* Suite B-192 SHA384 */
 #define WPA3_AUTH_PSK_SHA384		0x800000 /* PSK with SHA384 key derivation */
 #define WPA3_AUTH_SAE_AP_ONLY		0x1000000 /* SAE restriction to connect to pure SAE APs */
+#define WPA3_AUTH_SAE_EXT_PSK		0x2000000 /* SAE (variable length PMK) 4-way handshake */
 /* WPA2_AUTH_SHA256 not used anymore. Just kept here to avoid build issue in DINGO */
 #define WPA2_AUTH_SHA256		0x8000
 #define WPA_AUTH_PFN_ANY		0xffffffff	/* for PFN, match only ssid */
@@ -1870,6 +1871,14 @@ typedef uint32 ratespec_t;
 
 #define WL_CHANIM_COUNT_ALL	0xff
 #define WL_CHANIM_COUNT_ONE	0x1
+
+/* flags used in scandb, indicates bss attributes of interest */
+#define WLC_SCANDB_CACHE_FLAG_NONE	(0u)		/* None */
+#define WLC_SCANDB_CACHE_FLAG_HT_CAP	(1u << 0u)	/* HT capable */
+#define WLC_SCANDB_CACHE_FLAG_VHT_CAP	(1u << 1u)	/* VHT capable */
+#define WLC_SCANDB_CACHE_FLAG_HE_CAP	(1u << 2u)	/* HE capable */
+#define WLC_SCANDB_CACHE_FLAG_EHT_CAP	(1u << 3u)	/* EHT capable */
+#define WLC_SCANDB_CACHE_FLAG_FTM_RESP	(1u << 4u)	/* FTM responder */
 
 /* Module id: to know which module has sent the stats */
 #define SC_CHANIM_ID_NULL	0u

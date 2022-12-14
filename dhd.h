@@ -1177,6 +1177,10 @@ typedef struct rx_cpl_history {
 	uint8 slice;
 	uint8 priority;
 	int8 rssi;
+	uint8 rsvd;
+	uint32 proto;
+	uint32 tuple_1;
+	uint32 tuple_2;
 } rx_cpl_history_t;
 
 typedef struct rx_cpl_lat_info {
@@ -1195,6 +1199,10 @@ typedef struct tx_cpl_history {
 	uint16 latency;
 	uint16 flowid;
 	uint8 tid;
+	uint8 rsvd[3];
+	uint32 proto;
+	uint32 tuple_1;
+	uint32 tuple_2;
 } tx_cpl_history_t;
 
 typedef struct tx_cpl_info {
@@ -1731,6 +1739,8 @@ typedef struct dhd_pub {
 	uint32 ewphw_moddump_len;
 	/* total size of buffer alloc'd for ewp hw logs */
 	uint32 ewphw_buf_totlen;
+	/* flag set when EWP_DACS enabled after FW handshake */
+	bool ewp_dacs_fw_enable;
 #endif /* EWP_DACS */
 	bool ewp_etb_enabled;
 #ifdef EWP_ECNTRS_LOGGING

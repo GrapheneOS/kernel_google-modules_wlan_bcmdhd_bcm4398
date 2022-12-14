@@ -50,6 +50,13 @@
 #define BCM_UNUSED_VAR
 #endif
 
+/* Allow for suppressing a warning for a switch case without break */
+#ifdef __GNUC__
+#define GCC_SUPPRESS_FALLTHROUGH_WARNING     __attribute__ ((fallthrough))
+#else
+#define GCC_SUPPRESS_FALLTHROUGH_WARNING
+#endif
+
 /* GNU GCC 4.6+ supports selectively turning off a warning.
  * Define these diagnostic macros to help suppress cast-qual warning
  * until all the work can be done to fix the casting issues.
@@ -57,25 +64,42 @@
 #if (defined(__GNUC__) && defined(STRICT_GCC_WARNINGS) && \
 	(__GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 6)) || \
 	defined(__clang__))
+
 #define GCC_DIAGNOSTIC_PUSH_SUPPRESS_CAST()              \
 	_Pragma("GCC diagnostic push")			 \
 	_Pragma("GCC diagnostic ignored \"-Wcast-qual\"")
+
 #define GCC_DIAGNOSTIC_PUSH_SUPPRESS_NULL_DEREF()	 \
 	_Pragma("GCC diagnostic push")			 \
 	_Pragma("GCC diagnostic ignored \"-Wnull-dereference\"")
+
+#if !defined(__clang__) || __clang_major__ >= 13
+#define GCC_DIAGNOSTIC_PUSH_SUPPRESS_FN_TYPE()           \
+	_Pragma("GCC diagnostic push")			 \
+	_Pragma("GCC diagnostic ignored \"-Wcast-function-type\"")
+#else
+#define GCC_DIAGNOSTIC_PUSH_SUPPRESS_FN_TYPE()           \
+	_Pragma("GCC diagnostic push")
+#endif // !__clang__ || __clang_major__ >= 13
+
 #define GCC_DIAGNOSTIC_POP()                             \
 	_Pragma("GCC diagnostic pop")
+
 #elif defined(_MSC_VER)
+
 #define GCC_DIAGNOSTIC_PUSH_SUPPRESS_CAST()              \
 	__pragma(warning(push))                          \
 	__pragma(warning(disable:4090))
 #define GCC_DIAGNOSTIC_PUSH_SUPPRESS_NULL_DEREF()	 \
+	__pragma(warning(push))
+#define GCC_DIAGNOSTIC_PUSH_SUPPRESS_FN_TYPE()           \
 	__pragma(warning(push))
 #define GCC_DIAGNOSTIC_POP()                             \
 	__pragma(warning(pop))
 #else
 #define GCC_DIAGNOSTIC_PUSH_SUPPRESS_CAST()
 #define GCC_DIAGNOSTIC_PUSH_SUPPRESS_NULL_DEREF()
+#define GCC_DIAGNOSTIC_PUSH_SUPPRESS_FN_TYPE()
 #define GCC_DIAGNOSTIC_POP()
 #endif   /* Diagnostic macros not defined */
 
@@ -230,10 +254,10 @@ extern bool bcm_postattach_part_reclaimed;
 
 #else /* BCM_RECLAIM */
 
-#define bcm_reclaimed			(1)
-#define bcm_attach_part_reclaimed	(1)
-#define bcm_preattach_part_reclaimed	(1)
-#define bcm_postattach_part_reclaimed	(1)
+#define bcm_reclaimed			(TRUE)
+#define bcm_attach_part_reclaimed	(TRUE)
+#define bcm_preattach_part_reclaimed	(TRUE)
+#define bcm_postattach_part_reclaimed	(TRUE)
 #define BCMATTACHDATA(_data)		_data
 #define BCMATTACHFN(_fn)		_fn
 #define BCM_SRM_ATTACH_DATA(_data)	_data
@@ -637,12 +661,12 @@ typedef struct {
 #if defined(ROM_ENAB_RUNTIME_CHECK) || !defined(DONGLEBUILD)
 	#define BCM_SH_SFLASH_ENAB() (_bcm_sh_sflash)
 #elif defined(BCM_SH_SFLASH_DISABLED)
-	#define BCM_SH_SFLASH_ENAB()	(0)
+	#define BCM_SH_SFLASH_ENAB() (FALSE)
 #else
-	#define BCM_SH_SFLASH_ENAB()	(1)
+	#define BCM_SH_SFLASH_ENAB() (TRUE)
 #endif
 #else
-	#define BCM_SH_SFLASH_ENAB()   (0)
+	#define BCM_SH_SFLASH_ENAB() (FALSE)
 #endif	/* BCM_SH_SFLASH */
 
 #ifdef BCM_SFLASH
@@ -650,12 +674,12 @@ typedef struct {
 #if defined(ROM_ENAB_RUNTIME_CHECK) || !defined(DONGLEBUILD)
 	#define BCM_SFLASH_ENAB() (_bcm_sflash)
 #elif defined(BCM_SFLASH_DISABLED)
-	#define BCM_SFLASH_ENAB()	(0)
+	#define BCM_SFLASH_ENAB() (FALSE)
 #else
-	#define BCM_SFLASH_ENAB()	(1)
+	#define BCM_SFLASH_ENAB() (TRUE)
 #endif
 #else
-	#define BCM_SFLASH_ENAB()   (0)
+	#define BCM_SFLASH_ENAB() (FALSE)
 #endif	/* BCM_SFLASH */
 
 #ifdef BCM_DELAY_ON_LTR
@@ -663,12 +687,12 @@ typedef struct {
 #if defined(ROM_ENAB_RUNTIME_CHECK) || !defined(DONGLEBUILD)
 	#define BCM_DELAY_ON_LTR_ENAB() (_bcm_delay_on_ltr)
 #elif defined(BCM_DELAY_ON_LTR_DISABLED)
-	#define BCM_DELAY_ON_LTR_ENAB()	(0)
+	#define BCM_DELAY_ON_LTR_ENAB()	(FALSE)
 #else
-	#define BCM_DELAY_ON_LTR_ENAB()	(1)
+	#define BCM_DELAY_ON_LTR_ENAB()	(TRUE)
 #endif
 #else
-	#define BCM_DELAY_ON_LTR_ENAB()		(0)
+	#define BCM_DELAY_ON_LTR_ENAB() (FALSE)
 #endif	/* BCM_DELAY_ON_LTR */
 
 /* Max. nvram variable table size */
@@ -697,12 +721,12 @@ typedef struct {
 #if defined(ROM_ENAB_RUNTIME_CHECK) || !defined(DONGLEBUILD)
 	#define BCMLFRAG_ENAB() (_bcmlfrag)
 #elif defined(BCMLFRAG_DISABLED)
-	#define BCMLFRAG_ENAB()	(0)
+	#define BCMLFRAG_ENAB()	(FALSE)
 #else
-	#define BCMLFRAG_ENAB()	(1)
+	#define BCMLFRAG_ENAB()	(TRUE)
 #endif
 #else
-	#define BCMLFRAG_ENAB()		(0)
+	#define BCMLFRAG_ENAB()	(FALSE)
 #endif /* BCMLFRAG_ENAB */
 
 #ifdef BCMPCIEDEV /* BCMPCIEDEV support enab macros */
@@ -710,12 +734,12 @@ extern bool _pciedevenab;
 #if defined(ROM_ENAB_RUNTIME_CHECK)
 	#define BCMPCIEDEV_ENAB() (_pciedevenab)
 #elif defined(BCMPCIEDEV_ENABLED)
-	#define BCMPCIEDEV_ENAB()	1
+	#define BCMPCIEDEV_ENAB() (TRUE)
 #else
-	#define BCMPCIEDEV_ENAB()	0
+	#define BCMPCIEDEV_ENAB() (FALSE)
 #endif
 #else
-	#define BCMPCIEDEV_ENAB()	0
+	#define BCMPCIEDEV_ENAB() (FALSE)
 #endif /* BCMPCIEDEV */
 
 #ifdef BCMRESVFRAGPOOL /* BCMRESVFRAGPOOL support enab macros */
@@ -723,12 +747,12 @@ extern bool _resvfragpool_enab;
 #if defined(ROM_ENAB_RUNTIME_CHECK) || !defined(DONGLEBUILD)
 	#define  BCMRESVFRAGPOOL_ENAB() (_resvfragpool_enab)
 #elif defined(BCMRESVFRAGPOOL_DISABLED)
-	#define BCMRESVFRAGPOOL_ENAB()	(0)
+	#define BCMRESVFRAGPOOL_ENAB()	(FALSE)
 #else
-	#define BCMRESVFRAGPOOL_ENAB()	(1)
+	#define BCMRESVFRAGPOOL_ENAB()	(TRUE)
 #endif
 #else
-	#define BCMRESVFRAGPOOL_ENAB()	0
+	#define BCMRESVFRAGPOOL_ENAB()	(FALSE)
 #endif /* BCMPCIEDEV */
 
 #ifdef BCMSDIODEV /* BCMSDIODEV support enab macros */
@@ -736,12 +760,12 @@ extern bool _sdiodevenab;
 #if defined(ROM_ENAB_RUNTIME_CHECK) || !defined(DONGLEBUILD)
 	#define BCMSDIODEV_ENAB() (_sdiodevenab)
 #elif defined(BCMSDIODEV_ENABLED)
-	#define BCMSDIODEV_ENAB()	1
+	#define BCMSDIODEV_ENAB() (TRUE)
 #else
-	#define BCMSDIODEV_ENAB()	0
+	#define BCMSDIODEV_ENAB() (FALSE)
 #endif
 #else
-	#define BCMSDIODEV_ENAB()	0
+	#define BCMSDIODEV_ENAB() (FALSE)
 #endif /* BCMSDIODEV */
 
 #ifdef BCMSPMIS
@@ -751,15 +775,15 @@ extern bool _bcmspmi_plat_enab;
 	#define	BCMSPMIS_ENAB()		(_bcmspmi_enab)
 	#define BCMSPMIS_PLAT_ENAB()	(_bcmspmi_plat_enab)
 #elif defined(BCMSPMIS_DISABLED)
-	#define	BCMSPMIS_ENAB()		0
-	#define BCMSPMIS_PLAT_ENAB()	0
+	#define	BCMSPMIS_ENAB()		(FALSE)
+	#define BCMSPMIS_PLAT_ENAB()	(FALSE)
 #else
-	#define	BCMSPMIS_ENAB()		1
+	#define	BCMSPMIS_ENAB()		(TRUE)
 	#define BCMSPMIS_PLAT_ENAB()	(_bcmspmi_plat_enab)
 #endif
 #else
-	#define	BCMSPMIS_ENAB()		0
-	#define BCMSPMIS_PLAT_ENAB()	0
+	#define	BCMSPMIS_ENAB()		(FALSE)
+	#define BCMSPMIS_PLAT_ENAB()	(FALSE)
 #endif /* BCMSPMIS */
 
 #ifdef BCMDVFS /* BCMDVFS support enab macros */
@@ -767,12 +791,12 @@ extern bool _dvfsenab;
 #if defined(ROM_ENAB_RUNTIME_CHECK)
 	#define BCMDVFS_ENAB() (_dvfsenab)
 #elif !defined(BCMDVFS_DISABLED)
-	#define BCMDVFS_ENAB()	(1)
+	#define BCMDVFS_ENAB() (TRUE)
 #else
-	#define BCMDVFS_ENAB()	(0)
+	#define BCMDVFS_ENAB() (FALSE)
 #endif
 #else
-	#define BCMDVFS_ENAB()	(0)
+	#define BCMDVFS_ENAB() (FALSE)
 #endif /* BCMDVFS */
 
 /* Max size for reclaimable NVRAM array */
@@ -793,12 +817,12 @@ extern uint32 gFWID;
 #if defined(ROM_ENAB_RUNTIME_CHECK) || !defined(DONGLEBUILD)
 	#define BCMFRWDPKT_ENAB() (_bcmfrwdpkt)
 #elif defined(BCMFRWDPKT_DISABLED)
-	#define BCMFRWDPKT_ENAB()	(0)
+	#define BCMFRWDPKT_ENAB() (FALSE)
 #else
-	#define BCMFRWDPKT_ENAB()	(1)
+	#define BCMFRWDPKT_ENAB() (TRUE)
 #endif
 #else
-	#define BCMFRWDPKT_ENAB()		(0)
+	#define BCMFRWDPKT_ENAB() (FALSE)
 #endif /* BCMFRWDPKT */
 
 #ifdef BCMFRWDPOOLREORG /* BCMFRWDPOOLREORG support enab macros  */
@@ -806,12 +830,12 @@ extern uint32 gFWID;
 #if defined(ROM_ENAB_RUNTIME_CHECK) || !defined(DONGLEBUILD)
 	#define BCMFRWDPOOLREORG_ENAB() (_bcmfrwdpoolreorg)
 #elif defined(BCMFRWDPOOLREORG_DISABLED)
-	#define BCMFRWDPOOLREORG_ENAB()	(0)
+	#define BCMFRWDPOOLREORG_ENAB()	(FALSE)
 #else
-	#define BCMFRWDPOOLREORG_ENAB()	(1)
+	#define BCMFRWDPOOLREORG_ENAB()	(TRUE)
 #endif
 #else
-	#define BCMFRWDPOOLREORG_ENAB()		(0)
+	#define BCMFRWDPOOLREORG_ENAB()	(FALSE)
 #endif /* BCMFRWDPOOLREORG */
 
 #ifdef BCMPOOLRECLAIM /* BCMPOOLRECLAIM support enab macros  */
@@ -819,12 +843,12 @@ extern uint32 gFWID;
 #if defined(ROM_ENAB_RUNTIME_CHECK) || !defined(DONGLEBUILD)
 	#define BCMPOOLRECLAIM_ENAB() (_bcmpoolreclaim)
 #elif defined(BCMPOOLRECLAIM_DISABLED)
-	#define BCMPOOLRECLAIM_ENAB()	(0)
+	#define BCMPOOLRECLAIM_ENAB() (FALSE)
 #else
-	#define BCMPOOLRECLAIM_ENAB()	(1)
+	#define BCMPOOLRECLAIM_ENAB() (TRUE)
 #endif
 #else
-	#define BCMPOOLRECLAIM_ENAB()		(0)
+	#define BCMPOOLRECLAIM_ENAB() (FALSE)
 #endif /* BCMPOOLRECLAIM */
 
 #ifdef BCMRXDATAPOOL /* BCMRXDATAPOOL support enab macros  */
@@ -832,12 +856,12 @@ extern uint32 gFWID;
 #if defined(ROM_ENAB_RUNTIME_CHECK) || !defined(DONGLEBUILD)
 	#define BCMRXDATAPOOL_ENAB() (_bcmrxdatapool)
 #elif defined(BCMRXDATAPOOL_DISABLED)
-	#define BCMRXDATAPOOL_ENAB()	(0)
+	#define BCMRXDATAPOOL_ENAB() (FALSE)
 #else
-	#define BCMRXDATAPOOL_ENAB()	(1)
+	#define BCMRXDATAPOOL_ENAB() (TRUE)
 #endif
 #else
-	#define BCMRXDATAPOOL_ENAB()	(0)
+	#define BCMRXDATAPOOL_ENAB() (FALSE)
 #endif /* BCMRXDATAPOOL */
 
 #ifdef URB /* URB support enab macros  */
@@ -845,12 +869,12 @@ extern uint32 gFWID;
 #if defined(ROM_ENAB_RUNTIME_CHECK) || !defined(DONGLEBUILD)
 	#define URB_ENAB() (_urb_enab)
 #elif defined(URB_DISABLED)
-	#define URB_ENAB()	(0)
+	#define URB_ENAB() (FALSE)
 #else
-	#define URB_ENAB()	(1)
+	#define URB_ENAB() (TRUE)
 #endif
 #else
-	#define URB_ENAB()	(0)
+	#define URB_ENAB() (FALSE)
 #endif /* URB */
 
 #ifdef TX_HISTOGRAM
@@ -858,12 +882,12 @@ extern bool _tx_histogram_enabled;
 #if defined(ROM_ENAB_RUNTIME_CHECK)
 	#define TX_HISTOGRAM_ENAB() (_tx_histogram_enabled)
 #elif defined(TX_HISTOGRAM_DISABLED)
-	#define TX_HISTOGRAM_ENAB() (0)
+	#define TX_HISTOGRAM_ENAB() (FALSE)
 #else
-	#define TX_HISTOGRAM_ENAB() (1)
+	#define TX_HISTOGRAM_ENAB() (TRUE)
 #endif
 #else
-	#define TX_HISTOGRAM_ENAB() (0)
+	#define TX_HISTOGRAM_ENAB() (FALSE)
 #endif /* TX_HISTOGRAM */
 
 /* Chip related low power flags (lpflags) */

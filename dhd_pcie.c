@@ -3246,7 +3246,11 @@ dhdpcie_advertise_bus_cleanup(dhd_pub_t *dhdp)
 		 * Hence induce DB7 trap during detach and in FW trap handler all
 		 * power resources are held high.
 		 */
-		if (db7trap_in_detach && !dhd_query_bus_erros(dhdp) &&
+		if (1 &&
+#ifndef OEM_ANDROID
+			!dhdp->dongle_isolation &&
+#endif /* OEM_ANDROPID */
+			db7trap_in_detach && !dhd_query_bus_erros(dhdp) &&
 			dhdp->db7_trap.fw_db7w_trap) {
 			dhdp->db7_trap.fw_db7w_trap_inprogress = TRUE;
 			dhdpcie_fw_trap(dhdp->bus);
@@ -13541,15 +13545,18 @@ dhd_bus_dump_txcpl_info(dhd_pub_t *dhdp, struct bcmstrbuf *strbuf)
 
 	bcm_bprintf(strbuf, "\nTx Completion History\n");
 	bcm_bprintf(strbuf, "Host(us)\t\tPTM_high(ns)\t\tPTM_low(ns)\t\t"
-		"Latency(ms)\t\tTID\t\tFlowID\n");
+		"Latency(ms)\t\tTID\t\tFlowID\t\tProto\t\tTuple_1\t\tTuple_2\n");
 	for (i = 0; i < MAX_TXCPL_HISTORY; i ++) {
-		bcm_bprintf(strbuf, "0x%x\t\t0x%x\t\t0x%x\t\t%u\t\t%u\t\t%u\n",
+		bcm_bprintf(strbuf, "0x%x\t\t0x%x\t\t0x%x\t\t%u\t\t%u\t\t%u\t\t%d\t\t%d\t\t%d\n",
 			txcpl_info->tx_history[i].host_time,
 			txcpl_info->tx_history[i].ptm_high,
 			txcpl_info->tx_history[i].ptm_low,
 			txcpl_info->tx_history[i].latency,
 			txcpl_info->tx_history[i].tid,
-			txcpl_info->tx_history[i].flowid);
+			txcpl_info->tx_history[i].flowid,
+			txcpl_info->tx_history[i].proto,
+			txcpl_info->tx_history[i].tuple_1,
+			txcpl_info->tx_history[i].tuple_2);
 	}
 	bzero(txcpl_info->tx_history,
 		sizeof(tx_cpl_history_t) * MAX_TXCPL_HISTORY);
@@ -13716,12 +13723,12 @@ dhd_bus_dump_rxlat_info(dhd_pub_t *dhdp, struct bcmstrbuf *strbuf)
 
 		bcm_bprintf(strbuf, "\nRx Completion History\n");
 		bcm_bprintf(strbuf, "Host(us)\t\tPTM_high(ns)\t\tPTM_low(ns)\t\tRspec\tTstamp\tBand"
-			"\t\tPrio\t\tRSSI\t\tLatency(us)\n");
+			"\t\tPrio\t\tRSSI\t\tLatency(us)\t\tProto\t\tTuple_1\t\tTuple_2\n");
 		for (i = 0; i < MAX_RXCPL_HISTORY; i ++) {
 			if (rxcpl_info->rx_history[i].rx_t1 || rxcpl_info->rx_history[i].ptm_low) {
 				bcm_bprintf(strbuf,
 					"0x%x\t\t0x%x\t\t0x%x\t\t0x%x\t0x%x\t\t%s\t\t%d\t\t%d"
-					"\t\t%d\n",
+					"\t\t%d\t\t%d\t\t%d\t\t%d\n",
 					rxcpl_info->rx_history[i].host_time,
 					rxcpl_info->rx_history[i].ptm_high,
 					rxcpl_info->rx_history[i].ptm_low,
@@ -13730,7 +13737,10 @@ dhd_bus_dump_rxlat_info(dhd_pub_t *dhdp, struct bcmstrbuf *strbuf)
 					dhd_bus_bandname(rxcpl_info->rx_history[i].slice),
 					rxcpl_info->rx_history[i].priority,
 					rxcpl_info->rx_history[i].rssi,
-					rxcpl_info->rx_history[i].latency);
+					rxcpl_info->rx_history[i].latency,
+					rxcpl_info->rx_history[i].proto,
+					rxcpl_info->rx_history[i].tuple_1,
+					rxcpl_info->rx_history[i].tuple_2);
 			}
 		}
 		bzero(rxcpl_info->rx_history,
@@ -16596,6 +16606,8 @@ dhdpcie_ewphw_get_initdumps(dhd_bus_t *bus)
 		return BCME_VERSION;
 	}
 
+	/* Initial validations for EWP_DACS are done */
+	dhdp->ewp_dacs_fw_enable = TRUE;
 	/* endianness */
 	ewp_hw_info.init_log_buf.addr = ltoh32(ewp_hw_info.init_log_buf.addr);
 	ewp_hw_info.init_log_buf.size = ltoh32(ewp_hw_info.init_log_buf.size);
@@ -16771,7 +16783,6 @@ dhdpcie_ewphw_chk_fwstate(dhd_bus_t *bus)
 #endif /* DHD_FW_COREDUMP && !DEBUG_DNGL_INIT_FAIL */
 		return BCME_NOTUP;
 	}
-
 	return BCME_OK;
 }
 

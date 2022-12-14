@@ -3110,12 +3110,14 @@ wl_cfgnan_start_handler(struct net_device *ndev, struct bcm_cfg80211 *cfg,
 	NAN_MUTEX_LOCK();
 
 #ifdef WL_IFACE_MGMT
+	cfg->wiphy_lock_held = true;
 	if ((ret = wl_cfg80211_handle_if_role_conflict(cfg, WL_IF_TYPE_NAN_NMI)) != BCME_OK) {
 		WL_ERR(("Conflicting iface is present, cant support nan\n"));
 		NAN_MUTEX_UNLOCK();
 		mutex_unlock(&cfg->if_sync);
 		goto fail;
 	}
+	cfg->wiphy_lock_held = false;
 #endif /* WL_IFACE_MGMT */
 
 	/* disable TDLS on NAN init  */

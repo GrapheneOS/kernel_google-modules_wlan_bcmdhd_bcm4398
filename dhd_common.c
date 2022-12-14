@@ -133,6 +133,9 @@
 #ifdef DHD_PKT_LOGGING
 #include <dhd_pktlog.h>
 #endif
+#ifdef __linux__
+#include <dhd_linux_pktdump.h>
+#endif /* __linux__ */
 #endif /* DHD_LOG_DUMP */
 
 #ifdef DHD_LOG_PRINT_RATE_LIMIT
@@ -2089,6 +2092,9 @@ dhd_dump_txrx_stats(dhd_pub_t *dhdp, struct bcmstrbuf *strbuf)
 #endif /* RX_CSO */
 	dhd_print_if_stats(dhdp, strbuf);
 	bcm_bprintf(strbuf, "\n");
+#ifdef DHD_PKTDUMP_ROAM
+	dhd_dump_pktcnt_stats(dhdp, strbuf);
+#endif /* DHD_PKTDUMP_ROAM */
 	/* ----------------------------------------------------- */
 }
 
@@ -2879,6 +2885,7 @@ dhd_mem_debug(dhd_pub_t *dhd, uchar *msg, uint msglen)
 	}
 	return 0;
 }
+
 extern void
 dhd_mw_list_delete(dhd_pub_t *dhd, dll_t *list_head)
 {
@@ -2891,6 +2898,7 @@ dhd_mw_list_delete(dhd_pub_t *dhd, dll_t *list_head)
 		MFREE(dhd->osh, mw_li, sizeof(*mw_li));
 	}
 }
+
 #ifdef BCMPCIE
 int
 dhd_flow_ring_debug(dhd_pub_t *dhd, char *msg, uint msglen)
@@ -5535,10 +5543,28 @@ wl_show_host_event(dhd_pub_t *dhd_pub, wl_event_msg_t *event, void *event_data,
 		if (datalen >= sizeof(wlc_roam_start_event_t)) {
 			const wlc_roam_start_event_t *roam_start =
 				(wlc_roam_start_event_t *)event_data;
+			const bcm_xtlv_t *xtlv;
+			const wlc_bcn_prot_counters_v1_t *cnt;
 			DHD_EVENT(("MACEVENT: %s %d, MAC %s, status %d,"
 				" reason %d, auth %d, current bss rssi %d\n",
 				event_name, event_type, eabuf, (int)status, (int)reason,
 				(int)auth_type, (int)roam_start->rssi));
+
+			if (datalen < sizeof(*roam_start) + BCM_XTLV_HDR_SIZE +	sizeof(*cnt)) {
+				break;
+			}
+			xtlv = (const bcm_xtlv_t *)roam_start->xtlvs;
+			if ((xtlv->id != WL_ROAM_START_XTLV_BCNPROT_STATS) ||
+			     (xtlv->len < sizeof(*cnt))) {
+				DHD_ERROR(("MACEVENT: %s invalid xtlv (id=%d len=%d)\n",
+					event_name, xtlv->id, xtlv->len));
+				break;
+			}
+			cnt = (const wlc_bcn_prot_counters_v1_t *)xtlv->data;
+			DHD_EVENT(("MACEVENT: %s (no_en=%d no_mme=%d mic_fails=%d replay_fails=%d "
+				"errors_since_good_bcn=%d)\n", event_name, cnt->no_en_bit,
+				cnt->no_mme_ie, cnt->mic_fails, cnt->replay_fails,
+				cnt->errors_since_good_bcn));
 		} else {
 			DHD_EVENT(("MACEVENT: %s %d, MAC %s, status %d, reason %d, auth %d"
 				" ifidx %d cfgidx %d\n", event_name, event_type, eabuf,
@@ -6215,6 +6241,7 @@ dngl_host_profile_event_process(dhd_pub_t *dhdp, uint8 *event,
 	}
 
 }
+
 #ifdef WL_CFGVENDOR_SEND_ALERT_EVENT
 static void
 dhd_send_error_alert_event(dhd_pub_t *dhdp, bcm_xtlv_t *wl_hc)
@@ -6941,6 +6968,7 @@ dhd_print_buf(void *pbuf, int len, int bytes_per_line)
 	printf("\n");
 #endif /* DHD_DEBUG */
 }
+
 #ifndef strtoul
 #define strtoul(nptr, endptr, base) bcm_strtoul((nptr), (endptr), (base))
 #endif
@@ -7653,6 +7681,7 @@ dhd_ndo_add_ip(dhd_pub_t *dhd, char* ipv6addr, int idx)
 
 	return retcode;
 }
+
 /*
  * Neighbor Discover Offload: enable NDO feature
  * Called  by ipv6 event handler when interface goes down
@@ -7685,6 +7714,7 @@ dhd_ndo_remove_ip(dhd_pub_t *dhd, int idx)
 
 	return retcode;
 }
+
 /* Enhanced ND offload */
 uint16
 dhd_ndo_get_version(dhd_pub_t *dhdp)
@@ -7895,6 +7925,7 @@ dhd_ndo_unsolicited_na_filter_enable(dhd_pub_t *dhdp, int enable)
 
 	return retcode;
 }
+
 #ifdef SIMPLE_ISCAN
 
 uint iscan_thread_id = 0;
@@ -8358,6 +8389,7 @@ wl_parse_ssid_list_tlv(char** list_str, wlc_ssid_ext_t* ssid, int max, int *byte
 	*list_str = str;
 	return idx;
 }
+
 /* Android ComboSCAN support */
 
 /*
@@ -12399,6 +12431,7 @@ dhd_dump_wake_status(dhd_pub_t *dhdp, wake_counts_t *wcp, struct ether_header *e
 	return;
 }
 #endif /* DHD_WAKE_STATUS_PRINT && DHD_WAKE_RX_STATUS && DHD_WAKE_STATUS */
+
 #ifdef SUPPORT_OTA_UPDATE
 void
 dhd_ota_buf_clean(dhd_pub_t *dhdp)
@@ -12420,6 +12453,7 @@ dhd_ota_buf_clean(dhd_pub_t *dhdp)
 	return;
 }
 #endif /* SUPPORT_OTA_UPDATE */
+
 #ifdef DHD_COREDUMP
 void
 dhd_convert_hang_reason_to_str(uint32 reason, char *buf, size_t buf_len)
@@ -12498,6 +12532,7 @@ dhd_convert_hang_reason_to_str(uint32 reason, char *buf, size_t buf_len)
 	strlcpy(buf, type_str, buf_len);
 }
 #endif /* DHD_COREDUMP */
+
 #ifdef DHD_CUSTOM_CONFIG_RTS_IN_SUSPEND
 int dhd_config_rts_in_suspend(dhd_pub_t *dhdp, bool suspend)
 {

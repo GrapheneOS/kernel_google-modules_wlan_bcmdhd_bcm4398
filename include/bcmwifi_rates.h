@@ -33,12 +33,8 @@ extern "C" {
 
 #define WL_RATESET_SZ_DSSS		4
 #define WL_RATESET_SZ_OFDM		8
-#if defined(WLPROPRIETARY_11N_RATES)
-#define WL_RATESET_SZ_HT_MCS		10
-#else
-#define WL_RATESET_SZ_HT_MCS		8
-#endif
-#define WL_RATESET_SZ_VHT_MCS		10
+#define WL_RATESET_SZ_HT_MCS		8	/* 8 HT rates (mcs 0-7) */
+#define WL_RATESET_SZ_VHT_MCS		10	/* 10 VHT rates (mcs 0-9) */
 #define WL_RATESET_SZ_VHT_MCS_P		12	/* 10 VHT rates + 2 proprietary rates */
 #define WL_RATESET_SZ_HE_MCS		12	/* 12 HE rates (mcs 0-11) */
 #define WL_RATESET_SZ_EHT_MCS		16u	/* 14 EHT rates (mcs 0-15) */
@@ -1777,26 +1773,9 @@ typedef enum clm_ru_rates {
 #define OFDM_PHY2MAC_RATE(rlpt)         plcp_ofdm_rate_tbl[(rlpt) & 0x7]
 #define CCK_PHY2MAC_RATE(signal)	((signal)/5)
 
-/* 'proprietary' string should not exist in open source(OEM_ANDROID) */
-/* given a proprietary MCS, get number of spatial streams */
-#define GET_PROPRIETARY_11N_MCS_NSS(mcs) (1 + ((mcs) - 85) / 8)
-
-#define GET_11N_MCS_NSS(mcs) ((mcs) < 32 ? (1 + ((mcs) / 8)) : \
-			      ((mcs) == 32 ? 1 : GET_PROPRIETARY_11N_MCS_NSS(mcs)))
-
-#if defined(WLPROPRIETARY_11N_RATES) /* Broadcom proprietary rate support for 11n */
-#define IS_PROPRIETARY_11N_MCS(mcs) \
-	((mcs) == 87 || (mcs) == 88 || (mcs) == 99 || (mcs) == 100 || (mcs) == 101 || (mcs) == 102)
-#define IS_PROPRIETARY_11N_SS_MCS(mcs) \
-	((mcs) == 87 || (mcs) == 88)
-#else
-#define IS_PROPRIETARY_11N_MCS(mcs)	FALSE
-#define IS_PROPRIETARY_11N_SS_MCS(mcs)	FALSE /**< is proprietary HT single stream MCS */
-#endif	/* WLPROPRIETARY_11N_RATES */
+#define GET_11N_MCS_NSS(mcs) ((mcs) == 32 ? 1 : (1 + ((mcs) / WL_RATESET_SZ_HT_MCS)))
 
 extern const uint8 plcp_ofdm_rate_tbl[];
-
-uint8 wf_get_single_stream_mcs(uint mcs);
 
 /* extract NSS:MCS portions of the rspec */
 #define WF_NON_HT_MCS 0x80

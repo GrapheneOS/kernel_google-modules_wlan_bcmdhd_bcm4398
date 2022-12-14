@@ -2827,9 +2827,11 @@ typedef volatile struct chipcregs chipcregs_t;
 #define CR4_4383_RAM_BASE                    (0x6E0000)
 #define CR4_4387_RAM_BASE                    (0x740000)
 #define CR4_4385_RAM_BASE                    (0x740000)
+#define CA7_4385_RAM_BASE                    (0x200000)
 #define CA7_4388_RAM_BASE                    (0x200000)
 #define CA7_4389_RAM_BASE                    (0x200000)
-#define CA7_4385_RAM_BASE                    (0x200000)
+#define CA7_4390_RAM_BASE                    (0x2A0000)
+#define CA7_4399_RAM_BASE                    (0x2A0000)
 
 /* Physical memory in 4388a0 HWA is 64KB (8192 x 64 bits) even though
  * the memory space allows 192KB (0x1850_0000 - 0x1852_FFFF)

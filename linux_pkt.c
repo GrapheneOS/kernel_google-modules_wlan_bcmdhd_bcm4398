@@ -294,10 +294,11 @@ BCMFASTPATH(linux_pktget)(osl_t *osh, uint len)
 #ifdef BCMDBG_PKT
 	unsigned long flags;
 #endif
-	uchar num = 0;
+	uint num = 0u;
 	if (lmtest != FALSE) {
+		/* get a byte length random number */
 		get_random_bytes(&num, sizeof(uchar));
-		if ((num + 1) <= (256 * lmtest / 100))
+		if ((num + 1u) <= (256u * lmtest / 100u))
 			return NULL;
 	}
 

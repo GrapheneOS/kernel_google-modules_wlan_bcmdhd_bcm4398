@@ -1779,12 +1779,11 @@ BCMATTACHFN(bcm_mwbmap_init)(osl_t *osh, uint32 items_max)
 	/* Allocate runtime state of multiword bitmap */
 	/* Note: wd_count[] or wd_bitmap[] are not dynamically allocated */
 	size = sizeof(bcm_mwbmap_t) + (sizeof(uint32) * words);
-	mwbmap_p = (bcm_mwbmap_t *)MALLOC(osh, size);
+	mwbmap_p = (bcm_mwbmap_t *)MALLOCZ(osh, size);
 	if (mwbmap_p == (bcm_mwbmap_t *)NULL) {
 		ASSERT(0);
 		goto error1;
 	}
-	bzero(mwbmap_p, size);
 
 	/* Initialize runtime multiword bitmap state */
 	mwbmap_p->imaps = (uint16)words;
@@ -2188,7 +2187,7 @@ id16_map_init(osl_t *osh, uint16 total_ids, uint16 start_val16)
 	ASSERT((start_val16 == ID16_UNDEFINED) ||
 	       (start_val16 + total_ids) < ID16_INVALID);
 
-	id16_map = (id16_map_t *) MALLOC(osh, ID16_MAP_SZ(total_ids));
+	id16_map = (id16_map_t *) MALLOCZ(osh, ID16_MAP_SZ(total_ids));
 	if (id16_map == NULL) {
 		return NULL;
 	}
@@ -2215,7 +2214,7 @@ id16_map_init(osl_t *osh, uint16 total_ids, uint16 start_val16)
 
 #if defined(BCM_DBG) && defined(BCM_DBG_ID16)
 	if (id16_map->start != ID16_UNDEFINED) {
-		id16_map->dbg = MALLOC(osh, ID16_MAP_DBG_SZ(total_ids));
+		id16_map->dbg = MALLOCZ(osh, ID16_MAP_DBG_SZ(total_ids));
 
 		if (id16_map->dbg) {
 			id16_map_dbg_t *id16_map_dbg = (id16_map_dbg_t *)id16_map->dbg;
@@ -4184,7 +4183,7 @@ testcrc32(void)
 	uint32 crc32tv[CNBUFS] =
 		{0xd2cb1faa, 0xd385c8fa, 0xf5b4f3f3, 0x55789e20, 0x00343110};
 
-	ASSERT((buf = MALLOC(CBUFSIZ*CNBUFS)) != NULL);
+	ASSERT((buf = MALLOCZ(CBUFSIZ*CNBUFS)) != NULL);
 
 	/* step through all possible alignments */
 	for (l = 0; l <= 4; l++) {
@@ -6233,7 +6232,7 @@ BCMATTACHFN(initvars_table)(osl_t *osh, char *start, char *end, char **vars,
 
 	/* do it only when there is more than just the null string */
 	if (c > 1) {
-		char *vp = MALLOC(osh, c);
+		char *vp = MALLOCZ(osh, c);
 		ASSERT(vp != NULL);
 		if (!vp)
 			return BCME_NOMEM;

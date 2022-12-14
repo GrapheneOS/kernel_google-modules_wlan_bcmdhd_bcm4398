@@ -1704,8 +1704,14 @@ dhdpcie_bus_unregister(void)
 	/* Check if bus is in suspend due to wifi off with accel boot */
 	if (dhdp->up == FALSE && dhdp->busstate == DHD_BUS_SUSPEND) {
 		DHD_GENERAL_UNLOCK(dhdp, flags);
-		DHD_PRINT(("%s Bus is in suspend state\n", __FUNCTION__));
-		dhdpcie_pci_suspend_resume(dhdp->bus, FALSE);
+		DHD_PRINT(("%s Bus is in suspend state, dongle isolation %d\n",
+			__FUNCTION__, dhdp->dongle_isolation));
+#ifndef OEM_ANDROID
+		if (dhdp->dongle_isolation == FALSE)
+#endif /* OEM_ANDROID */
+		{
+			dhdpcie_pci_suspend_resume(dhdp->bus, FALSE);
+		}
 	} else {
 		DHD_GENERAL_UNLOCK(dhdp, flags);
 	}

@@ -4237,7 +4237,8 @@ dhdsdio_doiovar(dhd_bus_t *bus, const bcm_iovar_t *vi, uint32 actionid, const ch
 		          (set ? "write" : "read"), size, address));
 
 		/* check if CR4 */
-		if (si_setcore(bus->sih, ARMCR4_CORE_ID, 0)) {
+		if (!(bus->resetinstr) && (si_setcore(bus->sih, ARMCR4_CORE_ID, 0) ||
+			(si_setcore(bus->sih, ARMCA7_CORE_ID, 0)))) {
 			/*
 			 * If address is start of RAM (i.e. a downloaded image),
 			 * store the reset instruction to be written in 0
@@ -4842,7 +4843,8 @@ dhdsdio_download_state(dhd_bus_t *bus, bool enter)
 		bus->alp_only = TRUE;
 
 		if (!(si_setcore(bus->sih, ARM7S_CORE_ID, 0)) &&
-		    !(si_setcore(bus->sih, ARMCM3_CORE_ID, 0))) {
+		    !(si_setcore(bus->sih, ARMCM3_CORE_ID, 0)) &&
+		    !(si_setcore(bus->sih, ARMCA7_CORE_ID, 0))) {
 			if (si_setcore(bus->sih, ARMCR4_CORE_ID, 0)) {
 				foundcr4 = 1;
 			} else {
@@ -4852,7 +4854,21 @@ dhdsdio_download_state(dhd_bus_t *bus, bool enter)
 			}
 		}
 
-		if (!foundcr4) {
+		if (si_setcore(bus->sih, ARMCA7_CORE_ID, 0)) {
+			/* Halt ARM & remove reset */
+			si_core_reset(bus->sih, SICF_CPUHALT, SICF_CPUHALT);
+
+			/* reset last 4 bytes of RAM address. to be used for shared area */
+			/* Clear the top bit of memory */
+			if (bus->ramsize) {
+				uint32 zeros = 0;
+				if (dhdsdio_membytes(bus, TRUE, bus->ramsize - 4,
+					(uint8*)&zeros, 4) < 0) {
+					bcmerror = BCME_SDIO_ERROR;
+					goto fail;
+				}
+			}
+		} else if (!foundcr4) {
 			si_core_disable(bus->sih, 0);
 			if (bcmsdh_regfail(bus->sdh)) {
 				bcmerror = BCME_SDIO_ERROR;
@@ -4901,7 +4917,61 @@ dhdsdio_download_state(dhd_bus_t *bus, bool enter)
 			si_core_reset(bus->sih, SICF_CPUHALT, SICF_CPUHALT);
 		}
 	} else {
-		if (!si_setcore(bus->sih, ARMCR4_CORE_ID, 0)) {
+		if (si_setcore(bus->sih, ARMCA7_CORE_ID, 0)) {
+
+			if ((bcmerror = dhdsdio_write_vars(bus))) {
+				DHD_ERROR(("%s: could not write vars to RAM\n", __FUNCTION__));
+				goto fail;
+			}
+#ifdef BCMSDIOLITE
+			if (!si_setcore(bus->sih, CC_CORE_ID, 0)) {
+				DHD_ERROR(("%s: Can't set to Chip Common core(SDIOLITE)?\n",
+					__FUNCTION__));
+				bcmerror = BCME_ERROR;
+				goto fail;
+			}
+#else
+			if (!si_setcore(bus->sih, PCMCIA_CORE_ID, 0) &&
+			    !si_setcore(bus->sih, SDIOD_CORE_ID, 0)) {
+				DHD_ERROR(("%s: Can't change back to SDIO core?\n", __FUNCTION__));
+				bcmerror = BCME_ERROR;
+				goto fail;
+			}
+#endif
+			W_SDREG(0xFFFFFFFF, &bus->regs->intstatus, retries);
+			/* switch back to arm core again */
+			if (!(si_setcore(bus->sih, ARMCA7_CORE_ID, 0))) {
+				DHD_ERROR(("%s: Failed to find ARM CA7 core!\n",
+					__FUNCTION__));
+				bcmerror = BCME_ERROR;
+				goto fail;
+			}
+			/* write address 0 with reset instruction */
+			bcmerror = dhdsdio_membytes(bus, TRUE, 0,
+				(uint8 *)&bus->resetinstr, sizeof(bus->resetinstr));
+
+			if (bcmerror == BCME_OK) {
+				uint32 tmp;
+
+				/* verify write */
+				bcmerror = dhdsdio_membytes(bus, FALSE, 0,
+				                            (uint8 *)&tmp, sizeof(tmp));
+
+				if (bcmerror == BCME_OK && tmp != bus->resetinstr) {
+					DHD_ERROR(("%s: Failed to write 0x%08x to addr 0\n",
+					          __FUNCTION__, bus->resetinstr));
+					DHD_ERROR(("%s: contents of addr 0 is 0x%08x\n",
+					          __FUNCTION__, tmp));
+					bcmerror = BCME_SDIO_ERROR;
+					goto fail;
+				}
+			}
+
+			/* for ARM CA7 it is enough if we clear bit5 in IO DMP ctrl
+			* register to bring it out of halt
+			*/
+			si_core_cflags(bus->sih, SICF_CPUHALT, 0);
+		} else if (!si_setcore(bus->sih, ARMCR4_CORE_ID, 0)) {
 			if (!(si_setcore(bus->sih, SOCRAM_CORE_ID, 0))) {
 				DHD_ERROR(("%s: Failed to find SOCRAM core!\n", __FUNCTION__));
 				bcmerror = BCME_ERROR;
@@ -4921,7 +4991,8 @@ dhdsdio_download_state(dhd_bus_t *bus, bool enter)
 
 #ifdef BCMSDIOLITE
 			if (!si_setcore(bus->sih, CC_CORE_ID, 0)) {
-				DHD_ERROR(("%s: Can't set to Chip Common core?\n", __FUNCTION__));
+				DHD_ERROR(("%s: Can't set to Chip Common core(SDIOLITE)?\n",
+					__FUNCTION__));
 				bcmerror = BCME_ERROR;
 				goto fail;
 			}
@@ -4952,7 +5023,8 @@ dhdsdio_download_state(dhd_bus_t *bus, bool enter)
 			}
 #ifdef BCMSDIOLITE
 			if (!si_setcore(bus->sih, CC_CORE_ID, 0)) {
-				DHD_ERROR(("%s: Can't set to Chip Common core?\n", __FUNCTION__));
+				DHD_ERROR(("%s: Can't set to Chip Common core(SDIOLITE)?\n",
+					__FUNCTION__));
 				bcmerror = BCME_ERROR;
 				goto fail;
 			}
@@ -5011,8 +5083,15 @@ dhdsdio_download_state(dhd_bus_t *bus, bool enter)
 
 fail:
 	/* Always return to SDIOD core */
+#ifdef BCMSDIOLITE
+	if (!si_setcore(bus->sih, CC_CORE_ID, 0)) {
+		DHD_ERROR(("%s: Can't set to Chip Common core(SDIOLITE)?\n", __FUNCTION__));
+		bcmerror = BCME_ERROR;
+	}
+#else
 	if (!si_setcore(bus->sih, PCMCIA_CORE_ID, 0))
 		si_setcore(bus->sih, SDIOD_CORE_ID, 0);
+#endif /* BCMSDIOLITE */
 
 	return bcmerror;
 }
@@ -5704,6 +5783,7 @@ done:
 	/* Awake any waiters */
 	dhd_os_ioctl_resp_wake(bus->dhd);
 }
+
 int
 dhd_process_pkt_reorder_info(dhd_pub_t *dhd, uchar *reorder_info_buf, uint reorder_info_len,
 	void **pkt, uint32 *pkt_count);
@@ -8129,17 +8209,20 @@ dhdsdio_chipmatch(uint16 chipid)
 
 	if (chipid == BCM4369_CHIP_ID)
 		return TRUE;
-
-	if (BCM4378_CHIP(chipid)) {
-		return TRUE;
-	}
-
 	if (chipid == BCM4362_CHIP_ID)
 		return TRUE;
 	if (chipid == BCM43751_CHIP_ID)
 		return TRUE;
 	if (chipid == BCM43752_CHIP_ID)
 		return TRUE;
+	if (BCM4378_CHIP(chipid) ||
+		BCM4387_CHIP(chipid) ||
+		BCM4388_CHIP(chipid) ||
+		BCM4390_CHIP(chipid) ||
+		BCM4399_CHIP(chipid))
+	{
+		return TRUE;
+	}
 
 	return FALSE;
 }
@@ -8504,14 +8587,46 @@ dhdsdio_probe_attach(struct dhd_bus *bus, osl_t *osh, void *sdh, void *regsva,
 	if (!DHD_NOPMU(bus)) {
 		if ((si_setcore(bus->sih, ARM7S_CORE_ID, 0)) ||
 		    (si_setcore(bus->sih, ARMCM3_CORE_ID, 0)) ||
-		    (si_setcore(bus->sih, ARMCR4_CORE_ID, 0))) {
+		    (si_setcore(bus->sih, ARMCR4_CORE_ID, 0)) ||
+		    (si_setcore(bus->sih, ARMCA7_CORE_ID, 0))) {
 			bus->armrev = si_corerev(bus->sih);
 		} else {
 			DHD_ERROR(("%s: failed to find ARM core!\n", __FUNCTION__));
 			goto fail;
 		}
 
-		if (!si_setcore(bus->sih, ARMCR4_CORE_ID, 0)) {
+		/* if chip uses sysmem instead of tcm, typically ARM CA chips */
+		if (si_setcore(bus->sih, SYSMEM_CORE_ID, 0)) {
+			bool isup = FALSE;
+
+			isup = si_iscoreup(bus->sih);
+			if (!isup) {
+				DHD_ERROR(("%s: WARNING ! sysmem core is not up, do sysmem reset\n",
+					__FUNCTION__));
+				si_core_reset(bus->sih, 0, 0);
+			} else {
+				DHD_PRINT(("%s: sysmem core is already up\n", __FUNCTION__));
+			}
+
+			if (!(bus->orig_ramsize = si_sysmem_size(bus->sih))) {
+				DHD_ERROR(("%s: failed to find SYSMEM memory!\n", __FUNCTION__));
+				goto fail;
+			}
+			/* also populate base address */
+			switch ((uint16)bus->sih->chip) {
+				case BCM4388_CHIP_ID:
+					bus->dongle_ram_base = CA7_4388_RAM_BASE;
+					break;
+				case BCM4390_CHIP_ID:
+					bus->dongle_ram_base = CA7_4390_RAM_BASE;
+					break;
+				case BCM4399_CHIP_ID:
+					bus->dongle_ram_base = CA7_4399_RAM_BASE;
+					break;
+				default:
+					break;
+			}
+		} else if (!si_setcore(bus->sih, ARMCR4_CORE_ID, 0)) {
 			if (!(bus->orig_ramsize = si_socram_size(bus->sih))) {
 				DHD_ERROR(("%s: failed to find SOCRAM memory!\n", __FUNCTION__));
 				goto fail;
@@ -8564,6 +8679,18 @@ dhdsdio_probe_attach(struct dhd_bus *bus, osl_t *osh, void *sdh, void *regsva,
 				break;
 			case BCM4378_CHIP_GRPID:
 				bus->dongle_ram_base = CR4_4378_RAM_BASE;
+				break;
+			case BCM4387_CHIP_GRPID:
+				bus->dongle_ram_base = CR4_4387_RAM_BASE;
+				break;
+			case BCM4388_CHIP_GRPID:
+				bus->dongle_ram_base = CA7_4388_RAM_BASE;
+				break;
+			case BCM4390_CHIP_GRPID:
+				bus->dongle_ram_base = CA7_4390_RAM_BASE;
+				break;
+			case BCM4399_CHIP_GRPID:
+				bus->dongle_ram_base = CA7_4399_RAM_BASE;
 				break;
 			default:
 				bus->dongle_ram_base = 0;
@@ -10703,11 +10830,13 @@ dhd_bus_get_wakecount(dhd_pub_t *dhd)
 {
 	return &dhd->bus->wake_counts;
 }
+
 int
 dhd_bus_get_bus_wake(dhd_pub_t *dhd)
 {
 	return bcmsdh_get_wake(dhd->bus->sdh);
 }
+
 int
 dhd_bus_set_get_bus_wake(dhd_pub_t *dhd, int set)
 {

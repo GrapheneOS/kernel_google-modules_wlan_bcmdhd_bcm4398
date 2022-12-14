@@ -196,6 +196,7 @@ DHDCFLAGS += -DRTT_GEOFENCE_CONT
 
 #Debug flag
 ifneq ($(CONFIG_FIB_RULES),)
+    DHDCFLAGS += -DHAL_DEBUGABILITY
     ifneq ($(CONFIG_SOC_GOOGLE),)
 	DHDCFLAGS += -DDEBUGABILITY
 	DHDCFLAGS += -DDEBUGABILITY_DISABLE_MEMDUMP
@@ -251,8 +252,6 @@ ifneq ($(CONFIG_BCMDHD_PCIE),)
     ifneq ($(CONFIG_ARCH_HISI),)
         DHDCFLAGS += -DDHD_SSSR_DUMP_BEFORE_SR
     endif
-    # Recover timeouts
-      DHDCFLAGS += -DDHD_RECOVER_TIMEOUT
     # Enable FIS Dump
     # DHDCFLAGS += -DDHD_FIS_DUMP
     # Enable System Debug Trace Controller, Embedded Trace Buffer
@@ -332,6 +331,8 @@ ifneq ($(CONFIG_SOC_GOOGLE),)
 	DHDCFLAGS += -DDHD_NON_DMA_M2M_CORRUPTION
 	# Detect FW Memory Corruption (MFG only)
 	DHDCFLAGS += -DDHD_FW_MEM_CORRUPTION
+        # Recover timeouts
+        DHDCFLAGS += -DDHD_RECOVER_TIMEOUT
 endif
 endif
 
