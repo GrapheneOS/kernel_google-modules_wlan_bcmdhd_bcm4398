@@ -105,10 +105,6 @@
 #include <dhd_linux.h>
 #endif /* DNGL_AXI_ERROR_LOGGING */
 
-#ifdef DHD_PKT_LOGGING
-#include <dhd_pktlog.h>
-#endif /* DHD_PKT_LOGGING */
-
 #define EXTENDED_PCIE_DEBUG_DUMP 1	/* Enable Extended pcie registers dump */
 
 #define MEMBLOCK	2048		/* Block size used for downloading of dongle image */
@@ -277,10 +273,6 @@ static int dhdpcie_bus_readconsole(dhd_bus_t *bus);
 static int dhdpcie_mem_dump(dhd_bus_t *bus);
 static int dhdpcie_get_mem_dump(dhd_bus_t *bus);
 #endif /* DHD_FW_COREDUMP */
-#ifdef DEBUGABILITY
-static uint enable_hal_memdump = 0;
-module_param(enable_hal_memdump, uint, 0660);
-#endif /* DEBUGABILITY */
 
 static int dhdpcie_bus_doiovar(dhd_bus_t *bus, const bcm_iovar_t *vi, uint32 actionid,
 	const char *name, void *params,
@@ -6130,13 +6122,7 @@ dhdpcie_mem_dump(dhd_bus_t *bus)
 		return BCME_ERROR;
 #endif /* DHD_PCIE_NATIVE_RUNTIMEPM */
 
-#ifdef DEBUGABILITY
-	if ((dhdp->skip_memdump_map_read == TRUE) || !(enable_hal_memdump)) {
-	      DHD_ERROR(("%s: Skipped to get mem dump, err=%d\n", __FUNCTION__, ret));
-	      dhdp->skip_memdump_map_read = FALSE;
-	} else
-#endif /* DEBUGABILITY */
-	{
+	if (dhdp->skip_memdump_map_read == FALSE) {
 		ret = dhdpcie_get_mem_dump(bus);
 		if (ret == BCME_NOTUP && CHIPTYPE(bus->sih->socitype) == SOCI_NCI) {
 			DHD_ERROR(("%s: failed to get mem dump! err=%d, retry\n",
@@ -6151,6 +6137,9 @@ dhdpcie_mem_dump(dhd_bus_t *bus)
 			DHD_ERROR(("%s: failed to get mem dump, err=%d\n", __FUNCTION__, ret));
 			goto exit;
 		}
+	} else {
+		DHD_ERROR(("%s: Skipped to get mem dump, err=%d\n", __FUNCTION__, ret));
+		dhdp->skip_memdump_map_read = FALSE;
 	}
 #ifdef DHD_DEBUG_UART
 	bus->dhd->memdump_success = TRUE;
@@ -6162,11 +6151,6 @@ dhdpcie_mem_dump(dhd_bus_t *bus)
 		dhd_pcie_nci_wrapper_dump(dhdp);
 	}
 
-
-#if defined(DHD_PKT_LOGGING) && defined(DHD_DUMP_FILE_WRITE_FROM_KERNEL)
-	DHD_PRINT(("%s: scheduling pktlog dump.. \n", __FUNCTION__));
-	dhd_schedule_pktlog_dump(dhdp);
-#endif /* DHD_PKT_LOGGING && DHD_DUMP_FILE_WRITE_FROM_KERNEL */
 
 	dhd_schedule_memdump(dhdp, dhdp->soc_ram, dhdp->soc_ram_length);
 	/* buf, actually soc_ram free handled in dhd_{free,clear} */
