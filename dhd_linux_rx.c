@@ -774,6 +774,9 @@ dhd_rx_frame(dhd_pub_t *dhdp, int ifidx, void *pktbuf, int numpkt, uint8 chan)
 
 		/* TODO: re-look into dropped packets. */
 		DHD_DBG_PKT_MON_RX(dhdp, skb, FRAME_TYPE_ETHERNET_II, FALSE);
+		if (ntoh16(skb->protocol) == ETHER_TYPE_BRCM) {
+			DHD_LOG_ROUTE_EVENTS(dhdp->logger, skb, skb->len);
+		}
 		/* Strip header, count, deliver upward */
 		skb_pull(skb, ETH_HLEN);
 

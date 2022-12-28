@@ -785,19 +785,19 @@ set_sssr_enab(struct dhd_info *dev, const char *buf, size_t count)
 }
 
 static ssize_t
-show_fis_enab(struct dhd_info *dev, char *buf)
+show_fis_enab_always(struct dhd_info *dev, char *buf)
 {
 	ssize_t ret = 0;
 	unsigned long onoff;
 
-	onoff = fis_enab;
+	onoff = fis_enab_always;
 	ret = scnprintf(buf, PAGE_SIZE - 1, "%lu \n",
 		onoff);
 	return ret;
 }
 
 static ssize_t
-set_fis_enab(struct dhd_info *dev, const char *buf, size_t count)
+set_fis_enab_always(struct dhd_info *dev, const char *buf, size_t count)
 {
 	unsigned long onoff;
 
@@ -808,7 +808,7 @@ set_fis_enab(struct dhd_info *dev, const char *buf, size_t count)
 		return -EINVAL;
 	}
 
-	fis_enab = (uint)onoff;
+	fis_enab_always = (uint)onoff;
 
 	return count;
 }
@@ -1337,8 +1337,8 @@ static struct dhd_attr dhd_attr_sock_qos_unit_test =
 #ifdef DHD_SSSR_DUMP
 static struct dhd_attr dhd_attr_sssr_enab =
 	__ATTR(sssr_enab, 0660, show_sssr_enab, set_sssr_enab);
-static struct dhd_attr dhd_attr_fis_enab =
-	__ATTR(fis_enab, 0660, show_fis_enab, set_fis_enab);
+static struct dhd_attr dhd_attr_fis_enab_always =
+	__ATTR(fis_enab_always, 0660, show_fis_enab_always, set_fis_enab_always);
 #endif /* DHD_SSSR_DUMP */
 
 static struct dhd_attr dhd_attr_firmware_path =
@@ -2908,7 +2908,7 @@ static struct attribute *default_file_attrs[] = {
 #endif /* DHD_QOS_ON_SOCK_FLOW */
 #ifdef DHD_SSSR_DUMP
 	&dhd_attr_sssr_enab.attr,
-	&dhd_attr_fis_enab.attr,
+	&dhd_attr_fis_enab_always.attr,
 #endif /* DHD_SSSR_DUMP */
 	&dhd_attr_firmware_path.attr,
 	&dhd_attr_nvram_path.attr,
@@ -3711,6 +3711,50 @@ dhd_logger_set_qdump(struct dhd_info *dev, const char *buf, size_t count)
 static struct dhd_attr dhd_logger_attr_qdump =
 __ATTR(qdump, 0660, dhd_logger_show_qdump, dhd_logger_set_qdump);
 
+/* show the DHD logger route_events value. */
+static ssize_t
+dhd_logger_show_route_events(struct dhd_info *dev, char *buf)
+{
+	dhd_info_t *dhd = (dhd_info_t *)dev;
+	dhd_pub_t *dhdp;
+	ssize_t ret = 0;
+	bool route_events;
+
+	if (!dhd) {
+		DHD_ERROR(("%s: dhd is NULL\n", __FUNCTION__));
+		return -EINVAL;
+	}
+	dhdp = &dhd->pub;
+	route_events = dhd_log_show_route_events(dhdp->logger);
+	ret = scnprintf(buf, PAGE_SIZE - 1, "%d\n", route_events);
+	return ret;
+}
+
+/* set the DHD logger route_events level */
+static ssize_t
+dhd_logger_set_route_events(struct dhd_info *dev, const char *buf, size_t count)
+{
+	dhd_info_t *dhd = (dhd_info_t *)dev;
+	dhd_pub_t *dhdp;
+	unsigned long route_events;
+
+	if (!dhd) {
+		DHD_ERROR(("%s: dhd is NULL\n", __FUNCTION__));
+		return -EINVAL;
+	}
+
+	dhdp = &dhd->pub;
+	route_events = bcm_strtoul(buf, NULL, 10);
+	if (route_events != 0 && route_events != 1) {
+		return -EINVAL;
+	}
+	dhd_log_set_route_events(dhdp->logger, route_events);
+	return count;
+}
+
+static struct dhd_attr dhd_logger_attr_route_events =
+__ATTR(route_events, 0660, dhd_logger_show_route_events, dhd_logger_set_route_events);
+
 /* show the DHD logger filter value. */
 static ssize_t
 dhd_logger_show_filter(struct dhd_info *dev, char *buf)
@@ -3755,6 +3799,7 @@ __ATTR(filter, 0660, dhd_logger_show_filter, dhd_logger_set_filter);
 static struct attribute *debug_logger_attrs[] = {
 	&dhd_logger_attr_qdump.attr,
 	&dhd_logger_attr_filter.attr,
+	&dhd_logger_attr_route_events.attr,
 	NULL
 };
 

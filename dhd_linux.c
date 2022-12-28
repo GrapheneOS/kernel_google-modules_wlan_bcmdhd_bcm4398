@@ -675,7 +675,7 @@ module_param(enable_msi, uint, 0);
 #ifdef DHD_SSSR_DUMP
 int dhdpcie_sssr_dump_get_before_after_len(dhd_pub_t *dhd, uint32 *arr_len);
 module_param(sssr_enab, uint, 0);
-module_param(fis_enab, uint, 0);
+module_param(fis_enab_always, uint, 0);
 #endif /* DHD_SSSR_DUMP */
 
 /* Keep track of number of instances */
@@ -796,7 +796,7 @@ static char *rom_map_file_path = PLATFORM_PATH"roml.map";
 
 #ifdef COEX_CPU
 static char *coex_logstrs_path = PLATFORM_PATH"coex_logstrs.bin";
-static char *coex_st_str_file_path = PLATFORM_PATH"coex.bin";
+static char *coex_st_str_file_path = PLATFORM_PATH"coex_code.bin";
 static char *coex_map_file_path = PLATFORM_PATH"coex.map";
 #endif /* COEX_CPU */
 
@@ -6972,6 +6972,7 @@ dhd_open(struct net_device *net)
 #endif /* DHD_GRO_ENABLE_HOST_CTRL */
 #ifdef DHD_SSSR_DUMP
 	dhd->pub.collect_sssr = FALSE;
+	dhd->pub.fis_enab_no_db7ack = FALSE;
 #endif /* DHD_SSSR_DUMP */
 #ifdef DHD_SDTC_ETB_DUMP
 	dhd->pub.collect_sdtc = FALSE;
@@ -9186,9 +9187,13 @@ dhd_attach(osl_t *osh, struct dhd_bus *bus, uint bus_hdrlen)
 	dhd->pub.check_trap_rot = FALSE;
 #endif /* CHECK_TRAP_ROT */
 
-#ifdef WBRC
+#if defined(WBRC)
+#if defined(BCMDHD_MODULAR)
+	if (!wbrc_init()) {
+		wl2wbrc_wlan_init(&dhd->pub);
+	}
+#endif /* BCMDHD_MODULAR */
 	dhd->pub.chip_bighammer_count = 0;
-	wl2wbrc_wlan_init(&dhd->pub);
 #endif /* WBRC */
 
 	/* Set network interface name if it was provided as module parameter */
@@ -10173,6 +10178,7 @@ dhd_bus_start(dhd_pub_t *dhdp)
 
 #ifdef DHD_SSSR_DUMP
 	dhdp->collect_sssr = FALSE;
+	dhdp->fis_enab_no_db7ack = FALSE;
 #endif /* DHD_SSSR_DUMP */
 #ifdef DHD_SDTC_ETB_DUMP
 	dhdp->collect_sdtc = FALSE;
@@ -15225,6 +15231,10 @@ void dhd_detach(dhd_pub_t *dhdp)
 	dhd_sysfs_exit(dhd);
 	dhd->pub.fw_download_status = FW_UNLOADED;
 
+#if defined(WBRC) && defined(BCMDHD_MODULAR)
+	wbrc_exit();
+#endif /* WBRC && BCMDHD_MODULAR */
+
 #if defined(BT_OVER_SDIO)
 	mutex_destroy(&dhd->bus_user_lock);
 #endif /* BT_OVER_SDIO */
@@ -20217,32 +20227,53 @@ dhd_mem_dump(void *handle, void *event_info, u8 event)
 	if (sssr_enab && dhdp->sssr_inited && dhdp->collect_sssr) {
 		uint32 arr_len[DUMP_SSSR_DUMP_MAX_COUNT];
 
-		if (fis_enab && dhdp->sssr_reg_info->rev3.fis_enab) {
-			int bcmerror = dhd_bus_fis_trigger(dhdp);
+		DHD_PRINT(("%s: fis_enab_always=%d fis_enab_no_db7ack=%d\n",
+			__FUNCTION__, fis_enab_always, dhdp->fis_enab_no_db7ack));
 
-			if (bcmerror == BCME_OK) {
-				dhd_bus_fis_dump(dhdp);
-			} else {
-				DHD_ERROR(("%s: FIS trigger failed: %d\n",
-					__FUNCTION__, bcmerror));
+		/* Collect FIS only if dongle supports FIS and
+		 * dhd always supports(mod param) OR for ROTs with no DB7 ack.
+		 */
+		if (fis_enab_always || dhdp->fis_enab_no_db7ack) {
+			uint32 dongle_fis_enab = FALSE;
+
+			switch (dhdp->sssr_reg_info->rev2.version) {
+				case SSSR_REG_INFO_VER_4 :
+					dongle_fis_enab = dhdp->sssr_reg_info->rev4.fis_enab;
+					break;
+				case SSSR_REG_INFO_VER_3 :
+					dongle_fis_enab = dhdp->sssr_reg_info->rev3.fis_enab;
+					break;
+			}
+			DHD_PRINT(("%s: dongle_fis_enab=%d\n", __FUNCTION__, dongle_fis_enab));
+			/* Collect FIS only if dongle supports */
+			if (dongle_fis_enab) {
+				int bcmerror = dhd_bus_fis_trigger(dhdp);
+				if (bcmerror == BCME_OK) {
+					dhd_bus_fis_dump(dhdp);
+				} else {
+					DHD_ERROR(("%s: FIS trigger failed: %d\n",
+						__FUNCTION__, bcmerror));
+					goto exit;
+				}
+#ifdef DHD_SDTC_ETB_DUMP
+				/* TODO: disable SDTC for time being as SDTC needs more changes */
+				dhdp->collect_sdtc = FALSE;
+#endif /* DHD_SDTC_ETB_DUMP */
 			}
 		} else	{
-			DHD_PRINT(("%s: FIS not enabled (%d:%d), collect legacy sssr\n",
-				__FUNCTION__, fis_enab, dhdp->sssr_reg_info->rev3.fis_enab));
+			DHD_PRINT(("%s: FIS not enabled, collect legacy sssr\n",
+				__FUNCTION__));
 			dhdpcie_sssr_dump(dhdp);
 		}
-#ifndef DHD_FIS_DUMP
-		/* Reset fis_enab flag after fis collection which was set for init failure debug */
-		fis_enab = FALSE;
-#endif /* DHD_FIS_DUMP */
+
 		/* Print sssr buffer address for debugging */
 		if (dhdp->sssr_dump_collected) {
 			dhdpcie_sssr_dump_get_before_after_len(dhdp, arr_len);
 		}
 	}
 #endif /* DHD_SSSR_DUMP */
-
 #ifdef DHD_SDTC_ETB_DUMP
+	DHD_PRINT(("%s: collect_sdtc = %d", __FUNCTION__, dhdp->collect_sdtc));
 	if (dhdp->collect_sdtc) {
 		dhd_sdtc_etb_dump(dhdp);
 		dhdp->collect_sdtc = FALSE;
@@ -20469,7 +20500,6 @@ exit:
 	dhd_os_busbusy_wake(dhdp);
 	DHD_GENERAL_UNLOCK(dhdp, flags);
 	dhd->scheduled_memdump = FALSE;
-
 
 #ifdef OEM_ANDROID
 	if (dhdp->hang_was_pending) {
@@ -25316,12 +25346,9 @@ void
 dhd_initilize_idsup(uint16 chipid)
 {
 #if defined(BCMSUP_4WAY_HANDSHAKE)
-	/*
+	/*  For chips not supporting idsup make dhd_use_idsup = FALSE under chipid check.
 	 *  This is needed to use 4-way HS from wpa_supplicant.
 	 *  Once offload of 4-way HS to FW is ready this will be removed.
 	 */
-	if (chipid == BCM4383_CHIP_ID) {
-		dhd_use_idsup = FALSE;
-	}
 #endif /* BCMSUP_4WAY_HANDSHAKE */
 }

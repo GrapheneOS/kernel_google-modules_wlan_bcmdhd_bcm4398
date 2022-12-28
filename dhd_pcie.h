@@ -217,8 +217,14 @@ typedef struct dhdpcie_config_save
 	uint32 aer_cmask;     /* 0x14 */
 	uint32 aer_root_cmd;  /* 0x2c */
 	/* BAR0 and BAR1 windows */
-	uint32 bar0_win;
-	uint32 bar1_win;
+	uint32 bar0_win;	/* 0x80 */
+	uint32 bar1_win;	/* 0x84 */
+	/* BAR0 wrapper base */
+	uint32 bar0_win2;	/* 0x70 */
+	/* Secondoary BAR0 */
+	uint32 bar0_core2_win;	/* 0x74 */
+	/* Secondoary BAR0 wrapper base */
+	uint32 bar0_core2_win2;	/* 0x78 */
 } dhdpcie_config_save_t;
 
 /* The level of bus communication with the dongle */
@@ -1030,6 +1036,16 @@ dhd_pcie_config_read(dhd_bus_t *bus, uint offset, uint size)
 		OSL_DELAY(100);
 	}
 	return OSL_PCI_READ_CONFIG(bus->osh, offset, size);
+}
+
+static INLINE void
+dhd_pcie_config_write(dhd_bus_t *bus, uint offset, uint size, uint data)
+{
+	/* For 4375 or prior chips to 4375 */
+	if (bus->sih && bus->sih->buscorerev <= 64) {
+		OSL_DELAY(100);
+	}
+	OSL_PCI_WRITE_CONFIG(bus->osh, offset, size, data);
 }
 
 extern int dhdpcie_get_fwpath_otp(dhd_bus_t *bus, char *fw_path, char *nv_path,

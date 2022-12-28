@@ -236,6 +236,14 @@ DHDCFLAGS += -DAPSTA_BLOCK_ARP_DURING_DHCP
 # Bypass wpa_supplicant's BSSID selection
 DHDCFLAGS += -DWL_SKIP_CONNECT_HINTS
 
+# Dynamic indoor policy
+DHDCFLAGS += -DWL_DYNAMIC_INDOOR_POLICY
+# Enable the below flag after supplicant support for indoor flag has been added
+# DHDCFLAGS += -DUSE_INDOOR_CHAN_FLAG
+# Comment out below flag after HAL Android interface is integrated. This is enabled
+# by default for SVT validation.
+DHDCFLAGS += -DDYN_INDOOR_ENABLED_BY_DEFAULT
+
 ifneq ($(CONFIG_BCMDHD_PCIE),)
 	DHDCFLAGS += -DWLAN_ACCEL_BOOT
     # Enable Tx checksum offloads
@@ -253,7 +261,7 @@ ifneq ($(CONFIG_BCMDHD_PCIE),)
         DHDCFLAGS += -DDHD_SSSR_DUMP_BEFORE_SR
     endif
     # Enable FIS Dump
-    # DHDCFLAGS += -DDHD_FIS_DUMP
+    # DHDCFLAGS += -DDHD_FIS_DUMP_ALWAYS
     # Enable System Debug Trace Controller, Embedded Trace Buffer
       DHDCFLAGS += -DDHD_SDTC_ETB_DUMP
     # Enable SMD/Minidump collection
@@ -657,6 +665,8 @@ DHDCFLAGS += -DWL_NAN -DWL_NAN_DISC_CACHE -DWL_NANP2P -DNAN_DAM_ANDROID
 DHDCFLAGS += -DWL_NAN_INSTANT_MODE
 
 DHDCFLAGS += -DFTM
+
+DHDCFLAGS += -DDHD_RTT_USE_FTM_RANGE
 
 DHDCFLAGS += -DQOS_MAP_SET
 DHDCFLAGS += -DDHD_DSCP_POLICY

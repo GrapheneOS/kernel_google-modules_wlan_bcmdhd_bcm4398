@@ -1523,7 +1523,17 @@ osl_sysuptime_us(void)
 uint64
 osl_sysuptime_ns(void)
 {
-	return ktime_get_real_ns();
+	struct timespec64 ts;
+	uint64 nsec;
+
+	ktime_get_real_ts64(&ts);
+	/* tv_nsec content is fraction of a second */
+	nsec = (uint64)ts.tv_sec * NSEC_PER_SEC + ts.tv_nsec;
+#if defined(BCMSLTGT)
+	/* scale down the time to match the slow target roughly */
+	nsec /= htclkratio;
+#endif /* BCMSLTGT */
+	return nsec;
 }
 
 uint64
@@ -1589,6 +1599,12 @@ osl_get_rtctime(void)
 			"%02d:%02d:%02d.%06lu",
 			tm.tm_hour, tm.tm_min, tm.tm_sec, ts.tv_nsec/NSEC_PER_USEC);
 	return timebuf;
+}
+
+uint64
+osl_getcycles(void)
+{
+	return get_cycles();
 }
 
 /*
@@ -1836,19 +1852,6 @@ void *
 osl_cached(void *va)
 {
 	return ((void*)va);
-}
-
-uint
-osl_getcycles(void)
-{
-	uint cycles;
-
-#if defined(__i386__)
-	rdtscl(cycles);
-#else
-	cycles = 0;
-#endif /* __i386__ */
-	return cycles;
 }
 
 void *

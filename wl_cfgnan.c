@@ -2325,8 +2325,8 @@ wl_cfgnan_check_for_valid_5gchan(struct net_device *ndev, uint8 chan)
 	uint bitmap;
 	u8 ioctl_buf[WLC_IOCTL_SMLEN];
 	uint32 chanspec_arg;
-	NAN_DBG_ENTER();
 
+	NAN_DBG_ENTER();
 	chanspec_arg = CH20MHZ_CHSPEC(chan);
 	chanspec_arg = wl_chspec_host_to_driver(chanspec_arg);
 	bzero(ioctl_buf, WLC_IOCTL_SMLEN);
@@ -2351,12 +2351,6 @@ wl_cfgnan_check_for_valid_5gchan(struct net_device *ndev, uint8 chan)
 		goto exit;
 	}
 
-	if (bitmap & WL_CHAN_RADAR) {
-		WL_ERR(("Radar channel, NAN can not operate\n"));
-		ret = BCME_BADCHAN;
-		goto exit;
-	}
-
 	if (bitmap & WL_CHAN_PASSIVE) {
 		WL_ERR(("Passive channel, NAN can not operate\n"));
 		ret = BCME_BADCHAN;
@@ -2374,6 +2368,26 @@ wl_cfgnan_check_for_valid_5gchan(struct net_device *ndev, uint8 chan)
 		ret = BCME_BADCHAN;
 		goto exit;
 	}
+
+	if (bitmap & WL_CHAN_P2P_PROHIBITED) {
+		WL_ERR(("peer to peer prohibited channel, NAN can not operate\n"));
+		ret = BCME_BADCHAN;
+		goto exit;
+	}
+
+	if (bitmap & WL_CHAN_RADAR) {
+		WL_ERR(("DFS channel, NAN can not operate\n"));
+		ret = BCME_BADCHAN;
+		goto exit;
+	}
+
+	/* if no other restrictions, check for indoor restriction */
+	if (bitmap & WL_CHAN_INDOOR_ONLY) {
+		WL_ERR(("INDOOR ONLY channel, NAN can not operate\n"));
+		ret = BCME_BADCHAN;
+		goto exit;
+	}
+
 exit:
 	NAN_DBG_EXIT();
 	return ret;

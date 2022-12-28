@@ -457,8 +457,6 @@ static int wl_get_p2p_disc_ies(struct bcm_cfg80211 *cfg,
 	struct wireless_dev *wdev, u8 **p2p_ie, u16 *p2p_ie_len);
 #ifdef WL_MLO
 static bool wl_get_mlo_cap(struct net_device *dev);
-static s32 wl_cfg80211_ml_init(struct bcm_cfg80211 *cfg);
-static void wl_cfg80211_ml_deinit(struct bcm_cfg80211 *cfg);
 #endif /* WL_MLO */
 
 #define WL_MAX_NUM_CSA_COUNTERS		255
@@ -6230,10 +6228,11 @@ exit:
  * Get MLD netinfo by iterating through bcm_cfg80211
  */
 struct net_info *
-wl_cfg80211_get_mld_netinfo_by_cfg(struct bcm_cfg80211 *cfg)
+wl_cfg80211_get_mld_netinfo_by_cfg(struct bcm_cfg80211 *cfg, u8 *ml_conn_count)
 {
 	struct net_info *iter, *next;
-	struct net_device *mld_ndev = NULL;
+	struct net_info *mld_netinfo = NULL;
+	u8 conn_count = 0;
 
 	if (!cfg->mlo.supported) {
 		return NULL;
@@ -6242,46 +6241,56 @@ wl_cfg80211_get_mld_netinfo_by_cfg(struct bcm_cfg80211 *cfg)
 	GCC_DIAGNOSTIC_PUSH_SUPPRESS_CAST();
 	for_each_ndev(cfg, iter, next) {
 		GCC_DIAGNOSTIC_POP();
+
 		/* Get mld ndev from the netinfo list */
-		mld_ndev = iter->mlinfo.mld_dev;
-		if (mld_ndev && (iter->ndev == mld_ndev)) {
-			return iter;
+		if (iter->mlinfo.num_links) {
+			mld_netinfo = iter;
+			conn_count++;
 		}
 	}
 
-	return NULL;
+	*ml_conn_count = conn_count;
+	if (conn_count > 1) {
+		/* This API is expeced to be used only in single STA use case */
+		WL_INFORM(("muli ML links available\n"));
+		return NULL;
+	}
+
+	return mld_netinfo;
 }
 
 /*
- * Get MLD netinfo from any of the associated link netinfo
+ * Get MLD netinfo from ifidx, bsscfgidx
  */
 struct net_info *
 wl_cfg80211_get_mld_netinfo(struct bcm_cfg80211 *cfg, u8 ifidx, u8 bsscfgidx)
 {
-	struct net_info *netinfo, *mld_netinfo = NULL;
-	struct net_device *mld_ndev = NULL;
+	struct net_info *mld_netinfo = NULL;
+	u32 i;
+	struct net_info *iter, *next;
+	wl_mlo_link_t *link = NULL;
 
-	netinfo = wl_get_netinfo_by_fw_idx(cfg, bsscfgidx, ifidx);
-	if (!netinfo) {
-		WL_ERR(("netinfo null\n"));
-		return NULL;
+	mld_netinfo = wl_get_netinfo_by_fw_idx(cfg, bsscfgidx, ifidx);
+	if (mld_netinfo) {
+		return mld_netinfo;
 	}
 
-	mld_ndev = netinfo->mlinfo.mld_dev;
-	if (!mld_ndev) {
-		WL_ERR(("mld_ndev null\n"));
-		return NULL;
-	}
-	if (netinfo->ndev == mld_ndev) {
-		/* query on primary link == MLD I/F */
-		return netinfo;
-	}
-
-	/* find netinfo of MLD */
-	mld_netinfo = wl_get_netinfo_by_wdev(cfg, mld_ndev->ieee80211_ptr);
-	if (!mld_netinfo) {
-		WL_ERR(("mld netinfo null\n"));
-		return NULL;
+	/* Go through each netinfo and check for associated links for a match */
+	GCC_DIAGNOSTIC_PUSH_SUPPRESS_CAST();
+	for_each_ndev(cfg, iter, next) {
+		GCC_DIAGNOSTIC_POP();
+		if (iter->ndev && iter->mlinfo.num_links) {
+			for (i = 0; i < MAX_MLO_LINK; i++) {
+				link = &iter->mlinfo.links[i];
+				if (link && (link->if_idx == ifidx) &&
+						(link->cfg_idx == bsscfgidx)) {
+					WL_DBG(("matching link found for ifidx:%d bsscfgidx:%d\n",
+						ifidx, bsscfgidx));
+					mld_netinfo = iter;
+					break;
+				}
+			}
+		}
 	}
 
 	return mld_netinfo;
@@ -6312,7 +6321,7 @@ wl_cfg80211_get_ml_link_by_linkidx(struct bcm_cfg80211 *cfg,
 }
 
 wl_mlo_link_t *
-wl_cfg80211_get_ml_link_detail(struct bcm_cfg80211 *cfg,	u8 ifidx, u8 bsscfgidx)
+wl_cfg80211_get_ml_link_detail(struct bcm_cfg80211 *cfg, u8 ifidx, u8 bsscfgidx)
 {
 	struct net_info *mld_netinfo;
 	wl_mlo_link_t *linkinfo = NULL;
@@ -6438,9 +6447,8 @@ exit:
 static void
 wl_clear_ml_link_data_by_mld_netinfo(struct bcm_cfg80211 *cfg, struct net_info *mld_netinfo)
 {
-	struct net_info *netinfo;
 	u8 i;
-	wl_mlo_link_t *linkinfo = NULL;
+	wl_mlo_link_t *link = NULL;
 
 	if (!mld_netinfo) {
 		WL_ERR(("netinfo not valid!\n"));
@@ -6455,19 +6463,13 @@ wl_clear_ml_link_data_by_mld_netinfo(struct bcm_cfg80211 *cfg, struct net_info *
 
 	/* clear id from mld netinfo struct and then clear independent netinfo */
 	for (i = 0; i < mld_netinfo->mlinfo.num_links; i++) {
-		linkinfo = &mld_netinfo->mlinfo.links[i];
+		link = &mld_netinfo->mlinfo.links[i];
 
 		WL_INFORM_MEM(("clearing link data for ifidx:%d bsscfgidx:%d\n",
-			linkinfo->if_idx, linkinfo->cfg_idx));
+			link->if_idx, link->cfg_idx));
+		link->if_idx = WL_INVALID;
+		link->cfg_idx = WL_INVALID;
 
-		/* Mark netinfo corresponding to secondary link/s as free */
-		netinfo = _wl_get_netinfo_by_fw_idx(cfg, linkinfo->cfg_idx, linkinfo->if_idx);
-		if (netinfo && (netinfo != mld_netinfo)) {
-			(void)memset_s(&netinfo->mlinfo, sizeof(wl_mlo_link_info_t), 0,
-				sizeof(wl_mlo_link_info_t));
-			netinfo->bssidx = WL_INVALID;
-			netinfo->ifidx = WL_INVALID;
-		}
 		mld_netinfo->mlinfo.num_links--;
 	}
 	(void)memset_s(&mld_netinfo->mlinfo, sizeof(wl_mlo_link_info_t), 0,
@@ -6527,81 +6529,14 @@ wl_get_free_sta_mllink_netinfo(struct bcm_cfg80211 *cfg)
 }
 
 static s32
-wl_cfg80211_ml_init(struct bcm_cfg80211 *cfg)
-{
-	s32 ret = BCME_OK;
-	u32 max_ml_links = MAX_MLO_LINK;
-	int i;
-
-	/* Allocate netinfo for ML links. (max_ml_links - 1) since primary is
-	 * already allocated)
-	 */
-	for (i = 0; i < (max_ml_links - 1); i++) {
-
-		/* alloc netinfo with invalid bssidx */
-		ret = wl_alloc_netinfo(cfg, NULL, NULL, WL_IF_TYPE_MLO_STA_LINK,
-			PM_ENABLE, WL_INVALID, 0);
-		if (unlikely(ret)) {
-			WL_ERR(("alloc netinfo failed for ML link\n"));
-			goto exit;
-		}
-	}
-
-exit:
-	return ret;
-}
-
-static void
-wl_cfg80211_ml_deinit(struct bcm_cfg80211 *cfg)
-{
-	struct net_info *iter, *next;
-
-	WL_DBG(("Enter\n"));
-
-	GCC_DIAGNOSTIC_PUSH_SUPPRESS_CAST();
-	for_each_ndev(cfg, iter, next) {
-		GCC_DIAGNOSTIC_POP();
-		/* Check against wl_iftype_t type */
-		if (IS_WL_IFTYPE_MLO_STA_LINK(iter->iftype)) {
-			/* clear netinfo */
-			wl_dealloc_netinfo(cfg, iter);
-		}
-	}
-}
-
-static s32
 wl_ml_link_add(struct bcm_cfg80211 *cfg,
 	struct net_info *mld_netinfo, wl_mlo_per_link_info_v1_t *link, u8 index)
 {
 	wl_mlo_link_t *linkinfo;
-	struct net_info *netinfo;
-	s32 ret = BCME_OK;
 
 	if (!mld_netinfo) {
 		WL_ERR(("netinfo not found\n"));
 		return BCME_ERROR;
-	}
-
-	if ((mld_netinfo->ifidx != link->if_idx) ||
-		(mld_netinfo->bssidx != link->cfg_idx)) {
-		/* Non MLD I/F. use free mllink netinfo */
-		netinfo = wl_get_free_sta_mllink_netinfo(cfg);
-		if (unlikely(!netinfo)) {
-			WL_ERR(("no free ml-link netinfo\n"));
-			ret = BCME_ERROR;
-			 goto exit;
-		}
-		/* assign a netinfo entry for the non-primary link so that event come
-		 * on that can be mapped to MLD.
-		 */
-		netinfo->bssidx = link->cfg_idx;
-		netinfo->ifidx = link->if_idx;
-		netinfo->mlinfo.mld_dev = mld_netinfo->ndev;
-		WL_INFORM_MEM(("[MLO] non-primary link. bssidx:%d ifidx:%d\n",
-			link->cfg_idx, link->if_idx));
-	} else {
-		/* primary link */
-		mld_netinfo->mlinfo.mld_dev = mld_netinfo->ndev;
 	}
 
 	linkinfo = &mld_netinfo->mlinfo.links[index];
@@ -6616,8 +6551,7 @@ wl_ml_link_add(struct bcm_cfg80211 *cfg,
 
 	mld_netinfo->mlinfo.num_links++;
 
-exit:
-	return ret;
+	return BCME_OK;
 }
 
 static s32
@@ -6658,7 +6592,7 @@ wl_cfg80211_ml_link_add(struct bcm_cfg80211 *cfg, struct wireless_dev *wdev,
 		goto exit;
 	}
 
-	/* Clear ml link data on new link add event in case existing are not deleted */
+	/* Clear ml link data on new link add event in case of obsolete data */
 	if (mld_netinfo->mlinfo.num_links) {
 		WL_INFORM_MEM(("Clear any existing ml link data, on new link add event %d\n",
 			mld_netinfo->mlinfo.num_links));
@@ -6724,11 +6658,11 @@ static s32
 wl_cfg80211_ml_link_del(struct bcm_cfg80211 *cfg, struct wireless_dev *wdev,
 	const wl_event_msg_t *e, void *data)
 {
-	struct net_info *netinfo, *mld_netinfo;
+	struct net_info *mld_netinfo;
 	wl_mlo_link_info_event_v1_t *info;
 	s32 i, j;
 	s32 ret = BCME_OK;
-	wl_mlo_link_t *linkinfo = NULL;
+	wl_mlo_link_t *ml_link = NULL;
 
 	info = (wl_mlo_link_info_event_v1_t *)data;
 	WL_DBG(("ver:%d len:%d op_code:%d role:%d num_links:%d\n",
@@ -6772,28 +6706,17 @@ wl_cfg80211_ml_link_del(struct bcm_cfg80211 *cfg, struct wireless_dev *wdev,
 
 		/* clear id from mld netinfo struct and then clear independent netinfo */
 		for (j = 0; j < MAX_MLO_LINK; j++)	 {
-			linkinfo = &mld_netinfo->mlinfo.links[j];
+			ml_link = &mld_netinfo->mlinfo.links[j];
 
-			if ((linkinfo->if_idx == link->if_idx) &&
-					(linkinfo->cfg_idx == link->cfg_idx)) {
+			if ((ml_link->if_idx == link->if_idx) &&
+					(ml_link->cfg_idx == link->cfg_idx)) {
 				WL_DBG(("matching link found for ifidx:%d bsscfgidx:%d\n",
 					link->if_idx, link->cfg_idx));
-				(void)memset_s(linkinfo, sizeof(wl_mlo_link_t), 0,
+				(void)memset_s(ml_link, sizeof(wl_mlo_link_t), 0,
 					sizeof(wl_mlo_link_t));
 				mld_netinfo->mlinfo.num_links--;
 				break;
 			}
-		}
-
-		/* Mark netinfo corresponding to secondary link/s as free */
-		netinfo = _wl_get_netinfo_by_fw_idx(cfg, link->cfg_idx, link->if_idx);
-		if (netinfo && (netinfo != mld_netinfo)) {
-			WL_DBG(("Clearing netinfo for ifidx:%d bsscfgidx:%d\n",
-					link->if_idx, link->cfg_idx));
-			(void)memset_s(&netinfo->mlinfo, sizeof(wl_mlo_link_info_t), 0,
-				sizeof(wl_mlo_link_info_t));
-			netinfo->bssidx = WL_INVALID;
-			netinfo->ifidx = WL_INVALID;
 		}
 	}
 
@@ -13379,6 +13302,11 @@ wl_post_linkup_ops(struct bcm_cfg80211 *cfg, wl_assoc_status_t *as)
 	wl_cfgvif_roam_config(cfg, ndev, ROAM_CONF_LINKUP);
 #endif /* WL_DUAL_APSTA */
 
+#ifdef WL_DYNAMIC_INDOOR_POLICY
+	/* Update channel list dynamically based on STA connection as required */
+	wl_cfgscan_update_dynamic_channels(cfg, ndev, TRUE);
+#endif /* WL_DYNAMIC_INDOOR_POLICY */
+
 	return ret;
 }
 
@@ -14564,6 +14492,11 @@ wl_post_linkdown_ops(struct bcm_cfg80211 *cfg,
 	}
 #endif /* SUPPORT_SET_TID */
 
+#ifdef WL_DYNAMIC_INDOOR_POLICY
+	/* Update channel list dynamically based on STA connection as required */
+	wl_cfgscan_update_dynamic_channels(cfg, ndev, FALSE);
+#endif /* WL_DYNAMIC_INDOOR_POLICY */
+
 	return ret;
 }
 
@@ -14893,7 +14826,10 @@ wl_handle_assoc_done(struct bcm_cfg80211 *cfg, wl_assoc_status_t *as)
 
 #ifdef WL_MLO
 	if ((as->event_type == WLC_E_LINK) && (as->flags & WLC_EVENT_MSG_MULTILINK)) {
-		wl_cfg80211_get_mlo_link_detail(cfg, ndev);
+		if ((ret = wl_cfg80211_get_mlo_link_detail(cfg, ndev)) != BCME_OK) {
+			WL_ERR(("ml status fetch failed\n"));
+			return ret;
+		}
 	}
 #endif /* WL_MLO */
 
@@ -14932,6 +14868,16 @@ wl_handle_roam_done(struct bcm_cfg80211 *cfg, wl_assoc_status_t *as)
 		return ret;
 	}
 
+#ifdef WL_MLO
+	/* Update mlo link details post roam */
+	if ((as->event_type == WLC_E_LINK) && (as->flags & WLC_EVENT_MSG_MULTILINK)) {
+		if ((ret = wl_cfg80211_get_mlo_link_detail(cfg, as->ndev)) != BCME_OK) {
+			WL_ERR(("ML status fetch failed.\n"));
+			return ret;
+		}
+	}
+#endif /* WL_MLO */
+
 #ifdef DHD_EVENT_LOG_FILTER
 	dhd_event_log_filter_notify_connect_done(dhdp,
 			as->addr, true);
@@ -14952,6 +14898,11 @@ wl_handle_roam_done(struct bcm_cfg80211 *cfg, wl_assoc_status_t *as)
 
 	/* Arm pkt logging timer */
 	dhd_dump_mod_pkt_timer(dhdp, PKT_CNT_RSN_ROAM);
+
+#ifdef WL_DYNAMIC_INDOOR_POLICY
+	/* Update channel list dynamically based on STA connection as required */
+	wl_cfgscan_update_dynamic_channels(cfg, as->ndev, TRUE);
+#endif /* WL_DYNAMIC_INDOOR_POLICY */
 
 	return ret;
 }
@@ -16480,8 +16431,6 @@ wl_bss_roaming_done(struct bcm_cfg80211 *cfg, struct net_device *ndev,
 	memset(&roam_info, 0, sizeof(struct cfg80211_roam_info));
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(6, 0, 0)) || defined(WL_MLO_BKPORT)
 	ssid = (struct wlc_ssid *)wl_read_prof(cfg, ndev, WL_PROF_SSID);
-	/* Update mlo link details post roam */
-	wl_cfg80211_get_mlo_link_detail(cfg, ndev);
 
 	mld_netinfo = wl_cfg80211_get_mld_netinfo(cfg, e->ifidx, e->bsscfgidx);
 	if ((mld_netinfo) && (mld_netinfo->mlinfo.num_links)) {
@@ -16866,6 +16815,7 @@ wl_bss_connect_done(struct bcm_cfg80211 *cfg, struct net_device *ndev,
 			WL_ERR(("failed to update bss info, err=%d\n", err));
 			goto exit;
 		}
+
 		if (cfg->wlc_ver.wlc_ver_major < PMKDB_WLC_VER) {
 			wl_update_pmklist(ndev, cfg->pmk_list, err);
 		}
@@ -18918,6 +18868,14 @@ s32 wl_cfg80211_attach(struct net_device *ndev, void *context)
 		}
 	}
 
+	/* allocate memory for chan_info_list cache */
+	cfg->chan_info_list = MALLOCZ(cfg->osh, CHAN_LIST_BUF_LEN);
+	if (cfg->chan_info_list == NULL) {
+		err = -ENOMEM;
+		WL_ERR(("Failed to allocate mem. %d\n", err));
+		goto cfg80211_attach_out;
+	}
+
 #if defined(OEM_ANDROID)
 	cfg->btcoex_info = wl_cfg80211_btcoex_init(cfg->wdev->netdev);
 	if (!cfg->btcoex_info)
@@ -18972,14 +18930,6 @@ s32 wl_cfg80211_attach(struct net_device *ndev, void *context)
 	wl_bad_ap_mngr_init(cfg);
 #endif	/* WL_BAM */
 
-#ifdef WL_MLO
-	err = wl_cfg80211_ml_init(cfg);
-	if (err) {
-		WL_ERR(("Failed to alloc ml %d\n", err));
-		goto cfg80211_attach_out;
-	}
-#endif /* WL_MLO */
-
 
 #if defined(DHD_DSCP_POLICY)
 	err = dhd_dscp_policy_attach(cfg);
@@ -18989,9 +18939,18 @@ s32 wl_cfg80211_attach(struct net_device *ndev, void *context)
 	}
 #endif /* defined(DHD_DSCP_POLICY) */
 
+#if defined(OEM_ANDROID) && defined(DYN_INDOOR_ENABLED_BY_DEFAULT)
+	cfg->dyn_indoor_policy = TRUE;
+#endif /* defined(OEM_ANDROID) && defined(DYN_INDOOR_ENABLED_BY_DEFAULT) */
+
 	return err;
 
 cfg80211_attach_out:
+
+	if (cfg->chan_info_list) {
+		MFREE(cfg->osh, cfg->chan_info_list, CHAN_LIST_BUF_LEN);
+	}
+
 	wl_setup_rfkill(cfg, FALSE);
 	wl_free_wdev(cfg);
 	return err;
@@ -19017,10 +18976,6 @@ void wl_cfg80211_detach(struct bcm_cfg80211 *cfg)
 #endif /* defined(OEM_ANDROID) */
 
 	wl_setup_rfkill(cfg, FALSE);
-
-#ifdef WL_MLO
-	wl_cfg80211_ml_deinit(cfg);
-#endif /* WL_MLO */
 
 #ifdef WL_WPS_SYNC
 	wl_deinit_wps_reauth_sm(cfg);
@@ -19053,6 +19008,9 @@ void wl_cfg80211_detach(struct bcm_cfg80211 *cfg)
 #if defined(DHD_DSCP_POLICY)
 	dhd_dscp_policy_detach(cfg);
 #endif	/* defined(DHD_DSCP_POLICY) */
+
+	/* Free up the memory reserved for chan list cache */
+	MFREE(cfg->osh, cfg->chan_info_list, CHAN_LIST_BUF_LEN);
 
 	wl_cfg80211_ibss_vsie_free(cfg);
 	wl_cfg80211_set_bcmcfg(NULL);
@@ -19286,32 +19244,26 @@ wl_cfg80211_event(struct net_device *ndev, const wl_event_msg_t * e, void *data)
 
 	netinfo = wl_get_netinfo_by_fw_idx(cfg, e->bsscfgidx, e->ifidx);
 	if (!netinfo) {
-		/* Since the netinfo entry is not there, the netdev entry is not
-		 * created via cfg80211 interface. so the event is not of interest
-		 * to the cfg80211 layer.
-		 */
-		WL_TRACE(("ignore event %d, not interested\n", event_type));
-		return;
-	}
-
 #ifdef WL_MLO
-	if (IS_WL_IFTYPE_MLO_STA_LINK(netinfo->iftype)) {
-		/* Replace ndev with MLD dev to map all the events to MLD
-		 * MLO wdev holds MLD netdev PTR
+		/* If its ML link, it may not have a corresponding netinfo. Only the bsscfg
+		 * associated with network interface will have an entry and all associated
+		 * link info needs to be fetched from that netinfo.
 		 */
-		WL_DBG(("Map MLO events to MLD\n"));
-		ndev = netinfo->mlinfo.mld_dev;
-		if (!ndev) {
-			WL_ERR(("Invalid mld ndev for MLO sta link\n"));
-			return;
-		}
-		netinfo = wl_get_netinfo_by_wdev(cfg, ndev->ieee80211_ptr);
-		if (!netinfo) {
-			WL_ERR(("No netinfo found for the mld dev\n"));
+		netinfo = wl_cfg80211_get_mld_netinfo(cfg, e->ifidx, e->bsscfgidx);
+		if (netinfo) {
+			WL_DBG(("Map MLO events to MLDi ndev\n"));
+			ndev = netinfo->ndev;
+		} else
+#endif /* WL_MLO */
+		{
+			/* Since the netinfo entry is not there, the netdev entry is not
+			 * created via cfg80211 interface. so the event is not of interest
+			 * to the cfg80211 layer.
+			 */
+			WL_TRACE(("ignore event %d, not interested\n", event_type));
 			return;
 		}
 	}
-#endif /* WL_MLO */
 
 	/* Handle wl_cfg80211_critical_events */
 	if (wl_cfg80211_handle_critical_events(cfg,
@@ -19635,11 +19587,13 @@ static s32 wl_update_chan_param(struct net_device *dev, u32 cur_chan,
 {
 	s32 err = BCME_OK;
 	u32 channel = cur_chan;
+	chanspec_t chspec = 0;
 
 	if (!(*dfs_radar_disabled)) {
 		if (legacy_chan_info) {
 			channel |= WL_CHANSPEC_BW_20;
-			channel = wl_chspec_host_to_driver(channel);
+			chspec = wl_chspec_host_to_driver(channel);
+			channel = chspec;
 			err = wldev_iovar_getint(dev, "per_chan_info", &channel);
 		}
 		if (!err) {
@@ -19651,6 +19605,20 @@ static s32 wl_update_chan_param(struct net_device *dev, u32 cur_chan,
 				band_chan->flags |= IEEE80211_CHAN_RADAR;
 #endif
 			}
+
+			if (channel & WL_CHAN_INDOOR_ONLY) {
+				INDOOR_DBG(("indoor channel:%x chspec:%x chan_info:%x\n",
+					channel, chspec, channel));
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 4, 0))
+				/* If no changes in dynamic check, apply indoor flag */
+#ifdef USE_INDOOR_CHAN_FLAG
+				band_chan->flags |= IEEE80211_CHAN_INDOOR_ONLY;
+#else
+				band_chan->flags |= IEEE80211_CHAN_NO_IR;
+#endif /* USE_INDOOR_CHAN_FLAG */
+#endif /* LINUX_VER >= 5.4 */
+			}
+
 			if ((channel & WL_CHAN_PASSIVE) ||
 				(channel & WL_CHAN_CLM_RESTRICTED)) {
 #if (LINUX_VERSION_CODE < KERNEL_VERSION(3, 14, 0))
@@ -19659,6 +19627,7 @@ static s32 wl_update_chan_param(struct net_device *dev, u32 cur_chan,
 				band_chan->flags |= IEEE80211_CHAN_NO_IR;
 #endif
 			}
+
 		} else if (err == BCME_UNSUPPORTED) {
 			*dfs_radar_disabled = TRUE;
 			WL_ERR(("does not support per_chan_info\n"));
@@ -19681,30 +19650,30 @@ static int wl_construct_reginfo(struct bcm_cfg80211 *cfg, s32 bw_cap_2g,
 	bool dfs_radar_disabled = FALSE;
 	bool legacy_chan_info = FALSE;
 	u16 list_count;
+	u32 chaninfo = 0;
+	u32 tot_size;
 
-#define LOCAL_BUF_LEN 4096
-	list = MALLOCZ(cfg->osh, LOCAL_BUF_LEN);
-	if (list == NULL) {
-		WL_ERR(("failed to allocate local buf\n"));
+	/* buffer will be allocated during attach time */
+	if (cfg->chan_info_list == NULL) {
+		WL_ERR(("No scan cache buf available\n"));
 		return -ENOMEM;
 	}
+	list = cfg->chan_info_list;
 
 	err = wldev_iovar_getbuf_bsscfg(dev, "chan_info_list", NULL,
-		0, list, LOCAL_BUF_LEN, 0, &cfg->ioctl_buf_sync);
+		0, list, CHAN_LIST_BUF_LEN, 0, &cfg->ioctl_buf_sync);
 	if (err == BCME_UNSUPPORTED) {
 		WL_INFORM(("get chan_info_list, UNSUPPORTED\n"));
 		err = wldev_iovar_getbuf_bsscfg(dev, "chanspecs", NULL,
-			0, list, LOCAL_BUF_LEN, 0, &cfg->ioctl_buf_sync);
+			0, list, CHAN_LIST_BUF_LEN, 0, &cfg->ioctl_buf_sync);
 		if (err != BCME_OK) {
 			WL_ERR(("get chanspecs err(%d)\n", err));
-			MFREE(cfg->osh, list, LOCAL_BUF_LEN);
 			return err;
 		}
 		/* Update indicating legacy chan info usage */
 		legacy_chan_info = TRUE;
 	} else if (err != BCME_OK) {
 		WL_ERR(("get chan_info_list err(%d)\n", err));
-		MFREE(cfg->osh, list, LOCAL_BUF_LEN);
 		return err;
 	}
 
@@ -19714,8 +19683,23 @@ static int wl_construct_reginfo(struct bcm_cfg80211 *cfg, s32 bw_cap_2g,
 	WL_CHANNEL_ARRAY_INIT(__wl_6ghz_channels);
 #endif /* CFG80211_6G_SUPPORT */
 
-	list_count = legacy_chan_info ? ((wl_uint32_list_t *)list)->count :
-		((wl_chanspec_list_v1_t *)list)->count;
+	if (legacy_chan_info) {
+		list_count = ((wl_uint32_list_t *)list)->count;
+		/* count + num of elements * size of element */
+		tot_size = sizeof(u32) + (sizeof(u32) * list_count);
+	} else {
+		list_count = ((wl_chanspec_list_v1_t *)list)->count;
+		/* (num of elements * size of element) + ver + count */
+		tot_size = (sizeof(wl_chanspec_attr_v1_t) * list_count) + (sizeof(u16) * 2);
+	}
+
+	if (tot_size > CHAN_LIST_BUF_LEN) {
+		WL_ERR(("invalid chan_info_list size (%d)\n", tot_size));
+		return err;
+	}
+
+	WL_DBG(("chan_info_list cnt:%d\n", list_count));
+
 	for (i = 0; i < dtoh32(list_count); i++) {
 		index = 0;
 		ht40_allowed = false;
@@ -19724,6 +19708,8 @@ static int wl_construct_reginfo(struct bcm_cfg80211 *cfg, s32 bw_cap_2g,
 		} else {
 			chspec = (chanspec_t)dtoh32
 			(((wl_chanspec_list_v1_t *)list)->chspecs[i].chanspec);
+			chaninfo = dtoh32
+			(((wl_chanspec_list_v1_t *)list)->chspecs[i].chaninfo);
 		}
 		chspec = wl_chspec_driver_to_host(chspec);
 		channel = wf_chspec_ctlchan(chspec);
@@ -19809,8 +19795,7 @@ static int wl_construct_reginfo(struct bcm_cfg80211 *cfg, s32 bw_cap_2g,
 #endif /* WL_CFG80211_MONITOR */
 					band_chan_arr[index].flags = IEEE80211_CHAN_NO_HT40;
 				if (!legacy_chan_info) {
-					channel = dtoh32
-					(((wl_chanspec_list_v1_t *)list)->chspecs[i].chaninfo);
+					channel = chaninfo;
 				} else {
 					channel |= CHSPEC_BAND(chspec);
 				}
@@ -19834,8 +19819,6 @@ static int wl_construct_reginfo(struct bcm_cfg80211 *cfg, s32 bw_cap_2g,
 	__wl_band_6ghz.n_channels = ARRAYSIZE(__wl_6ghz_channels);
 #endif /* CFG80211_6G_SUPPORT */
 
-	MFREE(cfg->osh, list, LOCAL_BUF_LEN);
-#undef LOCAL_BUF_LEN
 	return err;
 }
 
@@ -20662,6 +20645,7 @@ static s32 __wl_cfg80211_up(struct bcm_cfg80211 *cfg)
 		}
 	}
 #endif /* WL_IDAUTH */
+
 	return err;
 }
 
@@ -25053,6 +25037,7 @@ wl_cfg80211_sup_event_handler(struct bcm_cfg80211 *cfg, bcm_struct_cfgdev *cfgde
 		reason != WLC_E_SUP_PTK_UPDATE)) {
 		/* if any failure seen while 4way HS, should send NL80211_CMD_DISCONNECT */
 		WL_ERR(("4way HS error. status:%d, reason:%d\n", status, reason));
+		wl_cfg80211_disassoc(ndev, wl_sup_event_ieee80211_error(reason));
 		CFG80211_DISCONNECTED(ndev, 0, NULL, 0, false, GFP_KERNEL);
 	}
 

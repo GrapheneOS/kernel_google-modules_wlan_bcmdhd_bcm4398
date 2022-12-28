@@ -96,6 +96,11 @@ int wbrc2wl_wlan_on_request(void *dhd_pub);
 /* WBRC2WL - download BT FW over PCIE BAR2 */
 int wbrc2wl_wlan_dwnld_bt_fw(void *dhd_pub, void *fw_blob, uint len);
 
+#if defined(BCMDHD_MODULAR)
+int wbrc_init(void);
+void wbrc_exit(void);
+#endif /* BCMDHD_MODULAR */
+
 #ifdef WBRC_TEST
 typedef struct wbrc_test_iovar {
 	char name[128];

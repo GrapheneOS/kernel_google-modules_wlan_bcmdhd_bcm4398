@@ -34,8 +34,27 @@
 /* For DHD builds define only those registers that needs to be accessed from Host */
 #if !defined(DONGLEBUILD)
 #define sr_eng_control_reg1_ADDR					0x504u
+#define sr_eng_Capabilities_ADDR					0x00u
+#define sr_eng_SrControl0_ADDR						0x04u
+#define sr_eng_SrControl1_ADDR						0x08u
+#define sr_eng_GpioControl_ADDR						0x0Cu
+#define sr_eng_Status0_ADDR						0x10u
+#define sr_eng_Status1_ADDR						0x14u
+#define sr_eng_IllegalInstrAddr_ADDR					0x20u
+#define sr_eng_IllegalInstrData0_ADDR					0x24u
+#define sr_eng_IllegalInstrData1_ADDR					0x28u
+#define sr_eng_Status2_ADDR						0x2Cu
+#define sr_eng_SrControl2_ADDR						0x30u
+#define sr_eng_PowerDomainInfoReg_ADDR					0x34u
+#define sr_eng_DataStartAddr0_ADDR					0x38u
+#define sr_eng_DataStartAddr1_ADDR					0x3Cu
+#define sr_eng_SRIntStatus_ADDR						0x40u
+#define sr_eng_SRIntMask_ADDR						0x44u
+#define sr_eng_Status1_ADDR						0x14u
 #define INVALID_ADDRESS_sr_eng						0xffffu
 #define sr_eng_DataStartAddr_ADDR					INVALID_ADDRESS_sr_eng
+
+#define SR_ENG_MAX_UNITS						4u
 #endif /* !DONGLEBUILD */
 
 typedef volatile struct srregs srregs_t;

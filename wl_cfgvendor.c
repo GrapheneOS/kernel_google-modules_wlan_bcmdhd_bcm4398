@@ -1885,6 +1885,44 @@ wl_cfgvendor_stop_hal(struct wiphy *wiphy,
 }
 #endif /* WL_CFG80211 */
 
+#ifdef WL_DYNAMIC_INDOOR_POLICY
+#define ENABLE_INDOOR_CHANNEL 0x0001
+#define ENABLE_DFS_CHANNEL    0x0002
+static int
+wl_cfgvendor_set_channel_policy(struct wiphy *wiphy,
+		struct wireless_dev *wdev, const void *data, int len)
+{
+	int err = BCME_OK, rem, type;
+	u32 channel_policy;
+	const struct nlattr *iter;
+	bool enable;
+	struct bcm_cfg80211 *cfg = wl_get_cfg(wdev->netdev);
+
+	nla_for_each_attr(iter, data, len, rem) {
+		type = nla_type(iter);
+		switch (type) {
+			case ANDR_WIFI_ATTRIBUTE_CHAN_POLICY:
+				channel_policy = nla_get_u32(iter);
+				enable = (channel_policy & ENABLE_INDOOR_CHANNEL) ? TRUE : FALSE;
+				err = wldev_iovar_setint(wdev->netdev,
+						"chan_concurrency_policy", enable);
+				if (unlikely(err)) {
+					WL_INFORM(("indoor channel policy failed (%d)\n", err));
+				} else {
+					WL_INFORM(("indoor chan policy configured (%d)\n", enable));
+					cfg->dyn_indoor_policy = enable;
+				}
+				break;
+			default:
+				WL_ERR(("Unknown type: %d\n", type));
+				return err;
+		}
+	}
+
+	return err;
+}
+#endif /* WL_DYNAMIC_INDOOR_POLICY */
+
 #ifdef WL_LATENCY_MODE
 static int
 wl_cfgvendor_latency_mode_config(struct wiphy *wiphy,
@@ -7489,8 +7527,9 @@ exit:
 /* 11n/HT:   OFDM(12) + HT(16) rates = 28 (MCS0 ~ MCS15)
  * 11ac/VHT: OFDM(12) + VHT(12) x 2 nss = 36 (MCS0 ~ MCS11)
  * 11ax/HE:  OFDM(12) + HE(12) x 2 nss = 36 (MCS0 ~ MCS11)
+ * 11be/EHT:  OFDM(12) + HE(14) x 2 nss = 40 (MCS0 ~ MCS13)
  */
-#define NUM_RATE 36
+#define NUM_RATE 40
 #define NUM_PEER 1
 #define NUM_CHAN 11
 #define HEADER_SIZE sizeof(ver_len)
@@ -12015,7 +12054,9 @@ void wl_cfgvendor_usable_channels_filter(struct bcm_cfg80211 *cfg, uint32 cur_ch
 		cur_band = CHSPEC_TO_WLC_BAND(CHSPEC_BAND(cur_chspec));
 		restrict_chan = ((sta_chaninfo & WL_CHAN_RADAR) ||
 				(sta_chaninfo & WL_CHAN_PASSIVE)||
-				(sta_chaninfo & WL_CHAN_CLM_RESTRICTED));
+				(sta_chaninfo & WL_CHAN_CLM_RESTRICTED) ||
+				(sta_chaninfo & WL_CHAN_INDOOR_ONLY) ||
+				(sta_chaninfo & WL_CHAN_P2P_PROHIBITED));
 
 		/* Filter out SOFTAP when STA connected DFS channel */
 		if (sta_band == WLC_BAND_5G && restrict_chan) {
@@ -12136,7 +12177,6 @@ static int wl_cfgvendor_get_usable_channels_handler(struct bcm_cfg80211 *cfg,
 	chanspec_t nan_inst_mode_chspec = INVCHANSPEC;
 #endif /* WL_NAN_INSTANT_MODE */
 
-
 	bzero(u_info->channels, sizeof(*u_info->channels) * u_info->max_size);
 	/* Get chan_info_list or chanspec from FW */
 
@@ -12209,8 +12249,11 @@ static int wl_cfgvendor_get_usable_channels_handler(struct bcm_cfg80211 *cfg,
 		}
 
 		restrict_chan = ((chaninfo & WL_CHAN_RADAR) ||
-				(chaninfo & WL_CHAN_PASSIVE)||
-				(chaninfo & WL_CHAN_CLM_RESTRICTED));
+				(chaninfo & WL_CHAN_PASSIVE) ||
+				(chaninfo & WL_CHAN_CLM_RESTRICTED) ||
+				(chaninfo & WL_CHAN_INDOOR_ONLY) ||
+				(chaninfo & WL_CHAN_P2P_PROHIBITED));
+
 #ifdef WL_SOFTAP_6G
 		vlp_psc_include = ((chaninfo & WL_CHAN_BAND_6G_PSC) &&
 			(chaninfo & WL_CHAN_BAND_6G_VLP));
@@ -12228,9 +12271,10 @@ static int wl_cfgvendor_get_usable_channels_handler(struct bcm_cfg80211 *cfg,
 			if (CHSPEC_IS5G(chspec) && (chaninfo & WL_CHAN_CLM_RESTRICTED)) {
 				/* if restricted channel, specifically allow only DFS channel
 				 * (radar+passive). TDLS operates on STA channel and
-				 * allowed in DFS channel
+				 * allowed in DFS channel unless it is peer-to-peer prohibited.
 				 */
-				if ((chaninfo & WL_CHAN_RADAR) && (chaninfo & WL_CHAN_PASSIVE)) {
+				if ((chaninfo & WL_CHAN_RADAR) && (chaninfo & WL_CHAN_PASSIVE) &&
+						!(chaninfo & WL_CHAN_P2P_PROHIBITED)) {
 					mask |= (1 << WIFI_INTERFACE_TDLS);
 				}
 			} else {
@@ -12532,6 +12576,228 @@ exit:
 	return ret;
 }
 
+void wl_cfgvendor_map_chspec_to_hal_wifi_channel_spec(chanspec_t *chanspec,
+	wifi_channel_spec *channel)
+{
+	int band;
+	chanspec_t cur_chanspec = *chanspec;
+	channel->width = WIFI_CHAN_WIDTH_INVALID;
+
+	if (CHSPEC_IS20(cur_chanspec)) {
+		channel->width = WIFI_CHAN_WIDTH_20;
+	} else if (CHSPEC_IS40(cur_chanspec)) {
+		channel->width = WIFI_CHAN_WIDTH_40;
+	} else if (CHSPEC_IS80(cur_chanspec)) {
+		channel->width = WIFI_CHAN_WIDTH_80;
+	} else if (CHSPEC_IS160(cur_chanspec)) {
+		channel->width = WIFI_CHAN_WIDTH_160;
+	} else if (CHSPEC_IS8080(cur_chanspec)) {
+		channel->width = WIFI_CHAN_WIDTH_80P80;
+	}
+
+	band = CHSPEC_BAND(cur_chanspec);
+	channel->primary_frequency =
+		wl_channel_to_frequency(wf_chspec_primary20_chan(cur_chanspec), band);
+
+	channel->center_frequency0 =
+		wl_channel_to_frequency(wf_chspec_center_channel(cur_chanspec), band);
+	return;
+}
+
+void wl_cfgvendor_map_scan_cache_to_hal(wlc_scan_cache_data_v1_t *from,
+	wifi_cached_scan_result_t *to)
+{
+	uint8 ssid_len = 0;
+	to->age_ms = from->age_ms;
+	to->capability = from->capability;
+	to->ssid_len = from->SSID.SSID_len;
+	ssid_len = MIN(sizeof(to->ssid), from->SSID.SSID_len);
+	(void)memcpy_s((char *)to->ssid, sizeof(to->ssid), (char *)from->SSID.SSID, ssid_len);
+	(void)memcpy_s((char *)to->bssid, ETHER_ADDR_LEN,
+		(char *)&from->BSSID, ETHER_ADDR_LEN);
+	to->flags = from->flags;
+	to->rssi = from->RSSI;
+	wl_cfgvendor_map_chspec_to_hal_wifi_channel_spec(&from->chanspec, &to->wifi_chanspec);
+
+	WL_SCAN_DBG(("ssid:%s\n", to->ssid));
+	WL_SCAN_DBG(("BSSID - "MACDBG"\n", MAC2STRDBG(to->bssid)));
+	WL_SCAN_DBG(("chanspec: 0x%x: width %d, center_frequency0 %d,"
+		" center_frequency1 %d, primary_frequency %d RSSI:%d \n",
+		from->chanspec, to->wifi_chanspec.width, to->wifi_chanspec.center_frequency0,
+		to->wifi_chanspec.center_frequency1, to->wifi_chanspec.primary_frequency,
+		to->rssi));
+	WL_SCAN_DBG(("capability:0x%x flags:0x%x \n", to->capability,
+		to->flags));
+	WL_SCAN_DBG(("age_ms:%d ms\n", to->age_ms));
+	return;
+}
+
+static int
+wl_cfgvendor_get_cached_scan_results(struct wiphy *wiphy,
+        struct wireless_dev *wdev, const void  *data, int len)
+{
+	int ret = BCME_OK, mem_needed;
+	char iovbuf[WLC_IOCTL_SMLEN] = {0, };
+	uint8 *pxtlv = NULL;
+	struct sk_buff *skb;
+	uint8 *iovresp = NULL;
+	uint32 iovresp_len = WLC_IOCTL_MAXLEN;
+	int cache_count = 0, i = 0;
+	struct wlc_scan_cache_v1 *scan_cache = NULL;
+	struct wlc_scan_cache_data_v1 *scan_cache_data = NULL;
+	bcm_xtlv_t mybuf;
+	struct timespec64 ts;
+	uint64 ts_since_boot = 0;
+	uint16 buflen = 0, bufstart = 0;
+	struct bcm_cfg80211 *cfg = wiphy_priv(wiphy);
+	uint32 cache_size = 0;
+	uint8 valid_entries = 0;
+	wifi_cached_scan_result_t dest_scan_cache[MAX_CACHED_SCAN_RESULT];
+
+	bzero(&mybuf, sizeof(mybuf));
+	bzero(&dest_scan_cache, sizeof(dest_scan_cache));
+
+	mybuf.id = WL_SCAN_CACHE_EXT_CMD_GET;
+	mybuf.len = 0;
+
+	if ((ret = wldev_iovar_getint(wdev_to_ndev(wdev),
+		"scancache_ext_max", &cache_count)) != BCME_OK) {
+		WL_ERR(("Error in getting the cache count\n"));
+		goto exit;
+	}
+
+	if (!cache_count || cache_count > MAX_CACHED_SCAN_RESULT) {
+		WL_ERR(("Invalid Cache info count\n"));
+		ret = BCME_BADARG;
+		goto exit;
+	}
+
+	cache_size = SCAN_CACHE_FIXED_SIZE + (cache_count * WIFI_CACHED_SCAN_RESULT_SIZE);
+	scan_cache = (struct wlc_scan_cache_v1 *)(MALLOCZ(cfg->osh, cache_size));
+	if (scan_cache == NULL) {
+		WL_ERR(("Error allocating %d bytes for scan cache\n",
+			cache_size));
+		return BCME_NOMEM;
+	}
+
+	iovresp = (uint8 *)MALLOCZ(cfg->osh, iovresp_len);
+	if (iovresp == NULL) {
+		WL_ERR(("%s: iov resp memory alloc exited\n", __FUNCTION__));
+		ret = BCME_NOMEM;
+		goto exit;
+	}
+
+	buflen = bufstart = WLC_IOCTL_SMLEN;
+	pxtlv = (uint8 *)iovbuf;
+
+	ret = bcm_pack_xtlv_entry(&pxtlv, &buflen, WL_SCAN_CACHE_EXT_CMD_GET,
+			sizeof(mybuf), (uint8 *)&mybuf, BCM_XTLV_OPTION_ALIGN32);
+	if (ret != BCME_OK) {
+		WL_ERR(("%s : Error return during pack xtlv :%d\n", __FUNCTION__, ret));
+		goto exit;
+	}
+
+	if ((ret = wldev_iovar_getbuf(wdev_to_ndev(wdev), "scancache_ext", iovbuf, bufstart-buflen,
+		iovresp, WLC_IOCTL_MEDLEN, NULL))) {
+		WL_ERR(("Cache scan results get failed with ret=%d \n", ret));
+		goto exit;
+	}
+
+	if (cache_size > iovresp_len) {
+		WL_ERR(("Invalid cache_size : %u\n", cache_size));
+		ret = BCME_BADLEN;
+		goto exit;
+	}
+
+	(void)memcpy_s(scan_cache, cache_size, iovresp, MIN(cache_size, iovresp_len));
+	if (scan_cache->version != SCAN_CACHE_VERSION_1) {
+		WL_ERR(("wrong version :%d \n", scan_cache->version));
+		ret = BCME_VERSION;
+		goto exit;
+	}
+	WL_DBG_MEM(("scan cache version:%d \n", scan_cache->version));
+
+	/* Propagate the data to the upper layer */
+	mem_needed = VENDOR_REPLY_OVERHEAD + NLA_HDRLEN +
+		ATTRIBUTE_U16_LEN + ATTRIBUTE_U32_LEN +
+		sizeof(dest_scan_cache);
+
+	/* Alloc the SKB for vendor_event */
+	skb = cfg80211_vendor_cmd_alloc_reply_skb(wiphy, mem_needed);
+	if (unlikely(!skb)) {
+		WL_ERR(("skb alloc failed"));
+		ret = BCME_NOMEM;
+		goto exit;
+	}
+
+	/* time stamp */
+	/* get the time elapsed from boot time */
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 39))
+	ts = ktime_to_timespec64(ktime_get_boottime());
+	ts_since_boot = (uint64)TIMESPEC64_TO_US(ts);
+#endif /* LINUX_VER >= 2.6.39 */
+
+	for (i = 0; i < cache_count; i++) {
+		scan_cache_data = &scan_cache->scan_data[i];
+		if (scan_cache_data && scan_cache_data->valid) {
+			wl_cfgvendor_map_scan_cache_to_hal(scan_cache_data,
+					&dest_scan_cache[valid_entries]);
+			valid_entries++;
+		} else {
+			WL_DBG(("No valid scan cache entry further, exit\n"));
+			break;
+		}
+	}
+
+	WL_SCAN_DBG(("Number of valid scan results sent up: %d\n", valid_entries));
+	ret = nla_put_u16(skb, ANDR_WIFI_ATTRIBUTE_CACHED_SCAN_RESULT_CNT, valid_entries);
+	if (unlikely(ret)) {
+		WL_ERR(("Failed to put scan result count\n"));
+		kfree_skb(skb);
+		goto exit;
+	}
+
+	ret = nla_put_u32(skb, ANDR_WIFI_ATTRIBUTE_CACHED_SCAN_BOOT_TIMESTAMP, ts_since_boot);
+	if (unlikely(ret)) {
+		WL_ERR(("Failed to put timestamp\n"));
+		kfree_skb(skb);
+		goto exit;
+	}
+
+	ret = nla_put(skb, ANDR_WIFI_ATTRIBUTE_CACHED_SCAN_RESULTS,
+		(valid_entries*WIFI_CACHED_SCAN_RESULT_SIZE), &dest_scan_cache);
+	if (unlikely(ret)) {
+		WL_ERR(("Failed to put cached scan results\n"));
+		kfree_skb(skb);
+		goto exit;
+	}
+
+	ret = cfg80211_vendor_cmd_reply(skb);
+	/* On cfg80211_vendor_cmd_reply() skb is consumed and freed in case of success or failure */
+
+exit:
+	if (iovresp) {
+		MFREE(cfg->osh, iovresp, iovresp_len);
+	}
+
+	if (scan_cache) {
+		MFREE(cfg->osh, scan_cache, cache_size);
+	}
+
+	return ret;
+}
+
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 3, 0))
+const struct nla_policy
+	wifi_get_cached_scan_results_attr_policy[ANDR_WIFI_ATTRIBUTE_CACHED_SCAN_MAX] = {
+	[ANDR_WIFI_ATTRIBUTE_CACHED_SCAN_BOOT_TIMESTAMP] = { .type = NLA_U64 },
+	[ANDR_WIFI_ATTRIBUTE_CACHED_SCANNED_FREQ_NUM] = { .type = NLA_U16 },
+	[ANDR_WIFI_ATTRIBUTE_CACHED_SCANNED_FREQ_LIST] = { .type = NLA_BINARY },
+	[ANDR_WIFI_ATTRIBUTE_CACHED_SCAN_RESULT_CNT] = { .type = NLA_U16 },
+	[ANDR_WIFI_ATTRIBUTE_CACHED_SCAN_RESULTS] = { .type = NLA_BINARY },
+};
+#endif /* LINUX_VERSION >= 5.3 */
+
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 3, 0))
 const struct nla_policy wifi_radio_combo_attr_policy[ANDR_WIFI_ATTRIBUTE_RADIO_COMBO_MAX] = {
 	[ANDR_WIFI_ATTRIBUTE_RADIO_COMBO_MATRIX] = { .type = NLA_BINARY },
@@ -12661,6 +12927,7 @@ const struct nla_policy andr_wifi_attr_policy[ANDR_WIFI_ATTRIBUTE_MAX] = {
 	[ANDR_WIFI_ATTRIBUTE_THERMAL_COMPLETION_WINDOW] = { .type = NLA_U32 },
 	[ANDR_WIFI_ATTRIBUTE_VOIP_MODE] = { .type = NLA_U32, .len = sizeof(uint32) },
 	[ANDR_WIFI_ATTRIBUTE_DTIM_MULTIPLIER] = { .type = NLA_U32, .len = sizeof(uint32) },
+	[ANDR_WIFI_ATTRIBUTE_CHAN_POLICY] = { .type = NLA_U32, .len = sizeof(uint32) },
 };
 
 const struct nla_policy dump_buf_policy[DUMP_BUF_ATTR_MAX] = {
@@ -14317,7 +14584,32 @@ static struct wiphy_vendor_command wl_vendor_cmds [] = {
 		.maxattr = TX_POWER_ATTRIBUTE_MAX
 #endif /* LINUX_VERSION >= 5.3 */
 	},
-
+	{
+		{
+			.vendor_id = OUI_GOOGLE,
+			.subcmd = WIFI_SUBCMD_GET_CACHED_SCAN_RESULTS
+		},
+		.flags = WIPHY_VENDOR_CMD_NEED_WDEV | WIPHY_VENDOR_CMD_NEED_NETDEV,
+		.doit = wl_cfgvendor_get_cached_scan_results,
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 3, 0))
+		.policy = wifi_get_cached_scan_results_attr_policy,
+		.maxattr = ANDR_WIFI_ATTRIBUTE_CACHED_SCAN_MAX
+#endif /* LINUX_VERSION >= 5.3 */
+	},
+#ifdef WL_DYNAMIC_INDOOR_POLICY
+	{
+		{
+			.vendor_id = OUI_GOOGLE,
+			.subcmd = WIFI_SUBCMD_CHANNEL_POLICY
+		},
+		.flags = WIPHY_VENDOR_CMD_NEED_WDEV | WIPHY_VENDOR_CMD_NEED_NETDEV,
+		.doit = wl_cfgvendor_set_channel_policy,
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 3, 0))
+		.policy = andr_wifi_attr_policy,
+		.maxattr = ANDR_WIFI_ATTRIBUTE_MAX
+#endif /* LINUX_VERSION >= 5.3 */
+	},
+#endif /* WL_DYNAMIC_INDOOR_POLICY */
 };
 
 static const struct  nl80211_vendor_cmd_info wl_vendor_events [] = {

@@ -95,10 +95,6 @@ extern void* wl_cfg80211_get_dhdp(struct net_device *dev);
 #ifdef BCMDHD_MODULAR
 extern int dhd_wlan_init(void);
 extern int dhd_wlan_deinit(void);
-#ifdef WBRC
-extern int wbrc_init(void);
-extern void wbrc_exit(void);
-#endif /* WBRC */
 #endif /* BCMDHD_MODULAR */
 
 #ifdef ENABLE_4335BT_WAR
@@ -493,9 +489,6 @@ static int wifi_ctrlfunc_register_drv(void)
 		DHD_ERROR(("%s: dhd_wlan_init() failed(%d)\n", __FUNCTION__, err));
 		return err;
 	}
-#ifdef WBRC
-	wbrc_init();
-#endif /* WBRC */
 #endif /* BCMDHD_MODULAR */
 
 #if !defined(CONFIG_DTS)
@@ -601,9 +594,6 @@ void wifi_ctrlfunc_unregister_drv(void)
 #ifdef BCMDHD_MODULAR
 	dhd_wlan_deinit();
 	osl_static_mem_deinit(NULL, NULL);
-#ifdef WBRC
-	wbrc_exit();
-#endif /* WBRC */
 #endif /* BCMDHD_MODULAR */
 
 #endif /* !defined(CONFIG_DTS) */
