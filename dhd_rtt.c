@@ -3598,10 +3598,6 @@ dhd_rtt_config_sta_rtt(dhd_pub_t *dhd, struct net_device *dev,
 	DHD_RTT_CHK_SET_PARAM(ftm_params, ftm_param_cnt,
 		rtt_target, WL_PROXD_TLV_ID_EVENT_MASK);
 
-#if !defined(WL_USE_RANDOMIZED_SCAN)
-	/* legacy rtt randmac */
-	dhd_set_rand_mac_oui(dhd);
-#endif /* !defined(WL_USE_RANDOMIZED_SCAN */
 	err = dhd_rtt_ftm_config(dhd, rtt_target->sid, ftm_configs,
 			ftm_cfg_cnt, ftm_params, ftm_param_cnt);
 	if (err != BCME_OK) {
@@ -3725,6 +3721,169 @@ exit:
 }
 #endif /* FTM */
 
+#ifdef DHD_RTT_USE_FTM_RANGE
+
+static int
+dhd_rtt_stop_ranging(dhd_pub_t *dhd)
+{
+	ftm_subcmd_info_t subcmd_info;
+	subcmd_info.name = "stop-ranging";
+	subcmd_info.cmdid = WL_FTM_CMD_STOP_RANGING;
+	subcmd_info.handler = NULL;
+	return dhd_rtt_common_set_handler(dhd, &subcmd_info,
+			WL_PROXD_METHOD_FTM, WL_PROXD_SESSION_ID_GLOBAL);
+}
+
+static int
+dhd_rtt_start_ranging(dhd_pub_t *dhd, rtt_config_params_t *config)
+{
+	wl_proxd_tlv_t *p_tlv;
+	wl_proxd_iov_t *p_proxd_iov;
+	uint16 proxd_iovsize = 0;
+	uint16 bufsize;
+	uint16 buf_space_left;
+	uint16 all_tlvsize;
+	wl_proxd_ranging_flags_t flags;
+	wl_proxd_ranging_flags_t flags_mask;
+	uint16 ranging_sids_size = 0;
+	wl_proxd_session_id_list_t *ranging_sids = NULL;
+	uint8 i = 0;
+	int ret = BCME_OK;
+
+	p_proxd_iov = rtt_alloc_getset_buf(dhd, WL_PROXD_METHOD_FTM,
+		WL_PROXD_SESSION_ID_GLOBAL, WL_FTM_CMD_START_RANGING, FTM_IOC_BUFSZ,
+		&proxd_iovsize);
+
+	if (p_proxd_iov == NULL) {
+		DHD_RTT_ERR(("dhd_rtt_start_ranging: failed to allocate the iovar (size :%d)\n",
+			FTM_IOC_BUFSZ));
+		ret = BCME_NOMEM;
+		goto done;
+	}
+
+	/* setup TLVs */
+	bufsize = proxd_iovsize - WL_PROXD_IOV_HDR_SIZE; /* adjust available size for TLVs */
+	p_tlv = &p_proxd_iov->tlvs[0];
+	buf_space_left = bufsize;
+
+	/* flags & mask */
+	flags = WL_PROXD_RANGING_FLAG_DEL_SESSIONS_ON_STOP;
+	flags_mask = WL_PROXD_RANGING_FLAG_ALL;
+
+	ret = bcm_pack_xtlv_entry((uint8 **) &p_tlv, &buf_space_left,
+		WL_FTM_TLV_ID_RANGING_FLAGS,
+		sizeof(uint16), (uint8 *)&flags, BCM_XTLV_OPTION_ALIGN32);
+	if (ret != BCME_OK) {
+		DHD_RTT_ERR(("dhd_rtt_start_ranging: failed to pack ranging-flags in xtlv, "
+			"err=%d\n", ret));
+		goto done;
+	}
+
+	ret = bcm_pack_xtlv_entry((uint8 **) &p_tlv, &buf_space_left,
+		WL_FTM_TLV_ID_RANGING_FLAGS_MASK,
+		sizeof(uint16), (uint8 *)&flags_mask, BCM_XTLV_OPTION_ALIGN32);
+
+	if (ret != BCME_OK) {
+		DHD_RTT_ERR(("dhd_rtt_start_ranging: failed to pack ranging flags_mask in xtlv,"
+			"err=%d\n", ret));
+		goto done;	/* abort */
+	}
+
+
+	/* allocate a temp buffer for parsing cmd-args */
+	ranging_sids_size = OFFSETOF(wl_proxd_session_id_list_t, ids) +
+		(config->rtt_target_cnt) * sizeof(wl_proxd_session_id_t);
+	ranging_sids = (wl_proxd_session_id_list_t *)MALLOCZ(dhd->osh, ranging_sids_size);
+	if (ranging_sids == NULL) {
+		DHD_RTT_ERR(("dhd_rtt_start_ranging: failed to allocate %d bytes of memory "
+			"for ranging\n", ranging_sids_size));
+		ret = BCME_NOMEM;
+		goto done;
+	}
+
+	for (i = 0; i < config->rtt_target_cnt; i++) {
+		ranging_sids->ids[i] = config->target_info[i].sid;
+	}
+
+	ranging_sids->num_ids = config->rtt_target_cnt;
+
+	ret = bcm_pack_xtlv_entry((uint8 **) &p_tlv, &buf_space_left,
+		WL_FTM_TLV_ID_SESSION_ID_LIST, ranging_sids_size,
+		(uint8 *)ranging_sids, BCM_XTLV_OPTION_ALIGN32);
+
+	if (ret != BCME_OK) {
+		DHD_RTT_ERR(("dhd_rtt_start_ranging: failed to pack ranging-ids in xtlv, err=%d\n",
+			ret));
+		goto done;
+	}
+
+	/* update the iov header, set len to include all TLVs + header */
+	all_tlvsize = (bufsize - buf_space_left);
+	p_proxd_iov->len = htol16(all_tlvsize + WL_PROXD_IOV_HDR_SIZE);
+	ret = dhd_iovar(dhd, 0, "proxd", (char *)p_proxd_iov,
+			all_tlvsize + WL_PROXD_IOV_HDR_SIZE, NULL, 0, TRUE);
+	if (ret != BCME_OK) {
+		DHD_RTT_ERR(("%s : failed to set config err %d\n", __FUNCTION__, ret));
+		goto done;
+	}
+
+done:
+	MFREE(dhd->osh, p_proxd_iov, proxd_iovsize);
+	MFREE(dhd->osh, ranging_sids, ranging_sids_size);
+	return ret;
+}
+#endif /* DHD_RTT_USE_FTM_RANGE */
+
+/* Start ranging for multiple targets or single target */
+static int
+dhd_rtt_start_for_targets(dhd_pub_t *dhd, rtt_status_info_t *rtt_status,
+	rtt_target_info_t *rtt_target)
+{
+	int err = BCME_OK;
+	struct net_device *dev = dhd_linux_get_primary_netdev(dhd);
+	int i;
+
+	if (rtt_status->rtt_config.target_list_mode == RNG_TARGET_LIST_MODE_LEGACY) {
+		uint16 sid = WL_PROXD_SID_HOST_START;
+		DHD_RTT_MEM(("Configuring RTT sessions, count %d\n",
+			rtt_status->rtt_config.rtt_target_cnt));
+		for (i = 0; i < rtt_status->rtt_config.rtt_target_cnt; i++) {
+			rtt_target = &rtt_status->rtt_config.target_info[i];
+			rtt_target->sid = sid++;
+#ifdef FTM
+			if (dhd->wlc_ver_major >= FTM_11AZ_MIN_WLC_API) {
+				err = dhd_rtt_ac_az_config_sta_rtt(dhd, dev, rtt_target);
+				if (err) {
+					goto exit;
+				}
+			} else
+#endif /* FTM */
+			{
+				dhd_rtt_config_sta_rtt(dhd, dev, rtt_target);
+			}
+		}
+		rtt_target = &rtt_status->rtt_config.target_info[0];
+#ifdef DHD_RTT_USE_FTM_RANGE
+		err = dhd_rtt_start_ranging(dhd, &rtt_status->rtt_config);
+#else
+		err = dhd_rtt_start_session(dhd, rtt_target->sid, TRUE);
+#endif /* DHD_RTT_USE_FTM_RANGE */
+		if (err) {
+			goto exit;
+		}
+	} else {
+		rtt_target->sid = FTM_DEFAULT_SESSION;
+		dhd_rtt_delete_session(dhd, FTM_DEFAULT_SESSION);
+		err = dhd_rtt_config_sta_rtt(dhd, dev, rtt_target);
+		if (err) {
+			goto exit;
+		}
+		err = dhd_rtt_start_session(dhd, FTM_DEFAULT_SESSION, TRUE);
+	}
+exit:
+	return err;
+}
+
 /* Work thread API to start the RTT.
  * If all targets are AP only, then this API will confgure all sessions
  * and start(FW) the RTT for first session.
@@ -3742,7 +3901,6 @@ dhd_rtt_start(dhd_pub_t *dhd)
 	struct net_device *dev = dhd_linux_get_primary_netdev(dhd);
 	u8 rtt_invalid_reason = RTT_STATE_VALID;
 	int rtt_sched_type = RTT_TYPE_INVALID;
-	int i = 0;
 
 	NULL_CHECK(dhd, "dhd is NULL", err);
 
@@ -3809,36 +3967,13 @@ dhd_rtt_start(dhd_pub_t *dhd)
 
 	rtt_sched_type = RTT_TYPE_LEGACY;
 	mutex_lock(&rtt_status->rtt_mutex);
-	if (rtt_status->rtt_config.target_list_mode ==
-		RNG_TARGET_LIST_MODE_LEGACY) {
-		uint16 sid = WL_PROXD_SID_HOST_START;
-		DHD_RTT_MEM(("Configuring RTT sessions, count %d\n",
-			rtt_status->rtt_config.rtt_target_cnt));
-		for (i = 0; i < rtt_status->rtt_config.rtt_target_cnt; i++) {
-			rtt_target = &rtt_status->rtt_config.target_info[i];
-			rtt_target->sid = sid++;
-#ifdef FTM
-			if (dhd->wlc_ver_major >= FTM_11AZ_MIN_WLC_API) {
-				dhd_rtt_ac_az_config_sta_rtt(dhd, dev, rtt_target);
-			} else
-#endif /* FTM */
-			{
-				dhd_rtt_config_sta_rtt(dhd, dev, rtt_target);
-			}
-		}
-		rtt_target = &rtt_status->rtt_config.target_info[0];
-		err = dhd_rtt_start_session(dhd, rtt_target->sid, TRUE);
-	} else {
-		rtt_target->sid = FTM_DEFAULT_SESSION;
-		dhd_rtt_delete_session(dhd, FTM_DEFAULT_SESSION);
-		dhd_rtt_config_sta_rtt(dhd, dev, rtt_target);
-		err = dhd_rtt_start_session(dhd, FTM_DEFAULT_SESSION, TRUE);
-	}
+	err = dhd_rtt_start_for_targets(dhd, rtt_status, rtt_target);
 	mutex_unlock(&rtt_status->rtt_mutex);
 
 	if (err) {
 		DHD_RTT_ERR(("failed to start session of FTM : error %d\n", err));
 		err_at = 5;
+		goto exit;
 	} else {
 		/* schedule proxd timeout */
 		schedule_delayed_work(&rtt_status->proxd_timeout,
@@ -4770,6 +4905,9 @@ dhd_rtt_handle_rtt_session_end(dhd_pub_t *dhd)
 	all_targets_done = dhd_rtt_all_directed_targets_done(dhd);
 	if (all_targets_done) {
 		DHD_RTT_MEM(("RTT_STOPPED\n"));
+#ifdef DHD_RTT_USE_FTM_RANGE
+		dhd_rtt_stop_ranging(dhd);
+#endif /* DHD_RTT_USE_FTM_RANGE */
 		rtt_status->status = RTT_STOPPED;
 		/* notify the completed information to others */
 		GCC_DIAGNOSTIC_PUSH_SUPPRESS_CAST();
@@ -4827,7 +4965,9 @@ dhd_rtt_handle_rtt_session_end(dhd_pub_t *dhd)
 				rtt_target = &rtt_config->target_info[rtt_status->cur_idx];
 				/* restart to measure RTT from next device */
 				if (rtt_config->target_list_mode == RNG_TARGET_LIST_MODE_LEGACY) {
+#ifndef DHD_RTT_USE_FTM_RANGE
 					dhd_rtt_start_session(dhd, rtt_target->sid, TRUE);
+#endif /* DHD_RTT_USE_FTM_RANGE */
 				} else {
 					dhd_rtt_schedule_rtt_work_thread(dhd,
 						rtt_status->rtt_sched_reason);

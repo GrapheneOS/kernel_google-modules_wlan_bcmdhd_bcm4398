@@ -96,6 +96,7 @@ typedef volatile struct pmuregs pmuregs_t;
 #define pmu_RetentionControl_ADDR                                                       0x670u
 #define pmu_SWScratch_ADDR                                                              0x750u
 #define pmu_FISCtrlStatus_ADDR                                                          0x7b4u
+#define pmu_FISTrigRsrcState_ADDR                                                       0x7bcu
 
 #define pmu_CoreCapabilities_ADDR                                                       0x604u
 #define pmu_RegulatorControlAddr_ADDR                                                   0x658u

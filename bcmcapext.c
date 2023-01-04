@@ -142,8 +142,10 @@ static const capext_bitpos_to_string_map_t capext_rte_features_subfeature_map[] 
  */
 static const capext_bitpos_to_string_map_t capext_ecounters_subfeature_map[] = {
 	CAPEXT_SUBFEATURE_MAP(CAPEXT_ECOUNTERS_BITPOS_ADV, "adv_ecounters"),
+	CAPEXT_SUBFEATURE_MAP(CAPEXT_ECOUNTERS_BITPOS_CHSTATS, "chstats"),
 	CAPEXT_SUBFEATURE_MAP(CAPEXT_ECOUNTERS_BITPOS_PHY_CAL, "phy_cal_ecounter"),
 	CAPEXT_SUBFEATURE_MAP(CAPEXT_ECOUNTERS_BITPOS_PHY, "phy_ecounter"),
+	CAPEXT_SUBFEATURE_MAP(CAPEXT_ECOUNTERS_BITPOS_PPSTATS, "ppstats"),
 	CAPEXT_SUBFEATURE_MAP(CAPEXT_ECOUNTERS_BITPOS_TXHIST, "txhist"),
 	CAPEXT_SUBFEATURE_MAP(CAPEXT_ECOUNTERS_BITPOS_MAX, NULL)
 };

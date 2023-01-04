@@ -6973,8 +6973,9 @@ bool wl_is_chanspec_restricted(struct bcm_cfg80211 *cfg, chanspec_t sta_chanspec
 	}
 
 	bitmap = dtoh32(*(uint *)ioctl_buf);
-	if (bitmap & (WL_CHAN_PASSIVE | WL_CHAN_RADAR |
-		WL_CHAN_RESTRICTED | WL_CHAN_CLM_RESTRICTED)) {
+	if (bitmap & (WL_CHAN_RADAR | WL_CHAN_PASSIVE |
+		WL_CHAN_RESTRICTED | WL_CHAN_CLM_RESTRICTED |
+			WL_CHAN_P2P_PROHIBITED | WL_CHAN_INDOOR_ONLY)) {
 		WL_INFORM_MEM(("chanspec:0x%x is restricted by per_chan_info:0x%x\n",
 			sta_chanspec, bitmap));
 		return TRUE;
@@ -7182,4 +7183,106 @@ wl_handle_acs_concurrency_cases(struct bcm_cfg80211 *cfg, drv_acs_params_t *para
 		}
 	}
 	return BCME_OK;
+}
+
+static bool
+wl_is_channel_indoor(struct bcm_cfg80211 *cfg, chanspec_t in_chspec)
+{
+	u16 list_count;
+	u8 *list = NULL;
+	int i;
+	u32 chaninfo = 0;
+	chanspec_t chspec;
+
+	list = cfg->chan_info_list;
+	list_count = ((wl_chanspec_list_v1_t *)list)->count;
+	if (((sizeof(wl_chanspec_attr_v1_t) * list_count) +
+			(sizeof(u16) * 2)) >= CHAN_LIST_BUF_LEN) {
+		WL_ERR(("exceeds buffer size:%d\n", list_count));
+		return -EINVAL;
+	}
+
+	for (i = 0; i < dtoh32(list_count); i++) {
+		chspec = (chanspec_t)dtoh32
+			(((wl_chanspec_list_v1_t *)list)->chspecs[i].chanspec);
+		chaninfo = dtoh32
+			(((wl_chanspec_list_v1_t *)list)->chspecs[i].chaninfo);
+		chspec = wl_chspec_driver_to_host(chspec);
+
+		INDOOR_DBG(("chspec:%x chaninfo:%x indoor:%d "
+			"dfs:%d passive:%d\n", chspec, chaninfo, (chaninfo & WL_CHAN_INDOOR_ONLY),
+			(chaninfo & WL_CHAN_RADAR), (chaninfo & WL_CHAN_PASSIVE)));
+
+		if ((chspec == in_chspec) && (chaninfo & WL_CHAN_INDOOR_ONLY)) {
+			return TRUE;
+		}
+	}
+	return FALSE;
+}
+
+s32
+wl_cfgscan_update_dynamic_channels(struct bcm_cfg80211 *cfg,
+		struct net_device *ndev, bool link_up)
+{
+	struct net_info *netinfo = NULL;
+	chanspec_t *sta_chanspec = NULL;
+	wl_mlo_link_t *perlink = NULL;
+	bool indoor_channel_found = FALSE;
+	u32 err = BCME_OK;
+	int i;
+
+	if (!cfg->dyn_indoor_policy) {
+		WL_DBG(("dynamic indoor policy not enabled\n"));
+		return BCME_OK;
+	}
+
+	if (!cfg->chan_info_list) {
+		/* chan_info_list cache not available */
+		WL_ERR(("chan info list not available\n"));
+		return -EINVAL;
+	}
+
+	/* If STA is connected in an indoor channel, clear it and indicate to upper layer */
+	netinfo = wl_get_netinfo_by_wdev(cfg, ndev->ieee80211_ptr);
+	if (link_up == TRUE) {
+		if (netinfo->mlinfo.num_links) {
+			/* MLO case, check for each link chanspec */
+			for (i = 0; i < MAX_MLO_LINK; i++) {
+				perlink = &netinfo->mlinfo.links[i];
+				INDOOR_DBG(("check sta channel for indoor:%x\n", perlink->chspec));
+				if (perlink->chspec && wl_is_channel_indoor(cfg, perlink->chspec)) {
+					indoor_channel_found = TRUE;
+					break;
+				}
+			}
+		} else {
+			sta_chanspec = (chanspec_t *)wl_read_prof(cfg, ndev, WL_PROF_CHAN);
+			INDOOR_DBG(("check sta channel for indoor:%x\n", *sta_chanspec));
+			if ((sta_chanspec) && (wl_is_channel_indoor(cfg, *sta_chanspec))) {
+				indoor_channel_found = TRUE;
+			}
+		}
+	}
+
+	if ((link_up && indoor_channel_found) || ((link_up == FALSE) &&
+			netinfo->reg_update_on_disconnect)) {
+		/* Invoke regulatory update. From regulatory update context, if STA connected */
+		err = wl_update_wiphybands(cfg, TRUE);
+		if (err) {
+			WL_ERR(("STA on indoor channel. update regulatory failed. err:%d\n", err));
+		} else {
+			WL_INFORM_MEM(("STA on indoor channel. regulatory update notified\n"));
+		}
+
+		if (link_up) {
+			/* Mark to send reg update on disconnect */
+			netinfo->reg_update_on_disconnect = TRUE;
+		} else {
+			netinfo->reg_update_on_disconnect = FALSE;
+		}
+	} else {
+		INDOOR_DBG(("No indoor channels. skip wiphy update\n"));
+	}
+
+	return err;
 }

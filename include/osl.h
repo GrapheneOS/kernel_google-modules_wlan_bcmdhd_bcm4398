@@ -107,9 +107,9 @@ typedef void  (*osl_wreg_fn_t)(void *ctx, volatile void *reg, unsigned int val, 
  */
 #define RMWR_REG(addr, mask, val) ({ \
 	if ((mask != 0) || (val != 0)) { \
-		SET_REG(NULL, (uint32 *)(addr), (mask), (val)); \
+		SET_REG(NULL, (uint32 *)(uintptr)(addr), (mask), (val)); \
 	} \
-	R_REG(NULL, (uint32 *)(addr)); \
+	R_REG(NULL, (uint32 *)(uintptr)(addr)); \
 })
 
 #if !defined(OSL_SYSUPTIME)
@@ -447,11 +447,11 @@ do { \
 #endif /* !MFREE_PERSIST */
 
 #ifndef MALLOC_SET_NOPERSIST
-	#define MALLOC_SET_NOPERSIST(osh)	do { } while (0)
+	#define MALLOC_SET_NOPERSIST(osh)	{BCM_REFERENCE(osh);do { } while (0);}
 #endif /* !MALLOC_SET_NOPERSIST */
 
 #ifndef MALLOC_CLEAR_NOPERSIST
-	#define MALLOC_CLEAR_NOPERSIST(osh)	do { } while (0)
+	#define MALLOC_CLEAR_NOPERSIST(osh)	{BCM_REFERENCE(osh);do { } while (0);}
 #endif /* !MALLOC_CLEAR_NOPERSIST */
 
 #if defined(OSL_MEMCHECK)

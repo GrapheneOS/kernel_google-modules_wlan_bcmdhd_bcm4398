@@ -918,11 +918,12 @@ uint sssr_enab = FALSE;
 uint sssr_enab = TRUE;
 #endif /* else GDB_PROXY */
 
-#ifdef DHD_FIS_DUMP
-uint fis_enab = TRUE;
+/* If defined collect FIS dump for all cases */
+#ifdef DHD_FIS_DUMP_ALWAYS
+uint fis_enab_always = TRUE;
 #else
-uint fis_enab = FALSE;
-#endif /* DHD_FIS_DUMP */
+uint fis_enab_always = FALSE;
+#endif /* DHD_FIS_DUMP_ALWAYS */
 
 int
 dhd_sssr_mempool_init(dhd_pub_t *dhd)
@@ -5702,6 +5703,36 @@ wl_show_host_event(dhd_pub_t *dhd_pub, wl_event_msg_t *event, void *event_data,
 		break;
 
 	case WLC_E_PSK_SUP:
+		DHD_EVENT(("MACEVENT: %s, status %d, reason %d ifidx %d cfgidx %d ",
+			event_name, (int)status, (int)reason, ifidx, bsscfgidx));
+		if (datalen >= sizeof(vndr_ie_t)) {
+			uint8 type = BCM_SUP_4WAY_HS_IE_TYPE;
+			sup_wpa_timing_prop_ie_t *psk_sup_data =
+				(sup_wpa_timing_prop_ie_t *)bcm_find_vendor_ie(event_data,
+					datalen, BRCM_PROP_OUI, &type, sizeof(type));
+			if (!psk_sup_data) {
+				DHD_EVENT(("BRCM_PROP_OUI/SUP_4WAY_HS_IE_TYPE is not found"));
+			} else {
+				if (psk_sup_data->len !=
+					(sizeof(*psk_sup_data) - TLV_HDR_LEN)) {
+					DHD_ERROR(("4WAY_HS_IE invalid length = %d",
+						psk_sup_data->len));
+				} else if (psk_sup_data->data.version != BCM_SUP_4WAY_IE_VERSION) {
+					DHD_ERROR(("4WAY_HS_IE invalid version = %d",
+						psk_sup_data->data.version));
+				} else {
+					DHD_EVENT(("eapol_start_m1 %u m1_m2 %u m2_m3 %u m3_m4 %u "
+							"total_4way_hs %u",
+							psk_sup_data->data.eapol_start_m1_dur,
+							psk_sup_data->data.m1_m2_dur,
+							psk_sup_data->data.m2_m3_dur,
+							psk_sup_data->data.m3_m4_dur,
+							psk_sup_data->data.total_4way_hs_dur));
+				}
+			}
+		}
+		DHD_EVENT(("\n"));
+		break;
 	case WLC_E_PRUNE:
 		DHD_EVENT(("MACEVENT: %s, status %d, reason %d ifidx %d cfgidx %d\n",
 		           event_name, (int)status, (int)reason, ifidx, bsscfgidx));

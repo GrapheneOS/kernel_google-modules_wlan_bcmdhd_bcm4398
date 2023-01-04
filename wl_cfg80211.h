@@ -706,6 +706,7 @@ do {									\
 } while (0)
 
 #define WL_SD(x)
+#define INDOOR_DBG(x)
 
 #define WL_SCAN_RETRY_MAX   3
 #define WL_NUM_PMKIDS_MAX   MAXPMKID
@@ -1376,6 +1377,7 @@ struct net_info {
 	wl_mlo_link_info_t mlinfo;	/* For MLO Link interface */
 #endif /* WL_MLO */
 	u8 *qos_up_table;
+	bool reg_update_on_disconnect;
 };
 
 #ifdef WL_BCNRECV
@@ -1531,6 +1533,8 @@ struct escan_info {
 	bool prev_escan_aborted;
 #endif /* DHD_SEND_HANG_ESCAN_SYNCID_MISMATCH */
 };
+
+#define CHAN_LIST_BUF_LEN 4096
 
 #ifdef ESCAN_BUF_OVERFLOW_MGMT
 #define BUF_OVERFLOW_MGMT_COUNT 3
@@ -2340,6 +2344,8 @@ struct bcm_cfg80211 {
 	struct delayed_work	remove_iface_work;
 	/* to track the wiphy lock held context for deleting iface */
 	bool wiphy_lock_held;
+	u8 *chan_info_list;
+	bool dyn_indoor_policy;
 };
 
 /* Max auth timeout allowed in case of EAP is 70sec, additional 5 sec for
@@ -3077,6 +3083,39 @@ wl_iftype_to_str(int wl_iftype)
 	}
 }
 
+static inline u32
+wl_sup_event_ieee80211_error(u32 reason)
+{
+	switch (reason) {
+		case WLC_E_SUP_WPA_PSK_TMO:
+		case WLC_E_SUP_WPA_PSK_M1_TMO:
+		case WLC_E_SUP_WPA_PSK_M3_TMO:
+			return WLAN_REASON_4WAY_HANDSHAKE_TIMEOUT;
+		case WLC_E_SUP_MSG3_TOO_MANY_IE:
+		case WLC_E_SUP_MSG3_IE_MISMATCH:
+			return WLAN_REASON_INVALID_IE;
+		case WLC_E_SUP_SEND_FAIL:
+		case WLC_E_SUP_DEAUTH:
+			return WLAN_REASON_DEAUTH_LEAVING;
+		case WLC_E_SUP_PW_KEY_CIPHER:
+			return WLAN_REASON_INVALID_PAIRWISE_CIPHER;
+		case WLC_E_SUP_UNSUP_KEY_LEN:
+		case WLC_E_SUP_KEY_INSTALL_FAIL:
+			return WLAN_REASON_INVALID_AKMP;
+		case WLC_E_SUP_MSG3_NO_GTK:
+		case WLC_E_SUP_GRP_KEY_CIPHER:
+		case WLC_E_SUP_GRP_MSG1_NO_GTK:
+		case WLC_E_SUP_GTK_DECRYPT_FAIL:
+		case WLC_E_SUP_GTK_UPDATE_FAIL:
+		case WLC_E_SUP_MSG3_NO_MLO_GTK:
+			return WLAN_REASON_INVALID_GROUP_CIPHER;
+		case WLC_E_SUP_MSG1_PMKID_MISMATCH:
+			return WLAN_REASON_MIC_FAILURE;
+		default:
+			return WLAN_REASON_UNSPECIFIED;
+	}
+}
+
 #define is_discovery_iface(iface) (((iface == WL_IF_TYPE_P2P_DISC) || \
 	(iface == WL_IF_TYPE_NAN_NMI)) ? 1 : 0)
 #define IS_P2P_GC(wdev) \
@@ -3809,7 +3848,7 @@ extern void wl_store_up_table_netinfo(struct bcm_cfg80211 *cfg,
 #ifdef WL_MLO
 extern wl_mlo_link_t * wl_cfg80211_get_ml_link_detail(struct bcm_cfg80211 *cfg,
 	u8 ifidx, u8 bsscfgidx);
-extern struct net_info * wl_cfg80211_get_mld_netinfo_by_cfg(struct bcm_cfg80211 *cfg);
+extern struct net_info * wl_cfg80211_get_mld_netinfo_by_cfg(struct bcm_cfg80211 *cfg, u8 *ml_count);
 extern wl_mlo_link_t * wl_cfg80211_get_ml_link_by_linkidx(struct bcm_cfg80211 *cfg,
 	struct net_info *mld_netinfo, u8 linkidx);
 extern s32 wl_mlo_set_multilink(struct bcm_cfg80211 *cfg, struct net_device *dev, u8 enable);

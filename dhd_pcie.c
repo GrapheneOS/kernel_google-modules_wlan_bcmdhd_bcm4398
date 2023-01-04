@@ -37,6 +37,7 @@
 #include <sbchipc.h>
 #include <sbhndarm.h>
 #include <sbsysmem.h>
+#include <sbsreng.h>
 #include <hnd_armtrap.h>
 #if defined(DHD_DEBUG)
 #include <hnd_cons.h>
@@ -104,6 +105,10 @@
 #include <dhd_linux_wq.h>
 #include <dhd_linux.h>
 #endif /* DNGL_AXI_ERROR_LOGGING */
+
+#ifdef DHD_PKT_LOGGING
+#include <dhd_pktlog.h>
+#endif /* DHD_PKT_LOGGING */
 
 #define EXTENDED_PCIE_DEBUG_DUMP 1	/* Enable Extended pcie registers dump */
 
@@ -444,6 +449,8 @@ extern void concate_custom_board_revision(char *nv_path);
 static int dhd_bus_get_etb_dump_cmn(dhd_bus_t *bus, uint8 *buf, uint bufsize,
 	uint32 etb_config_info_addr);
 #endif /* EWP_DACS || DHD_SDTC_ETB_DUMP */
+
+static void dhdpcie_dump_sreng_regs(dhd_bus_t *bus);
 
 /* IOVar table */
 enum {
@@ -1748,6 +1755,9 @@ dhdpcie_cto_recovery_handler(dhd_pub_t *dhd)
 		int save_idx = si_coreidx(bus->sih);
 		/* Waiting for backplane reset */
 		OSL_SLEEP(10);
+
+		/* TODO:- dump SR engine regs */
+
 		/* take sysmem out of reset - otherwise
 		 * socram collected again will read only
 		 * 0xffff
@@ -2144,6 +2154,13 @@ dhdpcie_config_restore(dhd_bus_t *bus, bool restore_pmcsr)
 			bus->saved_config.bar0_win);
 	dhdpcie_setbar1win(bus, bus->saved_config.bar1_win);
 
+	OSL_PCI_WRITE_CONFIG(bus->osh, PCIE2_BAR0_WIN2, sizeof(uint32),
+			bus->saved_config.bar0_win2);
+	OSL_PCI_WRITE_CONFIG(bus->osh, PCIE2_BAR0_CORE2_WIN, sizeof(uint32),
+			bus->saved_config.bar0_core2_win);
+	OSL_PCI_WRITE_CONFIG(bus->osh, PCIE2_BAR0_CORE2_WIN2, sizeof(uint32),
+			bus->saved_config.bar0_core2_win2);
+
 	return BCME_OK;
 }
 
@@ -2189,6 +2206,13 @@ dhdpcie_config_save(dhd_bus_t *bus)
 	bus->saved_config.bar0_win = OSL_PCI_READ_CONFIG(osh, PCI_BAR0_WIN,
 			sizeof(uint32));
 	bus->saved_config.bar1_win = OSL_PCI_READ_CONFIG(osh, PCI_BAR1_WIN,
+			sizeof(uint32));
+
+	bus->saved_config.bar0_win2 = OSL_PCI_READ_CONFIG(osh, PCIE2_BAR0_WIN2,
+			sizeof(uint32));
+	bus->saved_config.bar0_core2_win = OSL_PCI_READ_CONFIG(osh, PCIE2_BAR0_CORE2_WIN,
+			sizeof(uint32));
+	bus->saved_config.bar0_core2_win2 = OSL_PCI_READ_CONFIG(osh, PCIE2_BAR0_CORE2_WIN2,
 			sizeof(uint32));
 
 	return BCME_OK;
@@ -5295,7 +5319,7 @@ dhdpcie_schedule_log_dump(dhd_bus_t *bus)
 }
 
 #ifdef DHD_SSSR_DUMP
-extern uint fis_enab;
+extern uint fis_enab_always;
 #endif /* DHD_SSSR_DUMP */
 
 dhd_pcie_link_state_type_t
@@ -5405,9 +5429,8 @@ dhd_validate_pcie_link_cbp_wlbp(dhd_bus_t *bus)
 #if defined(DHD_FW_COREDUMP)
 #ifdef DHD_SSSR_DUMP
 #ifdef OEM_ANDROID
-			DHD_PRINT(("%s : Set collect_sssr and fis_enab as TRUE\n", __FUNCTION__));
+			DHD_PRINT(("%s : Set collect_sssr\n", __FUNCTION__));
 			bus->dhd->collect_sssr = TRUE;
-			fis_enab = TRUE;
 #endif /* OEM_ANDROID */
 #endif /* DHD_SSSR_DUMP */
 			/* save core dump or write to a file */
@@ -5985,6 +6008,64 @@ dhdpcie_retry_memdump(dhd_bus_t *bus)
 	return ret;
 }
 
+static void
+dhdpcie_dump_sreng_regs(dhd_bus_t *bus)
+{
+	volatile uint32* sreng_regs = NULL;
+	uint32 save_idx = si_coreidx(bus->sih);
+	int i = 0;
+	uint32 capabilities, srctrl0, srctrl1;
+	uint32 gpio_ctrl, status1;
+	uint32 ilgl_instr_addr, ilgl_instr_dat0, ilgl_instr_dat1;
+	uint32 status2, srctrl2, pwr_dom_info;
+	uint32 dat_start_addr0, dat_start_addr1, sr_int_status;
+	uint32 sr_int_mask;
+
+	for (i = 0; i < SR_ENG_MAX_UNITS; ++i) {
+		sreng_regs = si_setcore(bus->sih, SR_CORE_ID, i);
+		if (sreng_regs == NULL) {
+			DHD_ERROR(("%s: setcore SR_CORE_ID(%d) fails !\n", __FUNCTION__, i));
+			continue;
+		}
+		capabilities = R_REG(bus->dhd->osh,
+			SR_ENG_REG_ADDR(sreng_regs, Capabilities));
+		srctrl0 = R_REG(bus->dhd->osh, SR_ENG_REG_ADDR(sreng_regs, SrControl0));
+		srctrl1 = R_REG(bus->dhd->osh, SR_ENG_REG_ADDR(sreng_regs, SrControl1));
+		gpio_ctrl = R_REG(bus->dhd->osh, SR_ENG_REG_ADDR(sreng_regs, GpioControl));
+		status1 = R_REG(bus->dhd->osh, SR_ENG_REG_ADDR(sreng_regs, Status1));
+		ilgl_instr_addr = R_REG(bus->dhd->osh,
+			SR_ENG_REG_ADDR(sreng_regs, IllegalInstrAddr));
+		ilgl_instr_dat0 = R_REG(bus->dhd->osh,
+			SR_ENG_REG_ADDR(sreng_regs, IllegalInstrData0));
+		ilgl_instr_dat1 = R_REG(bus->dhd->osh,
+			SR_ENG_REG_ADDR(sreng_regs, IllegalInstrData1));
+		status2 = R_REG(bus->dhd->osh, SR_ENG_REG_ADDR(sreng_regs, Status2));
+		srctrl2 = R_REG(bus->dhd->osh, SR_ENG_REG_ADDR(sreng_regs, SrControl2));
+		pwr_dom_info = R_REG(bus->dhd->osh,
+			SR_ENG_REG_ADDR(sreng_regs, PowerDomainInfoReg));
+		dat_start_addr0 = R_REG(bus->dhd->osh,
+			SR_ENG_REG_ADDR(sreng_regs, DataStartAddr0));
+		dat_start_addr1 = R_REG(bus->dhd->osh,
+			SR_ENG_REG_ADDR(sreng_regs, DataStartAddr1));
+		sr_int_status = R_REG(bus->dhd->osh, SR_ENG_REG_ADDR(sreng_regs, SRIntStatus));
+		sr_int_mask = R_REG(bus->dhd->osh, SR_ENG_REG_ADDR(sreng_regs, SRIntMask));
+
+		DHD_PRINT(("%s: SR ENGINE core %d regs: "
+			"Capabilities 0x%x, SrControl0 0x%x, SrControl1 0x%x, GpioControl 0x%x "
+			"Status1 0x%x IllegalInstrAddr 0x%x IllegalInstrData0 0x%x\n", __FUNCTION__,
+			i, capabilities, srctrl0, srctrl1, gpio_ctrl, status1,
+			ilgl_instr_addr, ilgl_instr_dat0));
+		DHD_PRINT(("%s: SR ENGINE core %d regs: "
+			"IllegalInstrData1 0x%x Status2 0x%x "
+			"SrControl2 0x%x PowerDomainInfoReg 0x%x DataStartAddr0 0x%x "
+			"DataStartAddr1 0x%x SrIntStatus 0x%x SrIntMask 0x%x \n", __FUNCTION__, i,
+			ilgl_instr_dat1, status2, srctrl2, pwr_dom_info, dat_start_addr0,
+			dat_start_addr1, sr_int_status,	sr_int_mask));
+	}
+
+	si_setcoreidx(bus->sih, save_idx);
+}
+
 static int
 dhdpcie_mem_dump(dhd_bus_t *bus)
 {
@@ -6102,6 +6183,16 @@ dhdpcie_mem_dump(dhd_bus_t *bus)
 					DHD_ERROR(("%s : Set do_chip_bighammer\n", __FUNCTION__));
 					bus->dhd->do_chip_bighammer = TRUE;
 #endif /* WBRC */
+					/* For android collect FIS dumps */
+#ifdef OEM_ANDROID
+#ifdef DHD_SSSR_DUMP
+					DHD_PRINT(("%s : Collect FIS dumps\n",
+						__FUNCTION__));
+					dhdp->collect_sssr = TRUE;
+					dhdp->fis_enab_no_db7ack = TRUE;
+#endif /* DHD_SSSR_DUMP */
+#endif /* OEM_ANDROID */
+
 				}
 				DHD_PRINT(("Function_Intstatus(0x%x)=0x%x "
 					"Function_Intmask(0x%x)=0x%x\n",
@@ -6150,12 +6241,17 @@ dhdpcie_mem_dump(dhd_bus_t *bus)
 #endif	/* DHD_DEBUG_UART */
 
 	if (timeout) {
-		/* print ARMCA7 PC and nci wrapper dump for timeout cases */
+		/* print ARMCA7 PC, SR engine regs, and nci wrapper dump for timeout cases */
 		dhd_bus_get_armca7_pc(dhdp->bus, TRUE);
+		dhdpcie_dump_sreng_regs(bus);
 		dhd_pcie_nci_wrapper_dump(dhdp);
 	}
 
 
+#if defined(DHD_PKT_LOGGING) && defined(DHD_DUMP_FILE_WRITE_FROM_KERNEL)
+	DHD_PRINT(("%s: scheduling pktlog dump.. \n", __FUNCTION__));
+	dhd_schedule_pktlog_dump(dhdp);
+#endif /* DHD_PKT_LOGGING && DHD_DUMP_FILE_WRITE_FROM_KERNEL */
 	dhd_schedule_memdump(dhdp, dhdp->soc_ram, dhdp->soc_ram_length);
 	/* buf, actually soc_ram free handled in dhd_{free,clear} */
 
@@ -15632,9 +15728,8 @@ dhdpcie_wait_readshared_area_addr(dhd_bus_t *bus, uint32 *share_addr)
 #if defined(DHD_FW_COREDUMP)
 #ifdef DHD_SSSR_DUMP
 #ifdef OEM_ANDROID
-			DHD_PRINT(("%s : Set collect_sssr and fis_enab as TRUE\n", __FUNCTION__));
+			DHD_PRINT(("%s : Set collect_sssr\n", __FUNCTION__));
 			bus->dhd->collect_sssr = TRUE;
-			fis_enab = TRUE;
 #endif /* OEM_ANDROID */
 #endif /* DHD_SSSR_DUMP */
 			/* save core dump or write to a file */
@@ -16883,7 +16978,6 @@ fail:
 #if defined(DHD_FW_COREDUMP) && !defined(OEM_ANDROID)
 #ifdef DHD_SSSR_DUMP
 	bus->dhd->collect_sssr = TRUE;
-	fis_enab = TRUE;
 #endif /* DHD_SSSR_DUMP */
 	if (bus->dhd->memdump_enabled) {
 		bus->dhd->memdump_type = DUMP_TYPE_READ_SHM_FAIL;
@@ -18647,7 +18741,7 @@ dhdpcie_get_sssr_fifo_dump(dhd_pub_t *dhd, uint *buf, uint fifo_size,
 	uint val = 0;
 	int i;
 
-	DHD_PRINT(("%s\n", __FUNCTION__));
+	DHD_PRINT(("%s addr = 0x%x, data_reg = 0x%x\n", __FUNCTION__, addr_reg, data_reg));
 
 	if (!buf) {
 		DHD_ERROR(("%s: buf is NULL\n", __FUNCTION__));
@@ -19776,7 +19870,9 @@ dhdpcie_sssr_dump(dhd_pub_t *dhd)
 	DHD_PRINT(("%s: restore pwr req prev state 0x%x\n", __FUNCTION__, pwrreq_val));
 	si_srpwr_request(sih, pwrreq_val, pwrreq_val);
 
+	DHD_PRINT(("%s: restore done\n", __FUNCTION__));
 	dhd_write_sssr_dump(dhd, SSSR_DUMP_MODE_SSSR);
+	DHD_PRINT(("%s: sssr dump done\n", __FUNCTION__));
 
 	return BCME_OK;
 }
@@ -19787,11 +19883,9 @@ dhdpcie_sssr_dump(dhd_pub_t *dhd)
 static int
 dhdpcie_fis_trigger(dhd_pub_t *dhd)
 {
-	uint32 FISCtrlStatus, FISMinRsrcMask;
+	uint32 FISCtrlStatus, FISMinRsrcMask, FISTrigRsrcState, RsrcState, MinResourceMask;
 	uint32 cfg_status_cmd;
 	uint32 cfg_pmcsr;
-	uint origidx = 0;
-	chipcregs_t *cc;
 
 	if (!dhd->sssr_inited) {
 		DHD_ERROR(("%s: SSSR not inited\n", __FUNCTION__));
@@ -19813,34 +19907,36 @@ dhdpcie_fis_trigger(dhd_pub_t *dhd)
 	/* Set fis_triggered flag to ignore link down callback from RC */
 	dhd->fis_triggered = TRUE;
 
-	/* Set war signature to work around register of chip common core */
-	origidx = si_coreidx(dhd->bus->sih);
-	cc = (chipcregs_t*)si_setcore(dhd->bus->sih, CC_CORE_ID, 0);
-	W_REG(dhd->bus->osh, CC_REG_ADDR(cc, WorkAround), CHIPCOMMON_WAR_SIGNATURE);
-	si_setcore(dhd->bus->sih, origidx, 0);
-
-	/* set fis_min_res_mask to 0x1 to the lowest power save */
-	PMU_REG(dhd->bus->sih, FISMinRsrcMask, ~0, 0x1);
-
-	/* Set FIS PwrswForceOnAll */
-	PMU_REG(dhd->bus->sih, FISCtrlStatus, PMU_FIS_FORCEON_ALL_MASK, PMU_FIS_FORCEON_ALL_MASK);
-
 	FISCtrlStatus = PMU_REG(dhd->bus->sih, FISCtrlStatus, 0, 0);
 	FISMinRsrcMask = PMU_REG(dhd->bus->sih, FISMinRsrcMask, 0, 0);
+	RsrcState = PMU_REG(dhd->bus->sih, RsrcState, 0, 0);
 
-	DHD_PRINT(("%s: FISCtrlStatus=0x%x FISMinRsrcMask=0x%x\n",
-		__FUNCTION__, FISCtrlStatus, FISMinRsrcMask));
+	DHD_PRINT(("%s: FISCtrlStatus=0x%x FISMinRsrcMask=0x%x, RsrcState=0x%x\n",
+		__FUNCTION__, FISCtrlStatus, FISMinRsrcMask, RsrcState));
 
 	cfg_status_cmd = dhd_pcie_config_read(dhd->bus, PCIECFGREG_STATUS_CMD, sizeof(uint32));
 	cfg_pmcsr = dhd_pcie_config_read(dhd->bus, PCIE_CFG_PMCSR, sizeof(uint32));
 	DHD_PRINT(("before save: Status Command(0x%x)=0x%x PCIE_CFG_PMCSR(0x%x)=0x%x\n",
 		PCIECFGREG_STATUS_CMD, cfg_status_cmd, PCIE_CFG_PMCSR, cfg_pmcsr));
 
-	DHD_PCIE_CONFIG_SAVE(dhd->bus);
+	DHD_PRINT(("before save: PCI_BAR0_WIN(0x%x)=0x%x PCI_BAR1_WIN(0x%x)=0x%x\n",
+		PCI_BAR0_WIN, dhd_pcie_config_read(dhd->bus, PCI_BAR0_WIN, sizeof(uint32)),
+		PCI_BAR1_WIN, dhd_pcie_config_read(dhd->bus, PCI_BAR1_WIN, sizeof(uint32))));
+
+	DHD_PRINT(("before save: PCIE2_BAR0_WIN2(0x%x)=0x%x"
+		" PCIE2_BAR0_CORE2_WIN(0x%x)=0x%x PCIE2_BAR0_CORE2_WIN2(0x%x)=0x%x\n",
+		PCIE2_BAR0_WIN2, dhd_pcie_config_read(dhd->bus, PCIE2_BAR0_WIN2, sizeof(uint32)),
+		PCIE2_BAR0_CORE2_WIN,
+		dhd_pcie_config_read(dhd->bus, PCIE2_BAR0_CORE2_WIN, sizeof(uint32)),
+		PCIE2_BAR0_CORE2_WIN2,
+		dhd_pcie_config_read(dhd->bus, PCIE2_BAR0_CORE2_WIN2, sizeof(uint32))));
+
+	/* Use dhd save function instead of kernel api */
+	dhdpcie_config_save(dhd->bus);
 
 	/* Trigger FIS */
 	si_corereg(dhd->bus->sih, dhd->bus->sih->buscoreidx,
-		DAR_FIS_CTRL(dhd->bus->sih->buscorerev), ~0, DAR_FIS_START_MASK);
+	DAR_FIS_CTRL(dhd->bus->sih->buscorerev), ~0, DAR_FIS_START_MASK);
 	OSL_DELAY(100 * 1000);
 
 #ifdef OEM_ANDROID
@@ -19860,18 +19956,25 @@ dhdpcie_fis_trigger(dhd_pub_t *dhd)
 	}
 #endif /* OEM_ANDROID */
 
+	/* Use dhd restore function instead of kernel api */
+	dhdpcie_config_restore(dhd->bus, TRUE);
+
+	DHD_PRINT(("after restore: Status Command(0x%x)=0x%x PCIE_CFG_PMCSR(0x%x)=0x%x\n",
+		PCIECFGREG_STATUS_CMD, cfg_status_cmd, PCIE_CFG_PMCSR, cfg_pmcsr));
 	cfg_status_cmd = dhd_pcie_config_read(dhd->bus, PCIECFGREG_STATUS_CMD, sizeof(uint32));
 	cfg_pmcsr = dhd_pcie_config_read(dhd->bus, PCIE_CFG_PMCSR, sizeof(uint32));
-	DHD_PRINT(("after regon-restore: Status Command(0x%x)=0x%x PCIE_CFG_PMCSR(0x%x)=0x%x\n",
-		PCIECFGREG_STATUS_CMD, cfg_status_cmd, PCIE_CFG_PMCSR, cfg_pmcsr));
 
-	/* To-Do: below is debug code, remove this if EP is in D0 after REG-ON restore */
-	DHD_PCIE_CONFIG_RESTORE(dhd->bus);
+	DHD_PRINT(("after restore: PCI_BAR0_WIN(0x%x)=0x%x PCI_BAR1_WIN(0x%x)=0x%x\n",
+		PCI_BAR0_WIN, dhd_pcie_config_read(dhd->bus, PCI_BAR0_WIN, sizeof(uint32)),
+		PCI_BAR1_WIN, dhd_pcie_config_read(dhd->bus, PCI_BAR1_WIN, sizeof(uint32))));
 
-	cfg_status_cmd = dhd_pcie_config_read(dhd->bus, PCIECFGREG_STATUS_CMD, sizeof(uint32));
-	cfg_pmcsr = dhd_pcie_config_read(dhd->bus, PCIE_CFG_PMCSR, sizeof(uint32));
-	DHD_PRINT(("after normal-restore: Status Command(0x%x)=0x%x PCIE_CFG_PMCSR(0x%x)=0x%x\n",
-		PCIECFGREG_STATUS_CMD, cfg_status_cmd, PCIE_CFG_PMCSR, cfg_pmcsr));
+	DHD_PRINT(("after restore: PCIE2_BAR0_WIN2(0x%x)=0x%x"
+		" PCIE2_BAR0_CORE2_WIN(0x%x)=0x%x PCIE2_BAR0_CORE2_WIN2(0x%x)=0x%x\n",
+		PCIE2_BAR0_WIN2, dhd_pcie_config_read(dhd->bus, PCIE2_BAR0_WIN2, sizeof(uint32)),
+		PCIE2_BAR0_CORE2_WIN,
+		dhd_pcie_config_read(dhd->bus, PCIE2_BAR0_CORE2_WIN, sizeof(uint32)),
+		PCIE2_BAR0_CORE2_WIN2,
+		dhd_pcie_config_read(dhd->bus, PCIE2_BAR0_CORE2_WIN2, sizeof(uint32))));
 
 	/*
 	 * To-Do: below is debug code, remove this if EP is in D0 after REG-ON restore
@@ -19888,6 +19991,19 @@ dhdpcie_fis_trigger(dhd_pub_t *dhd)
 		cfg_pmcsr = dhd_pcie_config_read(dhd->bus, PCIE_CFG_PMCSR, sizeof(uint32));
 		DHD_PRINT(("after force-d0: Status Command(0x%x)=0x%x PCIE_CFG_PMCSR(0x%x)=0x%x\n",
 			PCIECFGREG_STATUS_CMD, cfg_status_cmd, PCIE_CFG_PMCSR, cfg_pmcsr));
+	}
+
+	FISCtrlStatus = PMU_REG(dhd->bus->sih, FISCtrlStatus, 0, 0);
+	FISTrigRsrcState = PMU_REG(dhd->bus->sih, FISTrigRsrcState, 0, 0);
+	RsrcState = PMU_REG(dhd->bus->sih, RsrcState, 0, 0);
+	MinResourceMask = PMU_REG(dhd->bus->sih, MinResourceMask, 0, 0);
+	DHD_PRINT(("%s: After 100 ms : FISCtrlStatus=0x%x, FISTrigRsrcState=0x%x,"
+		" RsrcState=0x%x MinResourceMask=0x%x\n",
+		__FUNCTION__, FISCtrlStatus, FISTrigRsrcState, RsrcState, MinResourceMask));
+
+	if ((FISCtrlStatus & PMU_CLEAR_FIS_DONE_MASK) == 0) {
+		DHD_ERROR(("%s: FIS Done bit not set. exit\n", __FUNCTION__));
+		return BCME_ERROR;
 	}
 
 	/* Clear fis_triggered as REG OFF/ON recovered link */
@@ -19963,6 +20079,7 @@ static int
 dhdpcie_fis_dump(dhd_pub_t *dhd)
 {
 	int i;
+	uint32 FISCtrlStatus,  FISTrigRsrcState, RsrcState;
 	uint8 num_d11cores;
 	struct dhd_bus *bus = dhd->bus;
 	uint32 save_idx = 0;
@@ -20007,6 +20124,13 @@ dhdpcie_fis_dump(dhd_pub_t *dhd)
 
 	/* clear FIS Done */
 	PMU_REG(dhd->bus->sih, FISCtrlStatus, PMU_CLEAR_FIS_DONE_MASK, PMU_CLEAR_FIS_DONE_MASK);
+
+	FISCtrlStatus = PMU_REG(dhd->bus->sih, FISCtrlStatus, 0, 0);
+	FISTrigRsrcState = PMU_REG(dhd->bus->sih, FISTrigRsrcState, 0, 0);
+	RsrcState = PMU_REG(dhd->bus->sih, RsrcState, 0, 0);
+	DHD_PRINT(("%s: 0 ms after FIS_DONE clear: FISCtrlStatus=0x%x,"
+		" FISTrigRsrcState=0x%x, RsrcState=0x%x\n",
+		__FUNCTION__, FISCtrlStatus, FISTrigRsrcState, RsrcState));
 
 	hwa_reset_state = dhdpcie_reset_hwa(dhd);
 	if (hwa_reset_state != BCME_OK && hwa_reset_state != BCME_UNSUPPORTED) {

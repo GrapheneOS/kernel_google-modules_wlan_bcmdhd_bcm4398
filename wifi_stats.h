@@ -149,7 +149,6 @@ typedef struct {
 typedef wifi_interface_info *wifi_interface_handle;
 typedef wifi_interface_info_v1 *wifi_interface_handle_v1;
 
-
 /* channel information */
 typedef struct {
 	wifi_channel_width_t width;   /* channel width (20, 40, 80, 80+80, 160) */
@@ -158,11 +157,38 @@ typedef struct {
 	wifi_channel center_freq1;  /* center frequency (MHz) second segment */
 } wifi_channel_info;
 
+/* hal interface wifi_hal.h format */
+typedef struct {
+	wifi_channel_width_t width;
+	int center_frequency0;
+	int center_frequency1;
+	int primary_frequency;
+} wifi_channel_spec;
+
+typedef struct wifi_cached_scan_result {
+	/* Number of milliseconds prior to ts in the enclosing
+	 * wifi_cached_scan_result_report struct when
+	 * the probe response or beacon frame that
+	 * was used to populate this structure was received.
+	 */
+	u32 age_ms;
+	/* The Capability Information field */
+	u16 capability;
+	/* null terminated */
+	u8 ssid[33];
+	u8 ssid_len;
+	u8 bssid[6];
+	/* A set of flags from WIFI_CACHED_SCAN_RESULT_FLAGS_* */
+	u8 flags;
+	s8  rssi;
+	wifi_channel_spec wifi_chanspec;
+} wifi_cached_scan_result_t;
+
 /* wifi rate */
 typedef struct {
 	uint32 preamble;   /* 0: OFDM, 1:CCK, 2:HT 3:VHT 4..7 reserved */
-	uint32 nss;   	/* 0:1x1, 1:2x2, 3:3x3, 4:4x4 */
-	uint32 bw;   	/* 0:20MHz, 1:40Mhz, 2:80Mhz, 3:160Mhz */
+	uint32 nss;	/* 0:1x1, 1:2x2, 3:3x3, 4:4x4 */
+	uint32 bw;	/* 0:20MHz, 1:40Mhz, 2:80Mhz, 3:160Mhz */
 	uint32 rateMcsIdx; /* OFDM/CCK rate code would be as per ieee std
 			    * in the units of 0.5mbps
 			    */

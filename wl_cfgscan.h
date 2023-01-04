@@ -211,6 +211,8 @@ typedef struct ap_oper_data {
 	wl_ap_iface_data_t iface[MAX_AP_IFACES];
 } wl_ap_oper_data_t;
 
+extern bool wl_cfgscan_check_dynamic_restrictions(struct bcm_cfg80211 *cfg,
+		chanspec_t chspec, u8 *indoor_restrict);
 extern void wl_get_ap_chanspecs(struct bcm_cfg80211 *cfg, wl_ap_oper_data_t *ap_data);
 
 extern int wl_android_get_sta_channel(struct bcm_cfg80211 *cfg);
@@ -227,4 +229,6 @@ int get_roam_channel_list(struct bcm_cfg80211 *cfg, chanspec_t target_chan, chan
 	int n_channels, const wlc_ssid_t *ssid, int ioctl_ver);
 void set_roam_band(int band);
 #endif /* ESCAN_CHANNEL_CACHE */
+extern s32 wl_cfgscan_update_dynamic_channels(struct bcm_cfg80211 *cfg,
+		struct net_device *ndev, bool linkup);
 #endif /* _wl_cfgscan_h_ */

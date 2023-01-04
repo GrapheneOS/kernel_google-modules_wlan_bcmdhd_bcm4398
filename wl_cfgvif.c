@@ -1104,13 +1104,14 @@ wl_mlo_get_primary_sta_chspec(struct bcm_cfg80211 *cfg)
 {
 	struct net_info *mld_netinfo = NULL;
 	chanspec_t sta_chspec = INVCHANSPEC;
+	u8 ml_count = 0;
 
 	if (!cfg->mlo.supported) {
 		return INVCHANSPEC;
 	}
 
-	mld_netinfo = wl_cfg80211_get_mld_netinfo_by_cfg(cfg);
-	if (mld_netinfo && (mld_netinfo->mlinfo.num_links > 1)) {
+	mld_netinfo = wl_cfg80211_get_mld_netinfo_by_cfg(cfg, &ml_count);
+	if (mld_netinfo && (mld_netinfo->mlinfo.num_links > 1) && (ml_count == 1)) {
 		/* Get primary link info to update the chanspec */
 		wl_mlo_link_t *prim_link = wl_cfg80211_get_ml_link_by_linkidx(cfg,
 			mld_netinfo, 0);
@@ -3357,6 +3358,7 @@ wl_cfg80211_bcn_bringup_ap(
 	u8 buf[WLC_IOCTL_SMLEN] = {0};
 #ifdef WL_MLO
 	struct net_info *mld_netinfo = NULL;
+	u8 ml_count = 0;
 #endif /* WL_MLO */
 
 #if defined (BCMDONGLEHOST)
@@ -3547,7 +3549,12 @@ wl_cfg80211_bcn_bringup_ap(
 		{
 #ifdef WL_MLO
 			/* MLO setting for single link before start of SoftAP */
-			mld_netinfo = wl_cfg80211_get_mld_netinfo_by_cfg(cfg);
+			mld_netinfo = wl_cfg80211_get_mld_netinfo_by_cfg(cfg, &ml_count);
+			if (ml_count > 1) {
+				WL_ERR(("multi ML connections. AP/GO can't be supported\n"));
+				goto exit;
+			}
+
 			if (mld_netinfo && (mld_netinfo->mlinfo.num_links > 1)) {
 				wl_mlo_set_multilink(cfg, dev, FALSE);
 			}
@@ -4493,6 +4500,7 @@ wl_cfg80211_stop_ap(
 	u8 null_mac[ETH_ALEN];
 #ifdef WL_MLO
 	struct net_info *mld_netinfo = NULL;
+	u8 ml_count = 0;
 #endif /* WL_MLO */
 
 	WL_DBG(("Enter \n"));
@@ -4566,9 +4574,9 @@ wl_cfg80211_stop_ap(
 
 #ifdef WL_MLO
 	/* MLO setting for max supported MLO links */
-	mld_netinfo = wl_cfg80211_get_mld_netinfo_by_cfg(cfg);
-	if (mld_netinfo && (mld_netinfo->mlinfo.num_links > 1)) {
-		wl_mlo_set_multilink(cfg, dev, TRUE);
+	mld_netinfo = wl_cfg80211_get_mld_netinfo_by_cfg(cfg, &ml_count);
+	if (mld_netinfo && ml_count) {
+		wl_mlo_set_multilink(cfg, mld_netinfo->ndev, TRUE);
 	}
 #endif /* WL_MLO */
 

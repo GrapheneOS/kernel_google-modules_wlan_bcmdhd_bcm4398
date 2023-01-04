@@ -80,6 +80,7 @@ typedef enum dhd_log_type {
 	LOG_TYPE_EVENTS		= 1,
 	LOG_TYPE_PCIE_IPC	= 2,
 	LOG_TYPE_ERROR		= 3, /* Error messages like FW trap ..etc */
+	LOG_TYPE_DATA_PKT	= 4
 } dhd_log_type_t;
 
 /*
@@ -124,6 +125,9 @@ void
 dhd_log_msgtype(dhd_logger_t *pdl, driver_state_t *driver_state,
 	bcmpcie_msg_type_t msgtype, void *buf, int len);
 
+int32
+dhd_log_route_events(dhd_logger_t *pdl, void *pkt, uint32 len);
+
 #define DHD_LOG_IOCTL_REQ(pdl, cmd, action, ifidx, \
 		trans_id, output_buf_len, ioct_buf, input_buf_len) \
 do { \
@@ -151,7 +155,7 @@ do { \
 /*
  * For scenarios where,
  * 1. Ring updates are aggregated and then sent to FW
- *      a. Descreptor log is logged on to logger interface. In this case driver_state is NULL.
+ *      a. Descriptor log is logged on to logger interface. In this case driver_state is NULL.
  *      b. When the treshold is reached or after timeout,
  *         when dorbell is rung driver state is logged. In this case buf is NULL.
  * 2. Dorebell is rung as well as ring is updated, both are logged on to logger interface.
@@ -164,6 +168,13 @@ do { \
 				dhd_prot_get_driver_state(dhdp, driver_state); \
 			} \
 			dhd_log_msgtype(pdl, driver_state, msgtype, buf, len); \
+		} \
+	} while (0)
+
+#define DHD_LOG_ROUTE_EVENTS(pdl, pkt, len) \
+	do { \
+		if (dhd_logger == TRUE) { \
+			dhd_log_route_events(pdl, pkt, len); \
 		} \
 	} while (0)
 
@@ -184,6 +195,10 @@ uint32
 dhd_log_show_filter(dhd_logger_t *pdl);
 int32
 dhd_log_set_filter(dhd_logger_t *pdl, uint32 filter);
+bool
+dhd_log_show_route_events(dhd_logger_t *pdl);
+int32
+dhd_log_set_route_events(dhd_logger_t *pdl, bool route_events);
 
 #else
 /*
@@ -233,6 +248,7 @@ dhd_log_pkt(dhd_logger_t *pdl, uint32 type, void *pkt, uint32 len)
 	do { \
 		BCM_REFERENCE(driver_state); \
 	} while (0)
+#define DHD_LOG_ROUTE_EVENTS(pdl, pkt, len)
 
 /* Log Filter APIs */
 static INLINE int32
@@ -272,6 +288,18 @@ dhd_log_show_filter(dhd_logger_t *pdl)
 
 static INLINE uint32
 dhd_log_set_filter(dhd_logger_t *pdl, uint32 filter)
+{
+	return 0;
+}
+
+static INLINE bool
+dhd_log_show_route_events(dhd_logger_t *pdl)
+{
+	return 0;
+}
+
+static INLINE int32
+dhd_log_set_route_events(dhd_logger_t *pdl, bool route_events)
 {
 	return 0;
 }

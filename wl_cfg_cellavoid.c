@@ -901,7 +901,9 @@ wl_cellavoid_verify_avail_chan_list(struct bcm_cfg80211 *cfg, wl_cellavoid_info_
 				(((wl_chanspec_list_v1_t *)dngl_chan_list)->chspecs[i].chaninfo);
 				restrict_chan = ((chaninfo & WL_CHAN_RADAR) ||
 					(chaninfo & WL_CHAN_PASSIVE) ||
-					(chaninfo & WL_CHAN_CLM_RESTRICTED));
+					(chaninfo & WL_CHAN_CLM_RESTRICTED) ||
+					(chaninfo & WL_CHAN_INDOOR_ONLY) ||
+					(chaninfo & WL_CHAN_P2P_PROHIBITED));
 			}
 
 			if ((!restrict_chan) && (chan_info->chanspec == chanspec)) {

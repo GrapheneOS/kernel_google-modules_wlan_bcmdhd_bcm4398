@@ -76,11 +76,6 @@ typedef uint32	wl_ftm_flags_t;
 #define WL_FTM_SESSION_FLAG_INITIATOR		0x0000000000000001llu	/* local is initiator */
 #define WL_FTM_SESSION_FLAG_TARGET		0x0000000000000002llu	/* local is target */
 #define WL_FTM_SESSION_FLAG_CORE_ROTATE		0x0000000000000004llu	/* initiator core rotate */
-#define WL_FTM_SESSION_FLAG_ONE_WAY		WL_FTM_SESSION_FLAG_CORE_ROTATE	/* ONE_WAY and CORE
-										 * ROTATE are
-										 * mutually
-										 * exclusive
-										 */
 #define WL_FTM_SESSION_FLAG_AUTO_BURST		0x0000000000000008llu	/* rx_auto_burst */
 #define WL_FTM_SESSION_FLAG_PERSIST		0x0000000000000010llu	/* good until cancelled */
 #define WL_FTM_SESSION_FLAG_RTT_DETAIL		0x0000000000000020llu	/* rtt detail results */
@@ -134,6 +129,8 @@ typedef uint32	wl_ftm_flags_t;
 									 * burst(s) on error.
 									 */
 #define WL_FTM_SESSION_FLAG_PASSIVE_TB_RANGING	0x0000800000000000llu	/* Passive TB ranging */
+#define WL_FTM_SESSION_FLAG_ONE_WAY		0x0001000000000000llu	/* ONE_WAY RTT */
+
 #define WL_FTM_SESSION_FLAG_ALL			0xffffffffffffffffllu
 
 typedef uint64 wl_ftm_session_flags_t;
@@ -175,7 +172,8 @@ typedef uint64 wl_ftm_session_flags_t;
 	| WL_FTM_SESSION_FLAG_BURST_PERIOD_NOPREF \
 	| WL_FTM_SESSION_FLAG_SEQ_EN \
 	| WL_FTM_SESSION_FLAG_NOCHANSWT \
-	| WL_FTM_SESSION_FLAG_MBURST_FOLLOWUP)
+	| WL_FTM_SESSION_FLAG_MBURST_FOLLOWUP \
+	| WL_FTM_SESSION_FLAG_ONE_WAY)
 
 /* flags common for TB/NTB sessions */
 #define FTM_TB_NTB_COMMON_CONFIG_MASK \

@@ -388,6 +388,8 @@ extern char* osl_get_rtctime(void);
 #define OSL_GET_LOCALTIME(sec, usec)	osl_get_localtime((sec), (usec))
 #define OSL_SYSTZTIME_US()	osl_systztime_us()
 #define OSL_GET_RTCTIME()	osl_get_rtctime()
+uint64 osl_getcycles(void);
+
 /* RTC format %02d:%02d:%02d.%06lu, LEN including the trailing null space */
 #define RTC_TIME_BUF_LEN	16u
 #define	printf(fmt, args...)	printk(fmt , ## args)
@@ -451,6 +453,14 @@ extern uint64 regs_addr;
 #endif /* DHD_DEBUG_REG_DUMP */
 
 extern void dhd_plat_l1_exit_io(void);
+/* dhd_plat_l1_exit_io is defined in dhd file and
+ * is not needed for NIC.
+ */
+#if !defined(NICBUILD)
+#define os_l1_exit_io	dhd_plat_l1_exit_io();
+#else /* NICBUILD */
+#define os_l1_exit_io
+#endif /* !NICBUILD */
 
 #ifndef IL_BIGENDIAN
 #ifdef CONFIG_64BIT
@@ -459,7 +469,7 @@ extern void dhd_plat_l1_exit_io(void);
 	SELECT_BUS_READ(osh, \
 		({ \
 			__typeof(*(r)) __osl_v = 0; \
-			dhd_plat_l1_exit_io(); \
+			os_l1_exit_io; \
 			BCM_REFERENCE(osh);	\
 			switch (sizeof(*(r))) { \
 				case sizeof(uint8):	__osl_v = \
@@ -499,7 +509,7 @@ extern void dhd_plat_l1_exit_io(void);
 #define NO_WIN_CHECK_W_REG(osh, r, addr, v) do { \
 	SELECT_BUS_WRITE(osh, \
 		({ \
-			dhd_plat_l1_exit_io(); \
+			os_l1_exit_io; \
 			switch (sizeof(*(r))) { \
 				case sizeof(uint8):	writeb((uint8)(v), \
 						(volatile uint8*)(addr)); break; \

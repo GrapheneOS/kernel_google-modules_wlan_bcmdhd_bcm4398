@@ -1625,6 +1625,7 @@ typedef struct dhd_pub {
 	uint32 sssr_dump_mode;
 	bool collect_sssr;		/* Flag to indicate SSSR dump is required */
 	bool fis_triggered;
+	bool fis_enab_no_db7ack;	/* Enable FIS if DB7 ack is not received */
 #endif /* DHD_SSSR_DUMP */
 #ifdef DHD_SDTC_ETB_DUMP
 	etb_addr_info_t etb_addr_info;
@@ -3072,7 +3073,7 @@ extern void dhd_vif_add(struct dhd_info *dhd, int ifidx, char * name);
 extern void dhd_vif_del(struct dhd_info *dhd, int ifidx);
 extern void dhd_event(struct dhd_info *dhd, char *evpkt, int evlen, int ifidx);
 extern void dhd_vif_sendup(struct dhd_info *dhd, int ifidx, uchar *cp, int len);
-#if defined(LINUX) || defined(linux)
+#if defined(__linux__)
 void dhd_print_if_stats(dhd_pub_t *dhdp, struct bcmstrbuf *strbuf);
 void dhd_clear_if_stats(dhd_pub_t *dhdp);
 #else
@@ -3080,6 +3081,7 @@ static INLINE void dhd_print_if_stats(dhd_pub_t *dhdp, struct bcmstrbuf *strbuf)
 {
 	printf("%s: NOT IMPLEMENTED\n", __FUNCTION__);
 }
+
 static INLINE void dhd_clear_if_stats(dhd_pub_t *dhdp) { return; }
 #endif
 

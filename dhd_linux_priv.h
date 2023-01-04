@@ -555,7 +555,7 @@ void dhd_net_if_unlock_local(dhd_info_t *dhd);
 
 #ifdef DHD_SSSR_DUMP
 extern uint sssr_enab;
-extern uint fis_enab;
+extern uint fis_enab_always;
 #endif /* DHD_SSSR_DUMP */
 
 /*

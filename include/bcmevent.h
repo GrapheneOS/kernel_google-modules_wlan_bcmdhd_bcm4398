@@ -321,7 +321,9 @@ typedef union bcm_event_msg_u {
 #define WLC_E_ULMU_DISABLED_REASON_UPD	207	/* OMI ULMU disable reason code update */
 #define WLC_E_AMSDU_RX_WAKEUP		208	/* When amsdu deagg SM is stuck in D3 condition */
 #define WLC_E_CSI_DATA			209	/* CSI data available */
-#define WLC_E_LAST			210	/* highest val + 1 for range checking */
+
+
+#define WLC_E_LAST			211	/* highest val + 1 for range checking */
 
 /* define an API for getting the string name of an event */
 extern const char *bcmevent_get_name(uint event_type);
@@ -1068,7 +1070,7 @@ typedef enum wl_nan_events {
 	WL_NAN_EVENT_PAIRING_ESTBL		= 53,	/* Pairing Established */
 
 	WL_NAN_EVENT_OOB_AF_RXTIMEOUT		= 54,	/* OOB AF rx timeout */
-
+	WL_NAN_EVENT_DW_DWELL_BCN_LOST		= 55,	/* DW Dwell bcn rx fail */
 	/* keep WL_NAN_EVENT_INVALID as the last element */
 	WL_NAN_EVENT_INVALID				/* delimiter for max value */
 } nan_app_events_e;
@@ -1683,6 +1685,7 @@ typedef struct wl_event_dynsar {
 						     * Probe response with Low RSSI.
 						     */
 #define BCN_MUTE_MITI_CSA			15u /* Mitigation end due to CSA */
+#define BCN_MUTE_MITI_SA_QUERY_FAIL		16u /* Mitigation failed due to SA query failure */
 
 /* bcn_mute_miti event data */
 #define WLC_BCN_MUTE_MITI_EVENT_DATA_VER_1	1u
@@ -1804,4 +1807,29 @@ typedef struct wl_ulmu_disable_reason_upd_event_v1 {
 	uint16  ulmu_disable_reason;
 	uint8	PAD[2];
 } wl_ulmu_disable_reason_upd_event_v1_t;
+
+#define BCM_SUP_4WAY_IE_VERSION		1	/* sup_wpa_timing_t struct version */
+#define BCM_SUP_4WAY_HS_IE_TYPE		57	/* 4-way HS data ID */
+
+/* 4-way HS duration data */
+typedef struct sup_wpa_timing {
+	uint16	version;		/* structure version */
+	uint16	PAD;			/* padding for 32-bit struct alignment */
+	uint32	eapol_start_m1_dur;	/* EAPOL-Start - M1 duration, us */
+	uint32	m1_m2_dur;		/* M1-M2 duration, us */
+	uint32	m2_m3_dur;		/* M2-M3 duration, us */
+	uint32	m3_m4_dur;		/* M3-M4 duration, us */
+	uint32	total_4way_hs_dur;	/* total 4-way HS duration, us */
+} sup_wpa_timing_t;
+#include <packed_section_start.h>
+/* 4-way HS duration IE */
+typedef BWL_PRE_PACKED_STRUCT struct sup_wpa_timing_prop_ie {
+	uint8	id;		/* IE ID, 221, DOT11_MNG_VS_ID */
+	uint8	len;		/* IE length */
+	uint8	oui[3];		/* Proprietary OUI, "\x00\x90\x4C", BRCM_PROP_OUI */
+	uint8	type;		/* 57, BCM_SUP_4WAY_HS_IE_TYPE */
+	sup_wpa_timing_t data;	/* 4-way HS duration data */
+} BWL_POST_PACKED_STRUCT sup_wpa_timing_prop_ie_t;
+#include <packed_section_end.h>
+
 #endif /* _BCMEVENT_H_ */

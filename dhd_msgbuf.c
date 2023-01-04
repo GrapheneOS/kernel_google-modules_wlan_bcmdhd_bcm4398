@@ -4818,7 +4818,7 @@ dhd_prot_init(dhd_pub_t *dhd)
 #ifdef BCMQT
 #define	IDMA_ENABLE_WAIT  100
 #else
-#define	IDMA_ENABLE_WAIT  10
+#define	IDMA_ENABLE_WAIT  30
 #endif
 	if (IDMA_ACTIVE(dhd) || IFRM_ACTIVE(dhd)) {
 		/* wait for idma_en bit in IDMAcontrol register to be set */
