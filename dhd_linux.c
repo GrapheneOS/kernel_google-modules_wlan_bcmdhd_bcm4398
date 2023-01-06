@@ -6810,6 +6810,7 @@ void
 dhd_force_collect_init_fail_dumps(dhd_pub_t *dhdp)
 {
 #ifdef OEM_ANDROID
+	int cur_busstate = dhdp->busstate;
 
 #if defined(CUSTOMER_HW4_DEBUG)
 #ifdef DEBUG_DNGL_INIT_FAIL
@@ -6822,6 +6823,13 @@ dhd_force_collect_init_fail_dumps(dhd_pub_t *dhdp)
 #endif /* DEBUG_DNGL_INIT_FAIL */
 #endif /* CUSTOMER_HW4_DEBUG */
 
+	/* for android force collect socram for FW init failures
+	 * by putting bus state to LOAD
+	 */
+	dhdp->memdump_enabled = DUMP_MEMFILE;
+	if (dhdp->busstate == DHD_BUS_DOWN) {
+		dhdp->busstate = DHD_BUS_LOAD;
+	}
 #ifdef DHD_FW_COREDUMP
 	/* save core dump or write to a file */
 	if (dhdp->memdump_enabled && (dhdp->busstate != DHD_BUS_DOWN)) {
@@ -6830,8 +6838,12 @@ dhd_force_collect_init_fail_dumps(dhd_pub_t *dhdp)
 #endif /* DHD_SDTC_ETB_DUMP */
 		dhdp->memdump_type = DUMP_TYPE_DONGLE_INIT_FAILURE;
 		dhd_bus_mem_dump(dhdp);
+	} else {
+		DHD_PRINT(("%s:Not collecting memdump, memdump_enabled=%d, busstate=%d\n",
+			__FUNCTION__, dhdp->memdump_enabled, dhdp->busstate));
 	}
 #endif /* DHD_FW_COREDUMP */
+	dhdp->busstate = cur_busstate;
 #endif /* OEM_ANDROID */
 }
 
@@ -7245,13 +7257,6 @@ exit:
 	}
 
 	if (ret) {
-		if (ret != BCME_NOMEM) {
-			dhd_force_collect_init_fail_dumps(&dhd->pub);
-		} else {
-			DHD_ERROR(("%s: skip collect dump in case of BCME_NOMEM\n",
-					__FUNCTION__));
-			ret = BCME_ERROR;
-		}
 		dhd_stop(net);
 		dhd->pub.if_opened = FALSE;
 	}
@@ -16424,9 +16429,21 @@ dhd_net_bus_devreset(struct net_device *dev, uint8 flag)
 
 	ret = dhd_bus_devreset(&dhd->pub, flag);
 
-	if (!ret && dhd_query_bus_erros(&dhd->pub)) {
-		DHD_ERROR(("%s: retrun error due to query errors\n", __FUNCTION__));
+	/* for power on case, i.e., flag=FALSE, if dhd_bus_devreset
+	 * succeeds i.e. power on is successful (ret is zero),
+	 * then there still could be some
+	 * bus errors due to cases like ROT/trap during init etc..
+	 * so check dhd_query_bus_erros and return error code.
+	 * For power off case, if dhd_bus_devreset succeeds then
+	 * no need to check for dhd_query_bus_erros, because anyway
+	 * chip is powered off and we cannot collect socram.
+	 */
+	if (flag == FALSE && !ret && dhd_query_bus_erros(&dhd->pub)) {
+		DHD_ERROR(("%s: return error due to bus errors\n", __FUNCTION__));
 		ret = BCME_ERROR;
+	} else if (flag == TRUE) {
+		DHD_PRINT(("%s: power off case, don't check bus errors \n",
+			__FUNCTION__));
 	}
 
 #ifdef DHD_PCIE_NATIVE_RUNTIMEPM
