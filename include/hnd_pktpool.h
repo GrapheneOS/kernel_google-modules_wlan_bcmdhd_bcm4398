@@ -1,7 +1,7 @@
 /*
  * HND generic packet pool operation primitives
  *
- * Copyright (C) 2022, Broadcom.
+ * Copyright (C) 2023, Broadcom.
  *
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you
@@ -211,6 +211,7 @@ extern void pktpool_invoke_dmarxfill(pktpool_t *pktp);
 extern int pkpool_haddr_avail_register_cb(pktpool_t *pktp, pktpool_cb_t cb, void *arg);
 extern int pkpool_rxurb_register_cb(pktpool_t *pktp, pktpool_rxurb_cb_t cb, void *arg);
 extern int pktpool_avail(pktpool_t *pktpool);
+bool pktpool_validate_freelist(pktpool_t *pktp);
 
 #define POOLPTR(pp)         ((pktpool_t *)(pp))
 #define POOLID(pp)          (POOLPTR(pp)->id)

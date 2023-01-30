@@ -1,7 +1,7 @@
 /*
  * log_dump - debugability support for dumping logs to file
  *
- * Copyright (C) 2022, Broadcom.
+ * Copyright (C) 2023, Broadcom.
  *
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you
@@ -2160,6 +2160,23 @@ dhd_log_dump_vendor_trigger(dhd_pub_t *dhd_pub)
 
 	return;
 }
+
+#ifdef DEBUGABILITY
+/* coredump triggered by host/user */
+void
+dhd_coredump_trigger(dhd_pub_t *dhdp)
+{
+	if (!dhdp) {
+		DHD_ERROR(("dhdp is NULL !\n"));
+		return;
+	}
+
+#if (defined(BCMPCIE) || defined(BCMSDIO)) && defined(DHD_FW_COREDUMP)
+	dhdp->memdump_type = DUMP_TYPE_COREDUMP_BY_USER;
+	dhd_bus_mem_dump(dhdp);
+#endif /* BCMPCIE && DHD_FW_COREDUMP */
+}
+#endif /* DEBUGABILITY */
 
 void
 dhd_log_dump_trigger(dhd_pub_t *dhdp, int subcmd)

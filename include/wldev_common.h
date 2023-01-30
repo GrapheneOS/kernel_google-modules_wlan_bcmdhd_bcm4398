@@ -1,7 +1,7 @@
 /*
  * Common function shared by Linux WEXT, cfg80211 and p2p drivers
  *
- * Copyright (C) 2022, Broadcom.
+ * Copyright (C) 2023, Broadcom.
  *
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you
@@ -139,6 +139,7 @@ extern int wl_parse_ssid_list_tlv(char** list_str, wlc_ssid_ext_t* ssid,
 int wldev_get_link_speed(struct net_device *dev, int *plink_speed);
 
 int wldev_get_rssi(struct net_device *dev, scb_val_t *prssi);
+int wldev_link_get_rssi(struct net_device * dev, u8 link_id, scb_val_t * scb_val);
 
 int wldev_get_ssid(struct net_device *dev, wlc_ssid_t *pssid);
 

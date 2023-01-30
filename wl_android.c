@@ -1,7 +1,7 @@
 /*
  * Linux cfg80211 driver - Android related functions
  *
- * Copyright (C) 2022, Broadcom.
+ * Copyright (C) 2023, Broadcom.
  *
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you
@@ -563,6 +563,10 @@ struct connection_stats {
 static LIST_HEAD(miracast_resume_list);
 static u8 miracast_cur_mode;
 
+#ifdef DEBUGABILITY
+#define CMD_NEW_DEBUG_PRINT_COREDUMP	"CORE_DUMP"
+void dhd_coredump_trigger(dhd_pub_t *dhdp);
+#endif /* DEBUGABILITY */
 #ifdef DHD_LOG_DUMP
 #define CMD_NEW_DEBUG_PRINT_DUMP	"DEBUG_DUMP"
 #define SUBCMD_UNWANTED			"UNWANTED"
@@ -5750,7 +5754,10 @@ wl_android_get_connection_stats(struct net_device *dev, char *command, int total
 
 #ifdef BCMDONGLEHOST
 	if (FW_SUPPORTED(dhdp, ifst)) {
-		ret = wl_cfg80211_ifstats_counters(dev, if_stats);
+		/* This interface is currently not utilised, if need be,
+		 * ML supports needs to be added
+		 */
+		ret = wl_cfg80211_ifstats_counters(dev, 0, if_stats);
 	} else
 #endif /* BCMDONGLEHOST */
 	{
@@ -14049,6 +14056,13 @@ wl_handle_private_cmd(struct net_device *net, char *command, u32 cmd_len)
 		}
 	}
 #endif /* DHD_LOG_DUMP */
+#ifdef DEBUGABILITY
+	else if (strnicmp(command, CMD_NEW_DEBUG_PRINT_COREDUMP,
+		strlen(CMD_NEW_DEBUG_PRINT_COREDUMP)) == 0) {
+		dhd_pub_t *dhdp = wl_cfg80211_get_dhdp(net);
+		dhd_coredump_trigger(dhdp);
+	}
+#endif /* DEBUGABILITY */
 #ifdef TPUT_DEBUG_DUMP
 	else if (strnicmp(command, CMD_TPUT_DEBUG_MODE_ENABLE,
 			strlen(CMD_TPUT_DEBUG_MODE_ENABLE)) == 0) {
@@ -14824,18 +14838,15 @@ wl_cfg80211_static_if_close(struct net_device *net)
 	struct bcm_cfg80211 *cfg = wl_get_cfg(net);
 	struct net_device *primary_ndev = bcmcfg_to_prmry_ndev(cfg);
 
-	/* clear flags */
-	wl_clr_drv_status(cfg, AP_ROLE_UPGRADED, net);
-
 	if (cfg->static_ndev_state == NDEV_STATE_FW_IF_CREATED) {
-		if (mutex_is_locked(&cfg->if_sync) == TRUE) {
-			ret = _wl_cfg80211_del_if(cfg, primary_ndev, net->ieee80211_ptr, net->name);
-		} else {
-			ret = wl_cfg80211_del_if(cfg, primary_ndev, net->ieee80211_ptr, net->name);
-		}
-
+		ret = wl_cfg80211_del_if(cfg, primary_ndev, net->ieee80211_ptr, net->name);
 		if (unlikely(ret)) {
 			WL_ERR(("Del iface failed for static_if %d\n", ret));
+			/* on critical errors the cfg80211_del API would trigger hang event
+			 * for WiFi to reset. However, the driver need to return okay to allow the
+			 * kernel to clear the IFF_UP flags.
+			 */
+			ret = BCME_OK;
 		}
 	}
 

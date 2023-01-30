@@ -1,7 +1,7 @@
 /*
  * HND Run Time Environment ioctl.
  *
- * Copyright (C) 2022, Broadcom.
+ * Copyright (C) 2023, Broadcom.
  *
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you
@@ -433,12 +433,12 @@ enum capext_rte_feature_ids {
 
 /* Ecounters sub-feature bit positions. These sub-features need to be reported */
 enum capext_ecounters_subfeature_bitpos {
-	CAPEXT_ECOUNTERS_BITPOS_TXHIST	= 0,
-	CAPEXT_ECOUNTERS_BITPOS_ADV	= 1,
-	CAPEXT_ECOUNTERS_BITPOS_PHY	= 2,
-	CAPEXT_ECOUNTERS_BITPOS_PHY_CAL	= 3,
-	CAPEXT_ECOUNTERS_BITPOS_CHSTATS = 4,
-	CAPEXT_ECOUNTERS_BITPOS_PPSTATS = 5,
+	CAPEXT_ECOUNTERS_BITPOS_TXHIST		= 0,
+	CAPEXT_ECOUNTERS_BITPOS_ADV		= 1,
+	CAPEXT_ECOUNTERS_BITPOS_PHY		= 2,
+	CAPEXT_ECOUNTERS_BITPOS_PHY_CAL		= 3,
+	CAPEXT_ECOUNTERS_BITPOS_CHSTATS		= 4,
+	CAPEXT_ECOUNTERS_BITPOS_PEERSTATS	= 5,
 	CAPEXT_ECOUNTERS_BITPOS_MAX
 };
 

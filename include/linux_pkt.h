@@ -1,7 +1,7 @@
 /*
  * Linux Packet (skb) interface
  *
- * Copyright (C) 2022, Broadcom.
+ * Copyright (C) 2023, Broadcom.
  *
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you
@@ -439,6 +439,44 @@ extern uint osl_pktalloced(osl_t *osh);
 
 #define PKTPOOLHEAPCOUNT()            (0u)
 
+#if !defined(BCMDONGLEHOST) && !defined(DONGLEBUILD)
+#define PKT_IS_HOST_SFHLLC(osh, lb)		(FALSE)
+#define PKT_SET_HOST_SFHLLC(osh, lb)		({;})
+#define PKT_IS_HOST_SFHLLC_DONE(osh, lb)	(FALSE)
+#define PKT_SET_HOST_SFHLLC_DONE(osh, lb)	({;})
+#define PKT_RESET_HOST_SFHLLC(osh, lb)		({;})
+#define PKTISPKTFETCHED(osh, lb)		(FALSE)
+
+#define PKTTAG_SCB_HANDLE	20u
+
+#define	PKTTAG_GET_SCBHNDL(lfrag)		((int8*)PKTTAG(lfrag))[PKTTAG_SCB_HANDLE]
+#define	PKTTAG_SET_SCBHNDL(lfrag, handle)	((int8*)PKTTAG(lfrag))[PKTTAG_SCB_HANDLE] = \
+						(int8)handle
+
+#define PKTHASMETADATA(osh, lb)			FALSE
+
+#define	PKTRXMETADATA(osh, lb)			PKTDATA(osh, p)
+#define PKTSETHWRXOFF(lb, rxoff)		({BCM_REFERENCE(rxoff); (lb = 0u);})
+/* Used for rev88 and above */
+#define PKT_SET_FRAMEID(lb, id)			({BCM_REFERENCE(lb); BCM_REFERENCE(id);})
+/* Used for rev88 and above */
+#define PKTFRAGRINGINDEX(osh, lb)		(0u)
+#define PKTFRAGFLOWRINGID(osh, lb)		(0u)
+#define PKTFRAGFLOWRINGID(osh, lb)		(0u)
+
+#define PKTRXCPLID(osh, lb)			({BCM_REFERENCE(osh); BCM_REFERENCE(lb);0u;})
+
+/* ============MLO========================= */
+/* MLO related */
+#define PKT_GET_LINKINFO(lb, link)		(0u)
+#define PKT_SET_PREF_LINKID(lb, val)		(lb = val)
+#define PKT_GET_PREF_LINKID(lb)			NULL
+#define PKT_SET_LINKINFO(lb, link, val)		({BCM_REFERENCE(lb); BCM_REFERENCE(val); \
+						BCM_REFERENCE(link);0u;})
+#define PKT_GET_LINK_RATEPROBE(lb, link)	({BCM_REFERENCE(lb); BCM_REFERENCE(link);0u;})
+#define PKT_SET_LINK_RATEPROBE(lb, link)	({;})
+/* ============MLO========================= */
+#endif /* !BCMDONGLEHOST && !DONGLEBUILD */
 #endif /* BCMDRIVER */
 
 #endif	/* _linux_pkt_h_ */

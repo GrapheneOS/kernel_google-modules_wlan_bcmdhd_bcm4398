@@ -1,7 +1,7 @@
 /*
  * Misc system wide definitions
  *
- * Copyright (C) 2022, Broadcom.
+ * Copyright (C) 2023, Broadcom.
  *
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you
@@ -1057,7 +1057,7 @@ void* BCM_ASLR_CODE_FNPTR_RELOCATOR(void *func_ptr);
 #endif /* SIZEOF_MACRO_USE */
 
 /* Disable function inlining. */
-#define BCM_NOINLINE	__attribute__ ((noinline))
+#define BCM_NOINLINE	__attribute__ ((__noinline__))
 
 /* Disable compiler optimizations for a function. */
 #define BCM_NO_OPTIMIZE	__attribute__ ((optimize(0)))

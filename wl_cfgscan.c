@@ -1,7 +1,7 @@
 /*
  * Linux cfg80211 driver scan related code
  *
- * Copyright (C) 2022, Broadcom.
+ * Copyright (C) 2023, Broadcom.
  *
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you
@@ -546,10 +546,10 @@ wl_inform_bss(struct bcm_cfg80211 *cfg)
 	}
 	preempt_enable();
 	WL_MEM(("cfg80211 scan cache updated\n"));
-#ifdef ROAM_CHANNEL_CACHE
+#if defined(ROAM_CHANNEL_CACHE) && defined(HOST_RCC_UPDATE)
 	/* print_roam_cache(); */
 	update_roam_cache(cfg, ioctl_version);
-#endif /* ROAM_CHANNEL_CACHE */
+#endif /* ROAM_CHANNEL_CACHE && HOST_RCC_UPDATE */
 	return err;
 }
 
@@ -1613,7 +1613,7 @@ wl_cfgscan_populate_scan_channels(struct bcm_cfg80211 *cfg,
 	is_p2p_scan = p2p_is_on(cfg) && p2p_scan(cfg);
 
 	for (i = 0; i < n_channels; i++) {
-		if (skip_dfs && (IS_RADAR_CHAN(channels[i]->flags))) {
+		if (skip_dfs && ((channels[i]->flags & IEEE80211_CHAN_RADAR))) {
 			WL_DBG(("Skipping radar channel. freq:%d\n",
 				(channels[i]->center_freq)));
 			continue;
@@ -2259,6 +2259,15 @@ static s32
 wl_get_scan_timeout_val(struct bcm_cfg80211 *cfg)
 {
 	u32 scan_timer_interval_ms = WL_SCAN_TIMER_INTERVAL_MS;
+	struct net_device *ndev;
+	wl_config_t *rsdb_mode = NULL;
+	int ret = BCME_OK;
+	u8 ioctl_buf[WLC_IOCTL_SMLEN];
+	dhd_pub_t *dhd = (dhd_pub_t *)(cfg->pub);
+
+	bzero(ioctl_buf, WLC_IOCTL_SMLEN);
+
+	ndev = bcmcfg_to_prmry_ndev(cfg);
 
 #ifdef WES_SUPPORT
 #ifdef CUSTOMER_SCAN_TIMEOUT_SETTING
@@ -2284,6 +2293,19 @@ wl_get_scan_timeout_val(struct bcm_cfg80211 *cfg)
 		scan_timer_interval_ms += WL_SCAN_TIMER_INTERVAL_MS_6G;
 	}
 #endif /* WL_6G_BAND */
+
+	/* check if chip is in non-rsdb mode */
+	if (FW_SUPPORTED(dhd, sdb_modesw)) {
+		ret = wldev_iovar_getbuf(ndev, "rsdb_mode", 0, 0,
+		(void *)ioctl_buf, WLC_IOCTL_SMLEN, NULL);
+		if (ret == BCME_OK) {
+			rsdb_mode = (wl_config_t*)ioctl_buf;
+			if (rsdb_mode->status != WL_RSDB_MODE_RSDB) {
+				scan_timer_interval_ms += WL_SCAN_TIMER_INTERVAL_MS_NON_RSDB;
+			}
+		}
+	}
+
 	WL_MEM(("scan_timer_interval_ms %d\n", scan_timer_interval_ms));
 	return scan_timer_interval_ms;
 }
@@ -3256,10 +3278,10 @@ static s32 wl_escan_without_scan_cache(struct bcm_cfg80211 *cfg,
 			add_roam_cache(cfg, bi);
 #endif /* ROAM_CHANNEL_CACHE */
 			err = wl_inform_single_bss(cfg, bi, false);
-#ifdef ROAM_CHANNEL_CACHE
+#if defined(ROAM_CHANNEL_CACHE) && defined(HOST_RCC_UPDATE)
 			/* print_roam_cache(); */
 			update_roam_cache(cfg, ioctl_version);
-#endif /* ROAM_CHANNEL_CACHE */
+#endif /* ROAM_CHANNEL_CACHE && HOST_RCC_UPDATE */
 
 			/*
 			 * !Broadcast && number of ssid = 1 && number of channels =1
@@ -7033,11 +7055,13 @@ wl_acs_check_scc(struct bcm_cfg80211 *cfg, drv_acs_params_t *parameter,
 	 */
 	if (scc == FALSE && CHSPEC_IS2G(sta_chanspec)) {
 #ifdef WL_CELLULAR_CHAN_AVOID
-		scc = wl_cellavoid_operation_allowed(cfg->cellavoid_info,
-			sta_chanspec, NL80211_IFTYPE_AP);
-		if (scc == FALSE) {
-			WL_INFORM_MEM(("Not allow unsafe channel and mandatory chspec:0x%x\n",
-			sta_chanspec));
+		if (!wl_is_chanspec_restricted(cfg, sta_chanspec)) {
+			scc = wl_cellavoid_operation_allowed(cfg->cellavoid_info,
+				sta_chanspec, NL80211_IFTYPE_AP);
+			if (scc == FALSE) {
+				WL_INFORM_MEM(("Not allow unsafe channel and"
+				" mandatory chspec:0x%x\n", sta_chanspec));
+			}
 		}
 #endif /* WL_CELLULAR_CHAN_AVOID */
 	}
@@ -7124,8 +7148,7 @@ wl_handle_acs_concurrency_cases(struct bcm_cfg80211 *cfg, drv_acs_params_t *para
 		bool scc_case = false;
 		u32 sta_band = CHSPEC_TO_WLC_BAND(chspec);
 		if (sta_band == WLC_BAND_2G) {
-			if (wl_is_chanspec_restricted(cfg, chspec) ||
-				(parameter->freq_bands & (WLC_BAND_5G | WLC_BAND_6G))) {
+			if (parameter->freq_bands & (WLC_BAND_5G | WLC_BAND_6G)) {
 				/* Remove the 2g band from incoming ACS bands */
 				parameter->freq_bands &= ~WLC_BAND_2G;
 			} else if (wl_acs_check_scc(cfg, parameter, chspec, qty, pList)) {
@@ -7244,7 +7267,7 @@ wl_cfgscan_update_dynamic_channels(struct bcm_cfg80211 *cfg,
 
 	/* If STA is connected in an indoor channel, clear it and indicate to upper layer */
 	netinfo = wl_get_netinfo_by_wdev(cfg, ndev->ieee80211_ptr);
-	if (link_up == TRUE) {
+	if (netinfo && (link_up == TRUE)) {
 		if (netinfo->mlinfo.num_links) {
 			/* MLO case, check for each link chanspec */
 			for (i = 0; i < MAX_MLO_LINK; i++) {

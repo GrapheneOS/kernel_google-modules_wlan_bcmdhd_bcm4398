@@ -1,7 +1,7 @@
 /*
  * DHD Bus Module for PCIE
  *
- * Copyright (C) 2022, Broadcom.
+ * Copyright (C) 2023, Broadcom.
  *
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you
@@ -1777,6 +1777,7 @@ dhdpcie_cto_recovery_handler(dhd_pub_t *dhd)
 #ifdef DHD_SSSR_DUMP
 			DHD_PRINT(("%s : Set collect_sssr as TRUE\n", __FUNCTION__));
 			bus->dhd->collect_sssr = TRUE;
+			bus->dhd->fis_enab_cto = TRUE;
 #endif /* DHD_SSSR_DUMP */
 #ifdef DHD_SDTC_ETB_DUMP
 			if (bus->dhd->etb_dap_flush_supported) {
@@ -1796,7 +1797,13 @@ dhdpcie_cto_recovery_handler(dhd_pub_t *dhd)
 	bus->no_cfg_restore = 1;
 #endif /* CONFIG_ARCH_MSM */
 #endif /* SUPPORT_LINKDOWN_RECOVERY */
-	bus->is_linkdown = TRUE;
+
+	/* do not set linkdown if FIS dump collection
+	 * is to be done for CTO
+	 */
+	if (!bus->dhd->fis_enab_cto) {
+		bus->is_linkdown = TRUE;
+	}
 	bus->dhd->hang_reason = HANG_REASON_PCIE_CTO_DETECT;
 	/* Send HANG event */
 	dhd_os_send_hang_message(bus->dhd);
@@ -5789,23 +5796,23 @@ dhdpcie_read_dnglbp(dhd_bus_t *bus, int src, int src_size, uint8 *obuf)
 {
 	int read_size;
 	int ret = BCME_OK;
-#ifdef BOARD_HIKEY
+#if defined(BOARD_HIKEY) || defined (BOARD_STB)
 	unsigned long flags_bus;
-#endif /* BOARD_HIKEY */
+#endif /* BOARD_HIKEY || BOARD_STB */
 	uint32 *sharea_addr = 0;
 
 	DHD_TRACE_HW4(("Dump dongle memory\n"));
 
 	while (src_size > 0) {
 		read_size = MIN(MEMBLOCK, src_size);
-#ifdef BOARD_HIKEY
+#if defined(BOARD_HIKEY) || defined (BOARD_STB)
 		/* Hold BUS_LP_STATE_LOCK to avoid simultaneous bus access */
 		DHD_BUS_LP_STATE_LOCK(bus->bus_lp_state_lock, flags_bus);
-#endif /* BOARD_HIKEY */
+#endif /* BOARD_HIKEY || BOARD_STB */
 		ret = dhdpcie_bus_membytes(bus, FALSE, DHD_PCIE_MEM_BAR1, src, obuf, read_size);
-#ifdef BOARD_HIKEY
+#if defined(BOARD_HIKEY) || defined (BOARD_STB)
 		DHD_BUS_LP_STATE_UNLOCK(bus->bus_lp_state_lock, flags_bus);
-#endif /* BOARD_HIKEY */
+#endif /* BOARD_HIKEY  || BOARD_STB */
 		if (ret) {
 			DHD_ERROR(("%s: Error membytes %d\n", __FUNCTION__, ret));
 #ifdef DHD_DEBUG_UART
@@ -6248,10 +6255,16 @@ dhdpcie_mem_dump(dhd_bus_t *bus)
 	}
 
 
+#ifdef DEBUGABILITY
+	/* Skip for coredump reason type */
+	if (dhdp->memdump_type != DUMP_TYPE_COREDUMP_BY_USER)
+#endif /* DEBUGABILITY */
+	{
 #if defined(DHD_PKT_LOGGING) && defined(DHD_DUMP_FILE_WRITE_FROM_KERNEL)
-	DHD_PRINT(("%s: scheduling pktlog dump.. \n", __FUNCTION__));
-	dhd_schedule_pktlog_dump(dhdp);
+		DHD_PRINT(("%s: scheduling pktlog dump.. \n", __FUNCTION__));
+		dhd_schedule_pktlog_dump(dhdp);
 #endif /* DHD_PKT_LOGGING && DHD_DUMP_FILE_WRITE_FROM_KERNEL */
+	}
 	dhd_schedule_memdump(dhdp, dhdp->soc_ram, dhdp->soc_ram_length);
 	/* buf, actually soc_ram free handled in dhd_{free,clear} */
 
@@ -20084,6 +20097,10 @@ dhdpcie_fis_dump(dhd_pub_t *dhd)
 	struct dhd_bus *bus = dhd->bus;
 	uint32 save_idx = 0;
 	int hwa_reset_state;
+	uint curcore = 0;
+	uint val = 0;
+	chipcregs_t *chipcregs = NULL;
+	curcore = si_coreid(bus->sih);
 
 	DHD_PRINT(("%s\n", __FUNCTION__));
 
@@ -20119,6 +20136,15 @@ dhdpcie_fis_dump(dhd_pub_t *dhd)
 	if (dhd->sssr_reg_info->rev2.version >= SSSR_REG_INFO_VER_4) {
 		dhdpcie_bring_saqm_updown(dhd, FALSE);
 	}
+
+	/* Take DAP core out of reset so that ETB is readable again */
+	chipcregs = (chipcregs_t *)si_setcore(bus->sih, CC_CORE_ID, 0);
+	if (chipcregs != NULL) {
+		val = R_REG(bus->osh, CC_REG_ADDR(chipcregs, JtagMasterCtrl));
+		W_REG(bus->osh, CC_REG_ADDR(chipcregs, JtagMasterCtrl),
+			val & ~(1 << 9));
+	}
+	si_setcore(bus->sih, curcore, 0);
 
 	OSL_DELAY(6000);
 
@@ -20366,38 +20392,6 @@ dhd_bus_flush_dap_tmc(dhd_bus_t *bus, uint etb)
 	return BCME_OK;
 }
 
-/*
- * dhd_bus_get_ewp_etb_dump - reads etb dumps over pcie bus into a buffer
- * buf - buffer to read into
- * bufsize - size of buffer
- * return value - total size of the dump read into the buffer,
- * -ve error value in case of failure
- *
- * The format of the etb dump in the buffer will be -
- * +++++++++++++++++++++
- * | etb_config_info_t |
- * +++++++++++++++++++++
- * | etb_block_t       |
- * +++++++++++++++++++++
- * | etb0 contents     |
- * |                   |
- * +++++++++++++++++++++
- * | etb_block_t       |
- * +++++++++++++++++++++
- * | etb1 contents     |
- * |                   |
- * +++++++++++++++++++++
- * | etb_block_t       |
- * +++++++++++++++++++++
- * | etb2 contents     |
- * |                   |
- * +++++++++++++++++++++
- *
- * Note - The above representation assumes that all 3 etb blocks are valid.
- * If there is only 1 or 2 valid etb blocks provided by dongle
- * then the above representation will change and have only a
- * single etb block or two etb blocks accordingly
-*/
 int
 dhd_bus_get_ewp_etb_dump(dhd_bus_t *bus, uint8 *buf, uint bufsize)
 {
@@ -20454,6 +20448,7 @@ dhd_bus_get_etb_dump_cmn(dhd_bus_t *bus, uint8 *buf, uint bufsize, uint32 etb_co
 	uint curcore = 0;
 	chipcregs_t *chipcregs = NULL;
 	uint ccrev = 0;
+	bool skip_rwp_update = FALSE;
 	dhd_pub_t *dhdp = bus->dhd;
 	bool flushed[ETB_USER_MAX] = {TRUE, TRUE, TRUE};
 	bool all_flushed = TRUE;
@@ -20478,13 +20473,19 @@ dhd_bus_get_etb_dump_cmn(dhd_bus_t *bus, uint8 *buf, uint bufsize, uint32 etb_co
 	ccrev = si_corerev(bus->sih);
 	si_setcore(bus->sih, curcore, 0);
 
-	/* ASIC advise is to flush the DAP TMC registers
-	 * before reading ETB dumps, so that ETB
-	 * dump can be collected for non trap cases also.
-	 * DAP - Debug Access Protocol
-	 * TMC - Trace Memory Controller
+	/* if FIS dump is collected skip DAP TMC flush
+	 * as recommended by ASIC. Also do not update RWP
 	 */
-	if (ccrev >= EWP_ETB_DAP_TMC_FLUSH_CCREV) {
+	if (dhdp->fis_triggered) {
+		DHD_PRINT(("%s: skip DAP TMC flush and RWP update due to FIS\n", __FUNCTION__));
+		skip_rwp_update = TRUE;
+	} else if (ccrev >= EWP_ETB_DAP_TMC_FLUSH_CCREV) {
+		/* ASIC advise is to flush the DAP TMC registers
+		 * before reading ETB dumps, so that ETB
+		 * dump can be collected for non trap cases also.
+		 * DAP - Debug Access Protocol
+		 * TMC - Trace Memory Controller
+		 */
 		for (i = 0; i < etb_cfg->num_etb; ++i) {
 			if (bus->etb_validity[i]) {
 				ret = dhd_bus_flush_dap_tmc(bus, i);
@@ -20543,10 +20544,12 @@ dhd_bus_get_etb_dump_cmn(dhd_bus_t *bus, uint8 *buf, uint bufsize, uint32 etb_co
 				} else {
 					etb->rwp = ltoh32(rwp);
 				}
-			} else {
+			} else if (!skip_rwp_update) {
 				/* if no trap, then read rwp via DAP register */
 				addr = debug_base + TMC_REG_OFF(rwp);
 				serialized_backplane_access(bus, addr, 4, &etb->rwp, TRUE);
+			} else {
+				DHD_INFO(("%s: no RWP update due to FIS\n", __FUNCTION__));
 			}
 
 			/* first write etb_block_t */
@@ -20615,9 +20618,7 @@ dhd_bus_get_etb_dump_cmn(dhd_bus_t *bus, uint8 *buf, uint bufsize, uint32 etb_co
 
 	return totsize;
 }
-#endif /* DHD_SDTC_ETB_DUMP */
 
-#ifdef DHD_SDTC_ETB_DUMP
 /*
  * dhd_bus_get_etb_dump - reads etb dumps over pcie bus into a buffer
 */

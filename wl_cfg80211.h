@@ -1,7 +1,7 @@
 /*
  * Linux cfg80211 driver
  *
- * Copyright (C) 2022, Broadcom.
+ * Copyright (C) 2023, Broadcom.
  *
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you
@@ -745,12 +745,19 @@ do {									\
 #define WL_AF_TX_EXTRA_TIME_MAX		200
 
 #define WL_SCAN_TIMER_INTERVAL_MS	10000 /* Scan timeout */
+
+/* For devices in non-rsdb mode , need to add 2G scan time also */
+#define WL_SCAN_TIMER_INTERVAL_MS_NON_RSDB	2000u
+#define WL_RSDB_MODE_MIMO	0
+#define WL_RSDB_MODE_RSDB	1u
+
 #ifdef WL_NAN
 #define WL_SCAN_TIMER_INTERVAL_MS_NAN	15000 /* Scan timeout */
 #endif /* WL_NAN */
 #ifdef WL_6G_BAND
 /* additional scan timeout for 6GHz, 6000msec */
 #define WL_SCAN_TIMER_INTERVAL_MS_6G	6000
+
 #define CHSPEC_TO_WLC_BAND(chspec) (CHSPEC_IS2G(chspec) ? WLC_BAND_2G : CHSPEC_IS5G(chspec) ? \
 	WLC_BAND_5G : WLC_BAND_6G)
 #else
@@ -897,6 +904,8 @@ do {									\
 #define JOIN_PREF_MAX_WPA_TUPLES	16	/* Max no of tuples */
 #define JOIN_PREF_MAX_BUF_SIZE		(JOIN_PREF_RSSI_SIZE + JOIN_PREF_WPA_HDR_SIZE +	\
 				           (JOIN_PREF_WPA_TUPLE_SIZE * JOIN_PREF_MAX_WPA_TUPLES))
+
+#define IF_COUNTERS_PARAM_CONTAINER_LEN_MAX	228
 
 #if defined(STRICT_GCC_WARNINGS) && defined(__GNUC__) &&\
 (__GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 6))
@@ -1378,6 +1387,7 @@ struct net_info {
 #endif /* WL_MLO */
 	u8 *qos_up_table;
 	bool reg_update_on_disconnect;
+	bool td_policy_set;
 };
 
 #ifdef WL_BCNRECV
@@ -2583,6 +2593,11 @@ wl_dealloc_netinfo(struct bcm_cfg80211 *cfg, struct net_info *_net_info)
 		MFREE(cfg->osh, _net_info->qos_up_table, UP_TABLE_MAX);
 		_net_info->qos_up_table = NULL;
 	}
+
+	if (_net_info->td_policy_set) {
+		_net_info->td_policy_set = FALSE;
+	}
+
 	list_del(&_net_info->list);
 	cfg->iface_cnt--;
 	MFREE(cfg->osh, _net_info, sizeof(struct net_info));
@@ -3619,9 +3634,9 @@ extern s32 wl_cfg80211_post_static_ifdel(struct bcm_cfg80211 *cfg, struct net_de
 extern struct wireless_dev *wl_cfg80211_get_wdev_from_ifname(struct bcm_cfg80211 *cfg,
 	const char *name);
 struct net_device* wl_get_netdev_by_name(struct bcm_cfg80211 *cfg, char *ifname);
-extern int wl_cfg80211_ifstats_counters(struct net_device *dev, wl_if_stats_t *if_stats);
-extern int wl_cfg80211_if_infra_enh_ifstats_counters(struct net_device *dev,
-		wl_if_infra_enh_stats_v2_t *if_infra_enh_stats);
+extern int wl_cfg80211_ifstats_counters(struct net_device *dev, u8 link_id,
+	wl_if_stats_t *if_stats);
+extern int wl_cfg80211_ifstats_counters_cb(void *ctx, const uint8 *data, uint16 type, uint16 len);
 extern s32 wl_cfg80211_set_dbg_verbose(struct net_device *ndev, u32 level);
 extern int wl_cfg80211_deinit_p2p_discovery(struct bcm_cfg80211 * cfg);
 extern int wl_cfg80211_set_frameburst(struct bcm_cfg80211 *cfg, bool enable);
@@ -3714,7 +3729,7 @@ static inline s32 wl_rssi_offset(s32 rssi)
 extern u8 wl_chanspec_to_host_bw_map(chanspec_t cur_chanspec);
 extern int wl_channel_to_frequency(u32 chan, chanspec_band_t band);
 extern int wl_cfg80211_config_rsnxe_ie(struct bcm_cfg80211 *cfg, struct net_device *dev,
-		const u8 *parse, u32 len);
+		const u8 *parse, u32 len, wlcfg_assoc_info_t *info);
 extern bool dhd_force_country_change(struct net_device *dev);
 extern u32 wl_dbg_level;
 extern u32 wl_log_level;
@@ -3851,6 +3866,8 @@ extern wl_mlo_link_t * wl_cfg80211_get_ml_link_detail(struct bcm_cfg80211 *cfg,
 extern struct net_info * wl_cfg80211_get_mld_netinfo_by_cfg(struct bcm_cfg80211 *cfg, u8 *ml_count);
 extern wl_mlo_link_t * wl_cfg80211_get_ml_link_by_linkidx(struct bcm_cfg80211 *cfg,
 	struct net_info *mld_netinfo, u8 linkidx);
+extern wl_mlo_link_t * wl_cfg80211_get_ml_link_by_linkid(struct bcm_cfg80211 *cfg,
+	struct net_info *mld_netinfo, u8 linkid);
 extern s32 wl_mlo_set_multilink(struct bcm_cfg80211 *cfg, struct net_device *dev, u8 enable);
 #endif /* WL_MLO */
 
@@ -3885,4 +3902,6 @@ struct wl_cp_coex {
 extern s32 wl_cfg80211_actframe_fillup_v2(struct bcm_cfg80211 *cfg, bcm_struct_cfgdev *cfgdev,
 	struct net_device *dev, wl_af_params_v2_t *af_params_v2_p,
 	wl_af_params_v1_t *af_params, const u8 *sa, uint16 wl_af_params_size);
+#define WL_CFG_RSPEC_ENCODING_MASK  0x07000000u
+#define WL_CFG_RSPEC_ISEHT(rspec) (((rspec) & WL_CFG_RSPEC_ENCODING_MASK) == WL_RSPEC_ENCODE_EHT)
 #endif /* _wl_cfg80211_h_ */

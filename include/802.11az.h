@@ -6,7 +6,7 @@
  * FTM - Fine Timing Measuremant
  * PASN - Preassociation security negotiation
  *
- * Copyright (C) 2022, Broadcom.
+ * Copyright (C) 2023, Broadcom.
  *
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you

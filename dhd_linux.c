@@ -1,7 +1,7 @@
 /*
  * Basically selected code segments from usb-cdc.c and usb-rndis.c
  *
- * Copyright (C) 2022, Broadcom.
+ * Copyright (C) 2023, Broadcom.
  *
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you
@@ -6985,6 +6985,7 @@ dhd_open(struct net_device *net)
 #ifdef DHD_SSSR_DUMP
 	dhd->pub.collect_sssr = FALSE;
 	dhd->pub.fis_enab_no_db7ack = FALSE;
+	dhd->pub.fis_enab_cto = FALSE;
 #endif /* DHD_SSSR_DUMP */
 #ifdef DHD_SDTC_ETB_DUMP
 	dhd->pub.collect_sdtc = FALSE;
@@ -9739,11 +9740,11 @@ dhd_attach(osl_t *osh, struct dhd_bus *bus, uint bus_hdrlen)
 
 #if defined(OEM_ANDROID)
 #ifdef DHD_COREDUMP
-#ifdef BOARD_HIKEY
+#if defined(BOARD_HIKEY) || defined (BOARD_STB)
 	dhd->pub.memdump_enabled = DUMP_MEMFILE_BUGON;
 #else
 	dhd->pub.memdump_enabled = DUMP_MEMFILE;
-#endif /* BOARD_HIKEY */
+#endif /* BOARD_HIKEY || BOARD_STB */
 #else
 	dhd->pub.memdump_enabled = DUMP_MEMFILE_BUGON;
 #endif /* DHD_COREDUMP */
@@ -10184,6 +10185,7 @@ dhd_bus_start(dhd_pub_t *dhdp)
 #ifdef DHD_SSSR_DUMP
 	dhdp->collect_sssr = FALSE;
 	dhdp->fis_enab_no_db7ack = FALSE;
+	dhdp->fis_enab_cto = FALSE;
 #endif /* DHD_SSSR_DUMP */
 #ifdef DHD_SDTC_ETB_DUMP
 	dhdp->collect_sdtc = FALSE;
@@ -11482,14 +11484,14 @@ dhd_optimised_preinit_ioctls(dhd_pub_t * dhd)
 		dhd->wlc_ver_major = wlc_ver.wlc_ver_major;
 		dhd->wlc_ver_minor = wlc_ver.wlc_ver_minor;
 	}
-#ifdef BOARD_HIKEY
+#if defined(BOARD_HIKEY) || defined (BOARD_STB)
 	/* Set op_mode as MFG_MODE if WLTEST is present in "wl ver" */
 	if (strstr(fw_version, "WLTEST") != NULL) {
 		DHD_PRINT(("%s: wl ver has WLTEST, setting op_mode as DHD_FLAG_MFG_MODE\n",
 			__FUNCTION__));
 		op_mode = DHD_FLAG_MFG_MODE;
 	}
-#endif /* BOARD_HIKEY */
+#endif /* BOARD_HIKEY || BOARD_STB */
 
 	/* get a capabilities from firmware */
 	ret = dhd_get_fw_capabilities(dhd);
@@ -12490,14 +12492,14 @@ dhd_legacy_preinit_ioctls(dhd_pub_t *dhd)
 #endif /* BCMSDIO || BCMPCIE */
 	}
 
-#ifdef BOARD_HIKEY
+#if defined(BOARD_HIKEY) || defined (BOARD_STB)
 	/* Set op_mode as MFG_MODE if WLTEST is present in "wl ver" */
 	if (strstr(fw_version, "WLTEST") != NULL) {
 		DHD_PRINT(("%s: wl ver has WLTEST, setting op_mode as DHD_FLAG_MFG_MODE\n",
 			__FUNCTION__));
 		op_mode = DHD_FLAG_MFG_MODE;
 	}
-#endif /* BOARD_HIKEY */
+#endif /* BOARD_HIKEY || BOARD_STB */
 
 	if ((!op_mode && dhd_get_fw_mode(dhd->info) == DHD_FLAG_MFG_MODE) ||
 		(op_mode == DHD_FLAG_MFG_MODE)) {
@@ -16015,18 +16017,19 @@ exit:
 
 #endif /* DHD_PCIE_RUNTIMEPM */
 
-#ifdef DHD_LINUX_STD_FW_API
 int
 dhd_os_get_img_fwreq(const struct firmware **fw, const char *file_path)
 {
 	int ret = BCME_ERROR;
 
+#ifdef DHD_LINUX_STD_FW_API
 	ret = request_firmware(fw, file_path, dhd_bus_to_dev(g_dhd_pub->bus));
 	if (ret < 0) {
 		DHD_ERROR(("%s: request_firmware err: %d\n", __FUNCTION__, ret));
 		/* convert to BCME_NOTFOUND error for error handling */
 		ret = BCME_NOTFOUND;
 	}
+#endif /* DHD_LINUX_STD_FW_API */
 
 	return ret;
 }
@@ -16034,9 +16037,10 @@ dhd_os_get_img_fwreq(const struct firmware **fw, const char *file_path)
 void
 dhd_os_close_img_fwreq(const struct firmware *fw)
 {
+#ifdef DHD_LINUX_STD_FW_API
 	release_firmware(fw);
-}
 #endif /* DHD_LINUX_STD_FW_API */
+}
 
 void *
 dhd_os_open_image1(dhd_pub_t *pub, char *filename)
@@ -16429,8 +16433,8 @@ dhd_net_bus_devreset(struct net_device *dev, uint8 flag)
 
 	ret = dhd_bus_devreset(&dhd->pub, flag);
 
-	/* for power on case, i.e., flag=FALSE, if dhd_bus_devreset
-	 * succeeds i.e. power on is successful (ret is zero),
+	/* for power on case, i.e, flag=FALSE, if dhd_bus_devreset
+	 * succeeds i.e power on is successful (ret is zero),
 	 * then there still could be some
 	 * bus errors due to cases like ROT/trap during init etc..
 	 * so check dhd_query_bus_erros and return error code.
@@ -16439,7 +16443,7 @@ dhd_net_bus_devreset(struct net_device *dev, uint8 flag)
 	 * chip is powered off and we cannot collect socram.
 	 */
 	if (flag == FALSE && !ret && dhd_query_bus_erros(&dhd->pub)) {
-		DHD_ERROR(("%s: return error due to bus errors\n", __FUNCTION__));
+		DHD_ERROR(("%s: retrun error due to bus errors\n", __FUNCTION__));
 		ret = BCME_ERROR;
 	} else if (flag == TRUE) {
 		DHD_PRINT(("%s: power off case, don't check bus errors \n",
@@ -18566,7 +18570,7 @@ write_dump_to_file(dhd_pub_t *dhd, uint8 *buf, int size, char *fname)
 
 #ifdef CUSTOMER_HW4_DEBUG
 	file_mode = O_CREAT | O_WRONLY | O_SYNC;
-#elif defined(CUSTOMER_HW2) || defined(BOARD_HIKEY)
+#elif defined(CUSTOMER_HW2) || defined(BOARD_HIKEY) || defined (BOARD_STB)
 	file_mode = O_CREAT | O_WRONLY | O_SYNC;
 #elif defined(OEM_ANDROID) && defined(__ARM_ARCH_7A__)
 	file_mode = O_CREAT | O_WRONLY;
@@ -19887,7 +19891,7 @@ int dhd_set_ap_isolate(dhd_pub_t *dhdp, uint32 idx, int val)
 
 #ifdef CUSTOMER_HW4_DEBUG
 #define RNDINFO PLATFORM_PATH".rnd"
-#elif defined(CUSTOMER_HW2) || defined(BOARD_HIKEY)
+#elif defined(CUSTOMER_HW2) || defined(BOARD_HIKEY) || defined (BOARD_STB)
 #define RNDINFO "/data/misc/wifi/.rnd"
 #elif defined(OEM_ANDROID) && defined(__ARM_ARCH_7A__)
 #define RNDINFO "/data/misc/wifi/.rnd"
@@ -20244,38 +20248,58 @@ dhd_mem_dump(void *handle, void *event_info, u8 event)
 	if (sssr_enab && dhdp->sssr_inited && dhdp->collect_sssr) {
 		uint32 arr_len[DUMP_SSSR_DUMP_MAX_COUNT];
 
-		DHD_PRINT(("%s: fis_enab_always=%d fis_enab_no_db7ack=%d\n",
-			__FUNCTION__, fis_enab_always, dhdp->fis_enab_no_db7ack));
+		DHD_PRINT(("%s: fis_enab_always=%d fis_enab_no_db7ack=%d "
+			"fis_enab_cto=%d\n", __FUNCTION__, fis_enab_always,
+			dhdp->fis_enab_no_db7ack, dhdp->fis_enab_cto));
 
-		/* Collect FIS only if dongle supports FIS and
-		 * dhd always supports(mod param) OR for ROTs with no DB7 ack.
+		/* Collect FIS provided dongle supports it, for the
+		 * following cases:
+		 * 1. module param 'fis_enab_always' is set
+		 * 2. ROT and no db7 ack
+		 * 3. CTO
 		 */
-		if (fis_enab_always || dhdp->fis_enab_no_db7ack) {
-			uint32 dongle_fis_enab = FALSE;
+		if (fis_enab_always || dhdp->fis_enab_no_db7ack ||
+			dhdp->fis_enab_cto) {
+			dhdp->dongle_fis_enab = FALSE;
 
 			switch (dhdp->sssr_reg_info->rev2.version) {
 				case SSSR_REG_INFO_VER_4 :
-					dongle_fis_enab = dhdp->sssr_reg_info->rev4.fis_enab;
+					dhdp->dongle_fis_enab = dhdp->sssr_reg_info->rev4.fis_enab;
 					break;
 				case SSSR_REG_INFO_VER_3 :
-					dongle_fis_enab = dhdp->sssr_reg_info->rev3.fis_enab;
+					dhdp->dongle_fis_enab = dhdp->sssr_reg_info->rev3.fis_enab;
 					break;
 			}
-			DHD_PRINT(("%s: dongle_fis_enab=%d\n", __FUNCTION__, dongle_fis_enab));
+			DHD_PRINT(("%s: dongle_fis_enab=%d\n", __FUNCTION__,
+				dhdp->dongle_fis_enab));
 			/* Collect FIS only if dongle supports */
-			if (dongle_fis_enab) {
+			if (dhdp->dongle_fis_enab) {
 				int bcmerror = dhd_bus_fis_trigger(dhdp);
 				if (bcmerror == BCME_OK) {
 					dhd_bus_fis_dump(dhdp);
 				} else {
 					DHD_ERROR(("%s: FIS trigger failed: %d\n",
 						__FUNCTION__, bcmerror));
+					if (dhdp->fis_enab_cto) {
+						DHD_PRINT(("%s: setting link down due to CTO \n",
+							__FUNCTION__));
+						dhd_bus_set_linkdown(dhdp, TRUE);
+					}
 					goto exit;
 				}
+				dhdp->fis_triggered = TRUE;
 #ifdef DHD_SDTC_ETB_DUMP
-				/* TODO: disable SDTC for time being as SDTC needs more changes */
-				dhdp->collect_sdtc = FALSE;
+				dhdp->collect_sdtc = TRUE;
 #endif /* DHD_SDTC_ETB_DUMP */
+			}
+			/* link down is not set from cto recovery handler as
+			 * it will prevent FIS dump collection. So set it here
+			 * after FIS dump collection
+			 */
+			if (dhdp->fis_enab_cto) {
+				DHD_PRINT(("%s: setting link down due to CTO \n",
+					__FUNCTION__));
+				dhd_bus_set_linkdown(dhdp, TRUE);
 			}
 		} else	{
 			DHD_PRINT(("%s: FIS not enabled, collect legacy sssr\n",
@@ -20290,12 +20314,15 @@ dhd_mem_dump(void *handle, void *event_info, u8 event)
 	}
 #endif /* DHD_SSSR_DUMP */
 #ifdef DHD_SDTC_ETB_DUMP
-	DHD_PRINT(("%s: collect_sdtc = %d", __FUNCTION__, dhdp->collect_sdtc));
+	DHD_PRINT(("%s: collect_sdtc = %d\n", __FUNCTION__, dhdp->collect_sdtc));
 	if (dhdp->collect_sdtc) {
 		dhd_sdtc_etb_dump(dhdp);
 		dhdp->collect_sdtc = FALSE;
 	}
 #endif /* DHD_SDTC_ETB_DUMP */
+#ifdef DHD_SSSR_DUMP
+	dhdp->fis_triggered = FALSE;
+#endif /* DHD_SSSR_DUMP */
 
 #if defined(WL_CFG80211) && (defined(DHD_FILE_DUMP_EVENT) || defined(DHD_DEBUGABILITY_DEBUG_DUMP))
 	if (dhdp->memdump_enabled == DUMP_MEMONLY) {
@@ -20321,14 +20348,14 @@ dhd_mem_dump(void *handle, void *event_info, u8 event)
 				__FUNCTION__));
 			goto exit;
 		}
-#ifdef BOARD_HIKEY
+#if defined(BOARD_HIKEY) || defined (BOARD_STB)
 		DHD_ERROR(("%s: force write dumps...\n", __FUNCTION__));
 		/* For Hikey do force kernel write of socram if HAL dump fails */
 		if (write_dump_to_file(&dhd->pub, dump->buf, dump->bufsize,
 			"data/misc/wifi/mem_dump")) {
 			DHD_ERROR(("%s: writing SoC_RAM dump to the file failed\n", __FUNCTION__));
 		}
-#endif /* BOARD_HIKEY */
+#endif /* BOARD_HIKEY || BOARD_STB */
 	}
 	dhdp->skip_memdump_map_read = FALSE;
 #elif defined(DHD_DEBUGABILITY_DEBUG_DUMP)
@@ -20372,6 +20399,12 @@ dhd_mem_dump(void *handle, void *event_info, u8 event)
 			dhd->pub.memdump_success = FALSE;
 #endif  /* DHD_DEBUG_UART */
 		}
+#ifdef DEBUGABILITY
+		if (memdump_type == DUMP_TYPE_COREDUMP_BY_USER) {
+			/* collecting SoCRam is enough for this type */
+			goto exit;
+		}
+#endif /* DEBUGABILITY */
 	}
 #endif /* DHD_COREDUMP */
 

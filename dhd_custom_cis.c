@@ -2,7 +2,7 @@
  * Process CIS information from OTP for customer platform
  * (Handle the MAC address and module information)
  *
- * Copyright (C) 2022, Broadcom.
+ * Copyright (C) 2023, Broadcom.
  *
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you
@@ -124,20 +124,23 @@ vid_info_t vid_naming_table_4398[] = {
 	{ 3, { 0x51, 0x0a, }, { "_4398_refcard" } },
 
 	/* 4398b0 */
-	{ 3, { 0x51, 0x97, }, { "_USI_G5BB_9751_V11" } },
-	{ 3, { 0x50, 0x97, }, { "_USI_G5BB_9750_V10" } },
-	{ 3, { 0x51, 0x98, }, { "_USI_G5RN_9851_V11" } },
 	{ 3, { 0x50, 0x98, }, { "_USI_G5RN_9850_V10" } },
-	{ 3, { 0x51, 0x99, }, { "_USI_G5SN_9951_V11" } },
+	{ 3, { 0x51, 0x98, }, { "_USI_G5RN_9851_V11" } },
 	{ 3, { 0x50, 0x99, }, { "_USI_G5SN_9950_V10" } },
+	{ 3, { 0x51, 0x99, }, { "_USI_G5SN_9951_V11" } },
 
 	/* 4398c0 */
-	{ 3, { 0x53, 0x99, }, { "_USI_G5SN_9953_V13" } },
-	{ 3, { 0x53, 0x98, }, { "_USI_G5RN_9853_V13" } },
+	{ 3, { 0x50, 0x97, }, { "_USI_G5BB_9750_V10" } },
+	{ 3, { 0x51, 0x97, }, { "_USI_G5BB_9753_V11" } },
 	{ 3, { 0x53, 0x97, }, { "_USI_G5BB_9753_V13" } },
+	{ 3, { 0x53, 0x98, }, { "_USI_G5RN_9853_V13" } },
+	{ 3, { 0x53, 0x99, }, { "_USI_G5SN_9953_V13" } },
 
 	/* 4398d0 */
+	{ 3, { 0x55, 0x97, }, { "_USI_G5BB_9755_V15" } },
+	{ 3, { 0x55, 0x98, }, { "_USI_G5RN_9855_V15" } },
 	{ 3, { 0x55, 0x99, }, { "_USI_G5SN_9955_V15" } },
+	{ 3, { 0x57, 0x99, }, { "_USI_G5SN_9957_V17" } },
 };
 
 #ifdef DHD_USE_CISINFO
@@ -782,14 +785,12 @@ dhd_get_complete_blob_name(dhd_pub_t *dhdp, char *blob_path, char *blob_name)
 		strncpy(blob_path, blob_fname, strlen(blob_fname));
 		strncat(blob_path, blob_ext, strlen(blob_ext));
 		/* check file existence */
-#ifdef DHD_LINUX_STD_FW_API
 		if (dhd_os_check_image_exists(dhdp, blob_path) == FALSE) {
 			DHD_ERROR(("%s: %s not found, Fallback to default BLOB name\n",
 				__FUNCTION__, blob_path));
 			strncpy(blob_path, blob_fname, strlen(blob_fname));
 			blob_path[len] = '\0';
 		}
-#endif /* DHD_LINUX_STD_FW_API */
 	} else {
 		DHD_ERROR(("%s:failed to get chip rev str for chip id 0x%x and rev %u."
 			" Fallback to default BLOB name\n",

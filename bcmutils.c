@@ -1,7 +1,7 @@
 /*
  * Driver O/S-independent utility routines
  *
- * Copyright (C) 2022, Broadcom.
+ * Copyright (C) 2023, Broadcom.
  *
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you
@@ -2716,45 +2716,6 @@ bcm_find_ie(const uint8* tlvs, uint tlvs_len, uint8 tag, uint8 oui_len,
 	return NULL;
 }
 
-/* Look for vendor-specific IE with specified OUI and optional type */
-bcm_tlv_t *
-bcm_find_vendor_ie(const  void *tlvs, uint tlvs_len, const char *voui, uint8 *type, uint type_len)
-{
-	const  bcm_tlv_t *ie;
-	uint8 ie_len;
-
-	COV_TAINTED_DATA_SINK(tlvs_len);
-	COV_NEG_SINK(tlvs_len);
-
-	ie = (const  bcm_tlv_t*)tlvs;
-
-	/* make sure we are looking at a valid IE */
-	if (ie == NULL || !bcm_valid_tlv(ie, tlvs_len)) {
-		return NULL;
-	}
-
-	/* Walk through the IEs looking for an OUI match */
-	do {
-		ie_len = ie->len;
-		if ((ie->id == DOT11_MNG_VS_ID) &&
-		    (ie_len >= (DOT11_OUI_LEN + type_len)) &&
-		    !bcmp(ie->data, voui, DOT11_OUI_LEN))
-		{
-			/* compare optional type */
-			if (type_len == 0 ||
-			    !bcmp(((const char *)ie->data) + DOT11_OUI_LEN, type, type_len)) {
-
-				COV_TAINTED_DATA_ARG(ie);
-
-				GCC_DIAGNOSTIC_PUSH_SUPPRESS_CAST();
-				return (bcm_tlv_t *)(ie);		/* a match */
-				GCC_DIAGNOSTIC_POP();
-			}
-		}
-	} while ((ie = bcm_next_tlv(ie, &tlvs_len)) != NULL);
-
-	return NULL;
-}
 
 #if defined(WLTINYDUMP) || defined(BCMDBG) || defined(WLMSG_INFORM) || \
 	defined(WLMSG_ASSOC) || defined(WLMSG_PRPKT) || defined(WLMSG_WSEC)
@@ -2788,6 +2749,46 @@ bcm_format_ssid(char* buf, const uchar ssid[], uint ssid_len)
 #endif /* WLTINYDUMP || BCMDBG || WLMSG_INFORM || WLMSG_ASSOC || WLMSG_PRPKT */
 
 #endif /* BCMDRIVER || WL_UNITTEST */
+
+/* Look for vendor-specific IE with specified OUI and optional type */
+bcm_tlv_t *
+bcm_find_vendor_ie(const  void *tlvs, uint tlvs_len, const char *voui, uint8 *type, uint type_len)
+{
+	const  bcm_tlv_t *ie;
+	uint8 ie_len;
+
+	COV_TAINTED_DATA_SINK(tlvs_len);
+	COV_NEG_SINK(tlvs_len);
+
+	ie = (const  bcm_tlv_t*)tlvs;
+
+	/* make sure we are looking at a valid IE */
+	if (ie == NULL || !bcm_valid_tlv(ie, tlvs_len)) {
+		return NULL;
+	}
+
+	/* Walk through the IEs looking for an OUI match */
+	do {
+		ie_len = ie->len;
+		if ((ie->id == DOT11_MNG_VS_ID) &&
+		    (ie_len >= (DOT11_OUI_LEN + type_len)) &&
+		    !memcmp(ie->data, voui, DOT11_OUI_LEN))
+		{
+			/* compare optional type */
+			if (type_len == 0 ||
+			    !memcmp(((const char *)ie->data) + DOT11_OUI_LEN, type, type_len)) {
+
+				COV_TAINTED_DATA_ARG(ie);
+
+				GCC_DIAGNOSTIC_PUSH_SUPPRESS_CAST();
+				return (bcm_tlv_t *)(ie);		/* a match */
+				GCC_DIAGNOSTIC_POP();
+			}
+		}
+	} while ((ie = bcm_next_tlv(ie, &tlvs_len)) != NULL);
+
+	return NULL;
+}
 
 /* Masking few bytes of MAC address per customer in all prints/eventlogs. */
 int

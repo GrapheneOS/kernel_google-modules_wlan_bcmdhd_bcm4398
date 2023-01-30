@@ -1,7 +1,7 @@
 /*
  * Common OS-independent driver header for rate management.
  *
- * Copyright (C) 2022, Broadcom.
+ * Copyright (C) 2023, Broadcom.
  *
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you
@@ -295,6 +295,10 @@ typedef uint32 ratespec_bw_t;
  */
 /* phy_rate table index is in [500kbps] units */
 #define WLC_MAXRATE	108	/**< in 500kbps units */
+/* BSS membership selectors are 108 - 127;
+ * so keeping the number as 20 to address max value
+ */
+#define WLC_MAX_BSS_MEMBERSHIP_SELECTOR_NUM 20u
 extern const uint8 rate_info[];
 /* phy_rate table value is encoded */
 #define	RATE_INFO_OFDM_MASK	0x80	/* ofdm mask */

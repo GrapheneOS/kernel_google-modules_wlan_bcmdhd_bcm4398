@@ -1,7 +1,7 @@
 /*
  * Common header file for all error codes.
  *
- * Copyright (C) 2022, Broadcom.
+ * Copyright (C) 2023, Broadcom.
  *
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you
@@ -234,7 +234,8 @@ typedef int bcmerror_t;
 
 /* FTM error codes [-1024, -2047] */
 enum {
-	WL_FTM_E_LAST			= -1090,
+	WL_FTM_E_LAST			= -1091,
+	WL_FTM_E_FORCE_DELETED		= -1091,
 	WL_FTM_E_ONE_WAY_RTT		= -1090,
 	WL_FTM_E_PRIMARY_CLONE_START	= -1089,
 	WL_FTM_E_DEFER_ACK_LOST		= -1088,

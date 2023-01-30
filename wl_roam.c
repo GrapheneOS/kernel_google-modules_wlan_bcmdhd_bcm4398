@@ -1,7 +1,7 @@
 /*
  * Linux roam cache
  *
- * Copyright (C) 2022, Broadcom.
+ * Copyright (C) 2023, Broadcom.
  *
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you
@@ -151,6 +151,8 @@ void update_roam_cache(struct bcm_cfg80211 *cfg, int ioctl_ver)
 			sizeof(channel_list), iobuf, sizeof(iobuf), NULL);
 		if (error) {
 			WL_ERR(("Failed to update roamscan channels, error = %d\n", error));
+		} else {
+			WL_DBG(("RCC updated\n"));
 		}
 	}
 
@@ -433,6 +435,8 @@ set_roamscan_chanspec_list(struct net_device *dev, uint nchan, chanspec_t *chans
 	if (error) {
 		WL_ERR(("Failed to set roamscan channels, error = %d\n", error));
 		return error;
+	} else {
+		WL_DBG(("RCC updated\n"));
 	}
 
 	return error;
@@ -592,6 +596,8 @@ void wl_update_roamscan_cache_by_band(struct net_device *dev, int band)
 				sizeof(wl_roam_channel_list_t), iobuf, sizeof(iobuf), NULL);
 		if (error) {
 			WL_ERR(("Failed to update roamscan channels, error = %d\n", error));
+		} else {
+			WL_DBG(("RCC updated\n"));
 		}
 		wldev_iovar_setint(dev, "roamscan_mode", ROAMSCAN_MODE_WES);
 	} else {
@@ -602,6 +608,8 @@ void wl_update_roamscan_cache_by_band(struct net_device *dev, int band)
 				sizeof(wl_roam_channel_list_t), iobuf, sizeof(iobuf), NULL);
 		if (error) {
 			WL_ERR(("Failed to update roamscan channels, error = %d\n", error));
+		} else {
+			WL_DBG(("RCC updated\n"));
 		}
 	}
 }

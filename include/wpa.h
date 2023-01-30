@@ -1,7 +1,7 @@
 /*
  * Fundamental types and constants relating to WPA
  *
- * Copyright (C) 2022, Broadcom.
+ * Copyright (C) 2023, Broadcom.
  *
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you
@@ -272,13 +272,12 @@ typedef struct rsn_ie_info {
 	uint8 ptk_len;				/* EAPOL PTK */
 	uint8 kck2_len;				/* EAPOL KCK2 */
 	uint8 kek2_len;				/* EAPOL KEK2 */
-	uint8 unused1;				/* unused */
-	uint8 *unused2;				/* unused */
+	uint8 rsnxe_len;      /* RSNXE IE from assoc request */
+	uint8 *rsnxe;       /* RSNXE IE length */
 	uint8 kdk_len;				/* EAPOL KDK */
 	uint8 pad[3];
 	uint32 rsnxe_cap;			/* RSNXE IE cap flag, refer to 802.11.h */
 	uint32 ref_count;			/* ref count to keep track of rsn_info alloc */
-	rsnxe_tlv_t rsnxe_tlv;			/* RSNXE TLV used instead of RSNXE pointer */
 } rsn_ie_info_t;
 #endif /* RSN_IE_INFO_STRUCT_RELOCATED */
 
