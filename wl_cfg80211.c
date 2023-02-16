@@ -12612,17 +12612,7 @@ wl_notify_regd(struct wiphy *wiphy, char *country_code)
 	}
 
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 0, 0))
-	if (rtnl_is_locked()) {
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 12, 0))
-		wiphy_lock(wiphy);
-		ret = regulatory_set_wiphy_regd_sync(wiphy, regd_copy);
-		wiphy_unlock(wiphy);
-#else
-		ret = regulatory_set_wiphy_regd_sync_rtnl(wiphy, regd_copy);
-#endif /* LINUX_VERSION >= 5.12.0 */
-	} else {
-		ret = regulatory_set_wiphy_regd(wiphy, regd_copy);
-	}
+	ret = regulatory_set_wiphy_regd(wiphy, regd_copy);
 #else
 	/* for 3.10 OEM_HW40 build */
 	wiphy_apply_custom_regulatory(wiphy, regd_copy);
