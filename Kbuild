@@ -242,7 +242,7 @@ DHDCFLAGS += -DWL_DYNAMIC_INDOOR_POLICY
 # DHDCFLAGS += -DUSE_INDOOR_CHAN_FLAG
 # Comment out below flag after HAL Android interface is integrated. This is enabled
 # by default for SVT validation.
-DHDCFLAGS += -DDYN_INDOOR_ENABLED_BY_DEFAULT
+# DHDCFLAGS += -DDYN_INDOOR_ENABLED_BY_DEFAULT
 
 ifneq ($(CONFIG_BCMDHD_PCIE),)
 	DHDCFLAGS += -DWLAN_ACCEL_BOOT
