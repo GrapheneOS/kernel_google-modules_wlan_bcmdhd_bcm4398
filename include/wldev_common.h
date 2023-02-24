@@ -85,13 +85,16 @@ s32 wldev_iovar_setint_bsscfg(
 	struct net_device *dev, s8 *iovar, s32 val, s32 bssidx);
 
 extern s32 wldev_link_iovar_getbuf(
-	struct net_device *dev, u8 link_id, s8 *iovar_name, const void *param, u32 paramlen,
+	struct net_device *dev, u8 link_idx, s8 *iovar_name, const void *param, u32 paramlen,
 	void *buf, u32 buflen, struct mutex* buf_sync);
 extern s32 wldev_link_iovar_setbuf(
-	struct net_device *dev, u8 link_id, s8 *iovar_name, const void *param,
+	struct net_device *dev, u8 link_idx, s8 *iovar_name, const void *param,
 	s32 paramlen, void *buf, s32 buflen, struct mutex* buf_sync);
-extern s32 wldev_link_iovar_setint(struct net_device *dev, u8 link_id, s8 *iovar, s32 val);
-extern s32 wldev_link_iovar_getint(struct net_device *dev, u8 link_id, s8 *iovar, s32 *pval);
+extern s32 wldev_link_iovar_setint(struct net_device *dev, u8 link_idx, s8 *iovar, s32 val);
+extern s32 wldev_link_iovar_getint(struct net_device *dev, u8 link_idx, s8 *iovar, s32 *pval);
+extern s32 wldev_link_ioctl_set(struct net_device *dev, u8 link_idx, u32 cmd,
+	const void *arg, u32 len);
+extern s32 wldev_link_ioctl_get(struct net_device *dev, u8 link_idx, u32 cmd, void *arg, u32 len);
 
 #if defined(BCMDONGLEHOST) && defined(WL_CFG80211)
 extern s32 wldev_iovar_no_wl(struct net_device *dev, s8 *iovar, s8 *param_buf,

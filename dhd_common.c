@@ -12345,6 +12345,9 @@ dhd_convert_memdump_type_to_str(uint32 type, char *buf, size_t buf_len, int subs
 			/* coredump triggered by host/user */
 			type_str = "COREDUMP_BY_USER";
 			break;
+		case DUMP_TYPE_NO_DB7_ACK:
+			type_str = "NO_DB7_ACK";
+			break;
 		default:
 			type_str = "Unknown_type";
 			break;

@@ -286,7 +286,7 @@ wldev_link_mkiovar(u8 link_id, const char *name, const char *data, uint datalen,
 }
 
 s32
-wldev_link_iovar_getbuf(struct net_device *dev, u8 link_id, s8 *iovar_name,
+wldev_link_iovar_getbuf(struct net_device *dev, u8 link_idx, s8 *iovar_name,
 	const void *param, u32 paramlen, void *buf, u32 buflen, struct mutex* buf_sync)
 {
 	s32 ret = 0;
@@ -304,7 +304,11 @@ wldev_link_iovar_getbuf(struct net_device *dev, u8 link_id, s8 *iovar_name,
 		goto exit;
 	}
 
-	iovar_len = wldev_link_mkiovar(link_id, iovar_name, param, paramlen, buf, buflen);
+	if (link_idx == NON_ML_LINK) {
+		iovar_len = wldev_mkiovar(iovar_name, param, paramlen, buf, buflen);
+	} else {
+		iovar_len = wldev_link_mkiovar(link_idx, iovar_name, param, paramlen, buf, buflen);
+	}
 	if (iovar_len > 0) {
 		ret = wldev_ioctl_get(dev, WLC_GET_VAR, buf, buflen);
 	} else {
@@ -319,7 +323,7 @@ exit:
 }
 
 s32
-wldev_link_iovar_setbuf(struct net_device *dev, u8 link_id, s8 *iovar_name,
+wldev_link_iovar_setbuf(struct net_device *dev, u8 link_idx, s8 *iovar_name,
 	const void *param, s32 paramlen, void *buf, s32 buflen, struct mutex* buf_sync)
 {
 	s32 ret = 0;
@@ -329,7 +333,11 @@ wldev_link_iovar_setbuf(struct net_device *dev, u8 link_id, s8 *iovar_name,
 		mutex_lock(buf_sync);
 	}
 
-	iovar_len = wldev_link_mkiovar(link_id, iovar_name, param, paramlen, buf, buflen);
+	if (link_idx == NON_ML_LINK) {
+		iovar_len = wldev_mkiovar(iovar_name, param, paramlen, buf, buflen);
+	} else {
+		iovar_len = wldev_link_mkiovar(link_idx, iovar_name, param, paramlen, buf, buflen);
+	}
 	if (iovar_len > 0) {
 		ret = wldev_ioctl_set(dev, WLC_SET_VAR, buf, iovar_len);
 	} else {
@@ -344,25 +352,25 @@ wldev_link_iovar_setbuf(struct net_device *dev, u8 link_id, s8 *iovar_name,
 }
 
 s32
-wldev_link_iovar_setint(struct net_device *dev, u8 link_id, s8 *iovar, s32 val)
+wldev_link_iovar_setint(struct net_device *dev, u8 link_idx, s8 *iovar, s32 val)
 {
 	s8 iovar_buf[WLC_IOCTL_SMLEN];
 
 	val = htod32(val);
 	bzero(iovar_buf, sizeof(iovar_buf));
 
-	return wldev_link_iovar_setbuf(dev, link_id, iovar, &val, sizeof(val), iovar_buf,
+	return wldev_link_iovar_setbuf(dev, link_idx, iovar, &val, sizeof(val), iovar_buf,
 		sizeof(iovar_buf), NULL);
 }
 
 s32
-wldev_link_iovar_getint(struct net_device *dev, u8 link_id, s8 *iovar, s32 *pval)
+wldev_link_iovar_getint(struct net_device *dev, u8 link_idx, s8 *iovar, s32 *pval)
 {
 	s8 iovar_buf[WLC_IOCTL_SMLEN];
 	s32 err;
 
 	bzero(iovar_buf, sizeof(iovar_buf));
-	err = wldev_link_iovar_getbuf(dev, link_id, iovar, pval, sizeof(*pval), iovar_buf,
+	err = wldev_link_iovar_getbuf(dev, link_idx, iovar, pval, sizeof(*pval), iovar_buf,
 		sizeof(iovar_buf), NULL);
 	if (err == 0) {
 		(void)memcpy_s(pval, sizeof(*pval), iovar_buf, sizeof(*pval));
@@ -425,14 +433,15 @@ wldev_link_mkioctl(u32 cmd, u8 link_id, const char *data, uint datalen,
 	return len;
 }
 
-s32 wldev_link_ioctl_set(
-	struct net_device *dev, u8 link_id, u32 cmd, const void *arg, u32 len)
+static s32
+wldev_per_link_ioctl_set(
+	struct net_device *dev, u8 link_idx, u32 cmd, const void *arg, u32 len)
 {
 	s8 iovar_buf[WLC_IOCTL_SMLEN];
 	s32 ret = 0;
 	s32 iovar_len;
 
-	iovar_len = wldev_link_mkioctl(cmd, link_id, arg, len, iovar_buf, sizeof(iovar_buf));
+	iovar_len = wldev_link_mkioctl(cmd, link_idx, arg, len, iovar_buf, sizeof(iovar_buf));
 	if (iovar_len > 0) {
 		ret = wldev_ioctl_set(dev, WLC_SET_VAR, iovar_buf, iovar_len);
 	} else {
@@ -442,15 +451,14 @@ s32 wldev_link_ioctl_set(
 	return ret;
 }
 
-
-s32 wldev_link_ioctl_get(
-	struct net_device *dev, u8 link_id, u32 cmd, void *arg, u32 len)
+static s32
+wldev_per_link_ioctl_get(struct net_device *dev, u8 link_idx, u32 cmd, void *arg, u32 len)
 {
 	s8 iovar_buf[WLC_IOCTL_SMLEN];
 	s32 ret = 0;
 	s32 iovar_len;
 
-	iovar_len = wldev_link_mkioctl(cmd, link_id, arg, len, iovar_buf, sizeof(iovar_buf));
+	iovar_len = wldev_link_mkioctl(cmd, link_idx, arg, len, iovar_buf, sizeof(iovar_buf));
 	if (iovar_len > 0) {
 		ret = wldev_ioctl_get(dev, WLC_GET_VAR, iovar_buf, iovar_len);
 		if (ret == 0) {
@@ -463,6 +471,33 @@ s32 wldev_link_ioctl_get(
 	return ret;
 }
 
+s32
+wldev_link_ioctl_set(struct net_device *dev, u8 link_idx, u32 cmd, const void *arg, u32 len)
+{
+	s32 ret = 0;
+
+	if (link_idx == NON_ML_LINK) {
+		ret = wldev_ioctl_set(dev, cmd, arg, len);
+	} else {
+		ret = wldev_per_link_ioctl_set(dev, link_idx, cmd, arg, len);
+	}
+
+	return ret;
+}
+
+s32
+wldev_link_ioctl_get(struct net_device *dev, u8 link_idx, u32 cmd, void *arg, u32 len)
+{
+	s32 ret = 0;
+
+	if (link_idx == NON_ML_LINK) {
+		ret = wldev_ioctl_get(dev, cmd, arg, len);
+	} else {
+		ret = wldev_per_link_ioctl_get(dev, link_idx, cmd, arg, len);
+	}
+
+	return ret;
+}
 
 /** Format a bsscfg indexed iovar buffer. The bsscfg index will be
  *  taken care of in dhd_ioctl_entry. Internal use only, not exposed to

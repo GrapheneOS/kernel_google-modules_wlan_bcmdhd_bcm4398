@@ -47,6 +47,7 @@
 #endif
 #endif /* !BCMDRIVER */
 #include <bcmutils.h>
+#include <bcmstdlib_s.h>
 
 #include <bcmbloom.h>
 
@@ -233,11 +234,11 @@ int bcm_bloom_get_filter_data(bcm_bloom_filter_t *bp,
 	if (buf_len)
 		*buf_len = bp->filter_size;
 
-	if (buf_size < bp->filter_size)
-		return BCME_BUFTOOSHORT;
-
-	if (bp->filter && bp->filter_size)
-		memcpy(buf, bp->filter, bp->filter_size);
+	if (bp->filter && bp->filter_size) {
+		if (memcpy_s(buf, buf_size, bp->filter, bp->filter_size)) {
+			return BCME_BUFTOOSHORT;
+		}
+	}
 
 	return BCME_OK;
 }

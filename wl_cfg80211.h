@@ -1316,6 +1316,7 @@ typedef struct wl_eap_exp wl_eap_exp_t;
 
 #ifdef WL_MLO
 #define MAX_MLO_LINK 3
+#define NON_ML_LINK 0xFFu
 typedef struct wl_mlo_link {
 	u8 link_id;
 	u8 link_idx;
@@ -1583,6 +1584,8 @@ struct parsed_ies {
 	u32 rate_ie_len;
 	const bcm_tlv_t *ext_rate_ie;
 	u32 ext_rate_ie_len;
+	const bcm_tlv_t *ext_cap_ie;
+	u32 ext_cap_ie_len;
 };
 
 #ifdef WL_SDO
@@ -2356,6 +2359,7 @@ struct bcm_cfg80211 {
 	bool wiphy_lock_held;
 	u8 *chan_info_list;
 	bool dyn_indoor_policy;
+	bool bcnprot_ap;
 };
 
 /* Max auth timeout allowed in case of EAP is 70sec, additional 5 sec for
@@ -2672,6 +2676,7 @@ wl_alloc_netinfo(struct bcm_cfg80211 *cfg, struct net_device *ndev,
 		_net_info->ifidx = ifidx;
 		_net_info->ps_managed = FALSE;
 		_net_info->ps_managed_start_ts = 0;
+		_net_info->qos_up_table = NULL;
 		WL_CFG_NET_LIST_SYNC_LOCK(&cfg->net_list_sync, flags);
 		cfg->iface_cnt++;
 		list_add(&_net_info->list, &cfg->net_list);
@@ -3640,7 +3645,7 @@ extern int wl_cfg80211_ifstats_counters_cb(void *ctx, const uint8 *data, uint16 
 extern s32 wl_cfg80211_set_dbg_verbose(struct net_device *ndev, u32 level);
 extern int wl_cfg80211_deinit_p2p_discovery(struct bcm_cfg80211 * cfg);
 extern int wl_cfg80211_set_frameburst(struct bcm_cfg80211 *cfg, bool enable);
-extern int wl_cfg80211_determine_rsdb_scc_mode(struct bcm_cfg80211 *cfg);
+extern int wl_cfg80211_determine_rsdb_scc_mode(struct bcm_cfg80211 *cfg, u8 link_idx);
 extern uint8 wl_cfg80211_get_bus_state(struct bcm_cfg80211 *cfg);
 #ifdef WL_WPS_SYNC
 void wl_handle_wps_states(struct net_device *ndev, u8 *dump_data, u16 len, bool direction);
@@ -3904,4 +3909,5 @@ extern s32 wl_cfg80211_actframe_fillup_v2(struct bcm_cfg80211 *cfg, bcm_struct_c
 	wl_af_params_v1_t *af_params, const u8 *sa, uint16 wl_af_params_size);
 #define WL_CFG_RSPEC_ENCODING_MASK  0x07000000u
 #define WL_CFG_RSPEC_ISEHT(rspec) (((rspec) & WL_CFG_RSPEC_ENCODING_MASK) == WL_RSPEC_ENCODE_EHT)
+extern bool wl_cfg80211_get_rsdb_mode(struct bcm_cfg80211 *cfg);
 #endif /* _wl_cfg80211_h_ */

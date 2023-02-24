@@ -401,7 +401,8 @@ enum capext_bus_feature_ids {
 enum capext_bus_feature_bitpos {
 	CAPEXT_BUS_FEATURE_BITPOS_HP2P		= 0,
 	CAPEXT_BUS_FEATURE_BITPOS_PTM		= 1,
-	CAPEXT_BUS_FEATURE_BITPOS_PKTLAT	= 2,	/* feature with sub-features */
+	CAPEXT_BUS_FEATURE_BITPOS_PKTLAT	= 2,
+	CAPEXT_BUS_FEATURE_BITPOS_BUSTPUT	= 3,	/* feature with sub-features */
 	CAPEXT_BUS_FEATURE_BITPOS_MAX
 };
 

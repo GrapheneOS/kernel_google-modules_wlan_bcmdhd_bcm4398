@@ -286,8 +286,15 @@ wl_cfg80211_ml_ap_link_add(struct bcm_cfg80211 *cfg, struct wireless_dev *wdev,
 	const wl_event_msg_t *e, void *data);
 extern chanspec_t wl_mlo_get_primary_sta_chspec(struct bcm_cfg80211 *cfg);
 #endif /* WL_MLO */
+
+#ifdef BCN_PROT_AP
+s32 wl_cfgvif_set_bcnprot_mode(struct net_device *ndev, struct bcm_cfg80211 *cfg);
+#endif
+
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 15, 0))
 void
 wl_cfgvif_delayed_remove_iface_work(struct work_struct *work);
 #endif /* LINUX_VERSION_CODE >= KERNEL_VERSION(5, 15, 0) */
+s32 wl_cfgvif_notify_owe_event(struct bcm_cfg80211 *cfg,
+	struct net_device *dev, const wl_event_msg_t *e, void *data);
 #endif /* _wl_cfgvif_h_ */

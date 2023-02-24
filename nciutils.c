@@ -395,8 +395,9 @@ BCMATTACHFN(nci_get_coreunit)(nci_cores_t *cores, uint32 numcores,
 
 	for (core_idx = 0u; core_idx < numcores; core_idx++) {
 		if ((cores[core_idx].coreid == core_id) &&
+			(!cores[core_idx].desc ||
 			(GET_COREOFFSET(cores[core_idx].desc->iface_desc_1) !=
-				GET_COREOFFSET(iface_desc_1))) {
+			GET_COREOFFSET(iface_desc_1)))) {
 			coreunit = cores[core_idx].coreunit + 1;
 		}
 	}

@@ -309,3 +309,66 @@ si_get_coreaddr(si_t *sih, uint coreidx)
 
 	return 0;
 }
+
+uint32
+si_ccreg(si_t *sih, uint32 offset, uint32 mask, uint32 val)
+{
+	si_info_t *sii;
+	uint32 reg_val = 0;
+
+	sii = SI_INFO(sih);
+
+	/* abort for invalid offset */
+	if (offset > SI_CORE_SIZE)
+		return 0;
+
+	reg_val = si_corereg(&sii->pub, SI_CC_IDX, offset, mask, val);
+
+	return reg_val;
+}
+
+/* read from pcie space using back plane  indirect access */
+/* set below mask for reading 1, 2, 4 bytes in single read */
+/* #define	SI_BPIND_1BYTE		0x1 */
+/* #define	SI_BPIND_2BYTE		0x3 */
+/* #define	SI_BPIND_4BYTE		0xF */
+int
+si_bpind_access(si_t *sih, uint32 addr_high, uint32 addr_low,
+		int32 * data, bool read, uint32 us_timeout)
+{
+
+	uint32 status = 0;
+	uint8 mask = SI_BPIND_4BYTE;
+	int ret_val = BCME_OK;
+
+	/* program address low and high fields */
+	si_ccreg(sih, CC_REG_OFF(BackplaneAddrLow), ~0, addr_low);
+	si_ccreg(sih, CC_REG_OFF(BackplaneAddrHi), ~0, addr_high);
+
+	if (read) {
+		/* start the read */
+		si_ccreg(sih, CC_REG_OFF(BackplaneIndAccess), ~0,
+			CC_BP_IND_ACCESS_START_MASK | mask);
+	} else {
+		/* write the data and force the trigger */
+		si_ccreg(sih, CC_REG_OFF(BackplaneData), ~0, *data);
+		si_ccreg(sih, CC_REG_OFF(BackplaneIndAccess), ~0,
+			CC_BP_IND_ACCESS_START_MASK |
+			CC_BP_IND_ACCESS_RDWR_MASK | mask);
+
+	}
+
+	/* Wait for status to be cleared */
+	SPINWAIT(((status = si_ccreg(sih, CC_REG_OFF(BackplaneIndAccess), 0, 0)) &
+		CC_BP_IND_ACCESS_START_MASK), us_timeout);
+
+	if (status & (CC_BP_IND_ACCESS_START_MASK | CC_BP_IND_ACCESS_ERROR_MASK)) {
+		ret_val = BCME_ERROR;
+		SI_ERROR(("Action Failed for address 0x%08x:0x%08x \t status: 0x%x\n",
+			addr_high, addr_low, status));
+	} else if (read) { /* read data */
+		*data = si_ccreg(sih, CC_REG_OFF(BackplaneData), 0, 0);
+	}
+
+	return ret_val;
+}

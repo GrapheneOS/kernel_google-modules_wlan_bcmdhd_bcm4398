@@ -49,6 +49,7 @@
 #include <bcmtlv.h>
 #include <bcmendian.h>
 #include <bcmutils.h>
+#include <bcmstdlib_s.h>
 
 int
 BCMPOSTTRAPFN(bcm_xtlv_hdr_size)(bcm_xtlv_opts_t opts)
@@ -259,7 +260,12 @@ BCMPOSTTRAPFN(bcm_xtlv_pack_xtlv)(bcm_xtlv_t *xtlv, uint16 type, uint16 len, con
 	}
 
 	if (data != NULL) {
-		memcpy(data_buf, data, len);
+		int err;
+
+		/* memmove_s is used here to allow overlapped dest/src addresses */
+		err = memmove_s(data_buf, len, data, len);
+		BCM_REFERENCE(err);
+		ASSERT(err == BCME_OK);
 	}
 }
 
@@ -388,10 +394,12 @@ bcm_unpack_xtlv_entry(const uint8 **tlv_buf, uint16 xpct_type, uint16 xpct_len,
 
 	bcm_xtlv_unpack_xtlv(ptlv, &type, &len, &data, opts);
 	if (len) {
-		if ((type != xpct_type) || (len > xpct_len))
+		if (type != xpct_type) {
 			return BCME_BADARG;
-		if (dst_data && data)
-			memcpy(dst_data, data, len); /* copy data to dst */
+		}
+		if (dst_data && data) {
+			return memcpy_s(dst_data, xpct_len, data, len); /* copy data to dst */
+		}
 	}
 
 	*tlv_buf += BCM_XTLV_SIZE_EX(ptlv, opts);
@@ -568,7 +576,8 @@ bcm_unpack_xtlv_buf_to_mem(const uint8 *tlv_buf, int *buflen, xtlv_desc_t *items
 				if (len != dst_desc->len) {
 					res = BCME_BADLEN;
 				} else {
-					memcpy(dst_desc->ptr, data, len);
+					(void)memcpy_s(dst_desc->ptr, dst_desc->len,
+						data, dst_desc->len);
 				}
 				break;
 			}

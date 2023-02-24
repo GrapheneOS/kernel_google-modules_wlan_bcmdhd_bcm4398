@@ -58,7 +58,7 @@ extern "C" {
  * the iteration.
  */
 
-#define FOREACH_BIT(c, mask)\
+#define FOREACH_BIT_SET_MASK(c, mask)\
 	for (c = BCM_FIRST_BIT(mask); mask != 0; \
 		 mask = BCM_CLR_FISRT_BIT(mask), c = BCM_FIRST_BIT(mask))
 
@@ -660,6 +660,18 @@ extern void clr_bitrange_u32(void *array, uint start, uint end, uint maxbit);
 extern int bcm_find_fsb(uint32 num);
 
 #define	isbitset(a, i)	(((a) & (1u << (i))) != 0)
+#define	isbitclr(a, i)	(((a) & (1u << (i))) == 0)
+
+#define FOREACH_BIT(a, i) \
+	for ((i) = 0; ((i) < (sizeof(a) * NBBY)); (i)++)
+
+#define FOREACH_BIT_SET(a, i) \
+	FOREACH_BIT(a, i) \
+		if (isbitset((a), (i)))
+
+#define FOREACH_BIT_CLR(a, i) \
+	FOREACH_BIT(a, i) \
+		if (isbitclr((a), (i)))
 
 #if defined DONGLEBUILD
 #define	NBITS(type)	(sizeof(type) * 8)

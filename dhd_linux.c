@@ -16461,15 +16461,9 @@ dhd_net_bus_devreset(struct net_device *dev, uint8 flag)
 
 	dhd->pub.p2p_disc_busy_cnt = 0;
 
-	if (ret == BCME_NOMEM) {
-		DHD_ERROR(("%s: skip collect dump in case of BCME_NOMEM\n",
-				__FUNCTION__));
-		return BCME_ERROR;
-	}
-
-	if ((ret == BCME_NOMEM) || (ret == BCME_NOTFOUND)) {
-		DHD_ERROR(("%s: skip collect dump in case of BCME_NOMEM or BCME_NOTFOUND\n",
-				__FUNCTION__));
+	if (ret == BCME_NOMEM || ret == BCME_NOTFOUND || ret == BCME_NOTREADY) {
+		DHD_ERROR(("%s: ret=%d, skip collect dump in case of "
+			"BCME_NOMEM/NOTFOUND/NOTREADY\n", __FUNCTION__, ret));
 		return BCME_ERROR;
 	}
 
@@ -20211,6 +20205,7 @@ dhd_mem_dump(void *handle, void *event_info, u8 event)
 	trap_t *tr;
 #endif /* DHD_COREDUMP */
 	uint32 memdump_type;
+	bool set_linkdwn_cto = FALSE;
 
 	DHD_PRINT(("%s: ENTER \n", __FUNCTION__));
 
@@ -20283,7 +20278,7 @@ dhd_mem_dump(void *handle, void *event_info, u8 event)
 					if (dhdp->fis_enab_cto) {
 						DHD_PRINT(("%s: setting link down due to CTO \n",
 							__FUNCTION__));
-						dhd_bus_set_linkdown(dhdp, TRUE);
+						set_linkdwn_cto = TRUE;
 					}
 					goto exit;
 				}
@@ -20299,7 +20294,7 @@ dhd_mem_dump(void *handle, void *event_info, u8 event)
 			if (dhdp->fis_enab_cto) {
 				DHD_PRINT(("%s: setting link down due to CTO \n",
 					__FUNCTION__));
-				dhd_bus_set_linkdown(dhdp, TRUE);
+				set_linkdwn_cto = TRUE;
 			}
 		} else	{
 			DHD_PRINT(("%s: FIS not enabled, collect legacy sssr\n",
@@ -20323,6 +20318,12 @@ dhd_mem_dump(void *handle, void *event_info, u8 event)
 #ifdef DHD_SSSR_DUMP
 	dhdp->fis_triggered = FALSE;
 #endif /* DHD_SSSR_DUMP */
+	/* for CTO cases, set linkdown flag here after SSSR and ETB dumps are collected */
+	if (set_linkdwn_cto) {
+		DHD_PRINT(("%s: setting link down due to CTO \n",
+			__FUNCTION__));
+		dhd_bus_set_linkdown(dhdp, TRUE);
+	}
 
 #if defined(WL_CFG80211) && (defined(DHD_FILE_DUMP_EVENT) || defined(DHD_DEBUGABILITY_DEBUG_DUMP))
 	if (dhdp->memdump_enabled == DUMP_MEMONLY) {
@@ -24887,11 +24888,13 @@ dhd_cto_recovery_handler(void *handle, void *event_info, u8 event)
 void
 dhd_schedule_cto_recovery(dhd_pub_t *dhdp)
 {
+#ifndef CONFIG_X86
 	if (dhdp->up == FALSE) {
 		DHD_ERROR(("%s : skip scheduling cto because dhd is not up\n",
 				__FUNCTION__));
 		return;
 	}
+#endif /* !CONFIG_X86 */
 
 	if (dhdp->info->scheduled_memdump) {
 		DHD_ERROR(("%s, memdump in progress\n", __FUNCTION__));

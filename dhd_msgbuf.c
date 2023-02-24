@@ -11666,7 +11666,6 @@ dhd_msgbuf_iovar_timeout_dump(dhd_pub_t *dhd)
 	dhd_prot_debug_info_print(dhd);
 }
 
-extern void dhd_validate_pcie_link_cbp_wlbp(dhd_bus_t *bus);
 /**
  * Waits for IOCTL completion message from the dongle, copies this into caller
  * provided parameter 'buf'.

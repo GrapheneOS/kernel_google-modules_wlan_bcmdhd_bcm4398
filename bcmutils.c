@@ -605,7 +605,7 @@ BCMPOSTTRAPFN(pktcopy)(osl_t *osh, void *p, uint offset, uint len, uchar *buf)
 	/* copy the data */
 	for (; p && len; p = PKTNEXT(osh, p)) {
 		n = MIN(PKTLEN(osh, p) - offset, len);
-		bcopy(PKTDATA(osh, p) + offset, buf, n);
+		(void)memcpy_s(buf, n, PKTDATA(osh, p) + offset, n);
 		buf += n;
 		len -= n;
 		ret += n;
@@ -635,7 +635,7 @@ pktfrombuf(osl_t *osh, void *p, uint offset, uint len, uchar *buf)
 	/* copy the data */
 	for (; p && len; p = PKTNEXT(osh, p)) {
 		n = MIN(PKTLEN(osh, p) - offset, len);
-		bcopy(buf, PKTDATA(osh, p) + offset, n);
+		(void)memcpy_s(PKTDATA(osh, p) + offset, n, buf, n);
 		buf += n;
 		len -= n;
 		ret += n;
@@ -1476,8 +1476,8 @@ _pktlist_remove(pktlist_info_t *pktlist, void *pkt)
 			pktlist->list[i].line = pktlist->list[num-1].line;
 			pktlist->list[i].file = pktlist->list[num-1].file;
 #ifdef BCMDBG_PTRACE
-			memcpy(pktlist->list[i].pkt_trace, pktlist->list[num-1].pkt_trace,
-				PKTTRACE_MAX_BYTES);
+			(void)memcpy_s(pktlist->list[i].pkt_trace, PKTTRACE_MAX_BYTES,
+				pktlist->list[num-1].pkt_trace, PKTTRACE_MAX_BYTES);
 			idx = PKTLIST_IDX(pktlist->list[i].pkt);
 			*idx = i;
 #endif /* BCMDBG_PTRACE */
@@ -2808,7 +2808,7 @@ BCMRAMFN(bcm_addrmask_set)(int enable)
 	} else
 	{
 		/* No masking. All are 0xff. */
-		memcpy(privacy, &ether_bcast, sizeof(struct ether_addr));
+		eacopy(&ether_bcast, privacy);
 	}
 
 	return BCME_OK;
@@ -2844,7 +2844,7 @@ BCMRAMFN(bcm_ether_ntou64)(const struct ether_addr *ea)
 	uint64 mac;
 	struct ether_addr addr;
 
-	memcpy(&addr, ea, sizeof(struct ether_addr));
+	(void)memcpy_s(&addr, sizeof(addr), ea, sizeof(addr));
 
 #ifdef PRIVACY_MASK
 	struct ether_addr *privacy = privacy_addrmask_get();
@@ -2918,7 +2918,7 @@ bcm_ipv6_ntoa(void *ipv6, char *buf)
 	char *p = buf;
 	int i, i_max = -1, cnt = 0, cnt_max = 1;
 	uint8 *a4 = NULL;
-	memcpy((uint8 *)&tmp[0], (uint8 *)ipv6, IPV6_ADDR_LEN);
+	(void)memcpy_s(&tmp[0], IPV6_ADDR_LEN, ipv6, IPV6_ADDR_LEN);
 
 	for (i = 0; i < IPV6_ADDR_LEN/2; i++) {
 		if (a[i]) {
@@ -3826,7 +3826,7 @@ BCMPOSTTRAPFN(bcm_write_tlv)(int type, const void *data, uint datalen, uint8 *ds
 		 */
 		if (datalen > 0u) {
 
-			memcpy(dst_tlv->data, data, datalen);
+			(void)memcpy_s(dst_tlv->data, datalen, data, datalen);
 		}
 
 		/* update the output destination poitner to point past
@@ -3874,7 +3874,7 @@ bcm_write_tlv_ext(uint8 type, uint8 ext, const void *data, uint8 datalen, uint8 
 		 * pointer to output buffer
 		 */
 		if (datalen > 0) {
-			memcpy(dst_tlv->data, data, datalen);
+			(void)memcpy_s(dst_tlv->data, datalen, data, datalen);
 		}
 
 		/* update the output destination poitner to point past
@@ -3916,9 +3916,8 @@ bcm_copy_tlv(const void *src, uint8 *dst)
 
 	ASSERT(dst && src);
 	if (dst && src) {
-
-		totlen = BCM_TLV_HDR_SIZE + src_tlv->len;
-		memcpy(dst, src_tlv, totlen);
+		totlen = BCM_TLV_SIZE(src_tlv);
+		(void)memcpy_s(dst, totlen, src_tlv, totlen);
 		new_dst = dst + totlen;
 	}
 
@@ -4710,7 +4709,7 @@ bcm_format_octets(const bcm_bit_desc_t *bd, uint bdsz,
 {
 	uint i;
 	char *p = buf;
-	uint slen = 0, nlen = 0;
+	uint nlen = 0;
 	uint32 bit;
 	const char* name;
 	bool more = FALSE;
@@ -4727,18 +4726,15 @@ bcm_format_octets(const bcm_bit_desc_t *bd, uint bdsz,
 		name = bd[i].name;
 		if (isset(addr, bit)) {
 			nlen = strlen(name);
-			slen += nlen;
-			/* need SPACE - for simplicity */
-			slen += 1;
-			/* need NULL as well */
-			if (len < slen + 1) {
+			if (memcpy_s(p, len - (p - buf) - 2, name, nlen)) {
 				more = TRUE;
 				break;
 			}
-			memcpy(p, name, nlen);
 			p += nlen;
+			/* need SPACE - for simplicity */
 			p[0] = ' ';
 			p += 1;
+			/* need NULL as well */
 			p[0] = '\0';
 		}
 	}
@@ -4992,7 +4988,9 @@ bcm_mkiovar(const char *name, const char *data, uint datalen, char *buf, uint bu
 
 	/* append data onto the end of the name string */
 	if (data && datalen != 0) {
-		memcpy(&buf[len], data, datalen);
+		if (memcpy_s(&buf[len], buflen - len, data, datalen)) {
+			return 0;
+		}
 		len += datalen;
 	}
 
@@ -5594,8 +5592,8 @@ ipv4_tcp_hdr_cksum(uint8 *ip, uint8 *tcp, uint16 tcp_len)
 
 	/* pseudo header cksum */
 	bzero(&tcp_ps, sizeof(tcp_ps));
-	memcpy(&tcp_ps.dst_ip, ip_hdr->dst_ip, IPV4_ADDR_LEN);
-	memcpy(&tcp_ps.src_ip, ip_hdr->src_ip, IPV4_ADDR_LEN);
+	(void)memcpy_s(&tcp_ps.dst_ip, IPV4_ADDR_LEN, ip_hdr->dst_ip, IPV4_ADDR_LEN);
+	(void)memcpy_s(&tcp_ps.src_ip, IPV4_ADDR_LEN, ip_hdr->src_ip, IPV4_ADDR_LEN);
 	tcp_ps.zero = 0;
 	tcp_ps.prot = ip_hdr->prot;
 	tcp_ps.tcp_size = hton16(tcp_len);
@@ -5630,10 +5628,10 @@ ipv6_tcp_hdr_cksum(uint8 *ipv6, uint8 *tcp, uint16 tcp_len)
 
 	/* pseudo header cksum */
 	bzero((char *)&ipv6_pseudo, sizeof(ipv6_pseudo));
-	memcpy((char *)ipv6_pseudo.saddr, (char *)ipv6_hdr->saddr.addr,
-		sizeof(ipv6_pseudo.saddr));
-	memcpy((char *)ipv6_pseudo.daddr, (char *)ipv6_hdr->daddr.addr,
-		sizeof(ipv6_pseudo.daddr));
+	(void)memcpy_s(ipv6_pseudo.saddr, sizeof(ipv6_pseudo.saddr),
+		ipv6_hdr->saddr.addr, sizeof(ipv6_pseudo.saddr));
+	(void)memcpy_s(ipv6_pseudo.daddr, sizeof(ipv6_pseudo.daddr),
+		ipv6_hdr->daddr.addr, sizeof(ipv6_pseudo.daddr));
 	ipv6_pseudo.payload_len = ipv6_hdr->payload_len;
 	ipv6_pseudo.next_hdr = ipv6_hdr->nexthdr;
 	sum = ip_cksum_partial(sum, (uint8 *)&ipv6_pseudo, sizeof(ipv6_pseudo));
@@ -6237,7 +6235,7 @@ BCMATTACHFN(initvars_table)(osl_t *osh, char *start, char *end, char **vars,
 		ASSERT(vp != NULL);
 		if (!vp)
 			return BCME_NOMEM;
-		bcopy(start, vp, c);
+		(void)memcpy_s(vp, c, start, c);
 		*vars = vp;
 		*count = c;
 	}

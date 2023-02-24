@@ -160,6 +160,8 @@ typedef BWL_PRE_PACKED_STRUCT struct
 			(akm) == RSN_AKM_SHA256_1X || \
 			(akm) == RSN_AKM_SHA256_PSK || \
 			(akm) == RSN_AKM_TPK || \
+			(akm) == RSN_AKM_SAE_EXT_PSK || \
+			(akm) == RSN_AKM_SAE_EXT_FBT || \
 			(akm) == RSN_AKM_SAE_PSK || \
 			(akm) == RSN_AKM_SAE_FBT || \
 			(akm) == RSN_AKM_FILS_SHA256 || \
@@ -272,12 +274,13 @@ typedef struct rsn_ie_info {
 	uint8 ptk_len;				/* EAPOL PTK */
 	uint8 kck2_len;				/* EAPOL KCK2 */
 	uint8 kek2_len;				/* EAPOL KEK2 */
-	uint8 rsnxe_len;      /* RSNXE IE from assoc request */
-	uint8 *rsnxe;       /* RSNXE IE length */
+	uint8 unused1;				/* unused */
+	uint8 *unused2;				/* unused */
 	uint8 kdk_len;				/* EAPOL KDK */
 	uint8 pad[3];
 	uint32 rsnxe_cap;			/* RSNXE IE cap flag, refer to 802.11.h */
 	uint32 ref_count;			/* ref count to keep track of rsn_info alloc */
+	rsnxe_tlv_t rsnxe_tlv;			/* RSNXE TLV used instead of RSNXE pointer */
 } rsn_ie_info_t;
 #endif /* RSN_IE_INFO_STRUCT_RELOCATED */
 

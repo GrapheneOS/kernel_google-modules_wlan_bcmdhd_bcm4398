@@ -253,8 +253,7 @@ ftm_cmdid_to_str(uint16 cmdid);
 #endif /* WL_CFG80211 && RTT_DEBUG */
 
 #ifdef WL_CFG80211
-static int
-dhd_rtt_start(dhd_pub_t *dhd);
+static int dhd_rtt_start(dhd_pub_t *dhd);
 static int dhd_rtt_create_failure_result(rtt_status_info_t *rtt_status,
 	struct ether_addr *addr);
 static void dhd_rtt_handle_rtt_session_end(dhd_pub_t *dhd);
@@ -265,6 +264,12 @@ static void dhd_rtt_set_ftm_config_param(ftm_config_param_info_t *ftm_params,
 	int *ftm_param_cnt, rtt_target_info_t *rtt_target, uint16 tlvid);
 static int dhd_rtt_ftm_config(dhd_pub_t *dhd, wl_proxd_session_id_t session_id,
 	void *ftm_cfg_opt, int ftm_cfg_opt_cnt, void *ftm_cfg_gen, int ftm_cfg_gen_cnt);
+#ifdef FTM
+static void dhd_rtt_set_ac_az_ftm_config_param(ftm_config_param_info_t *ftm_params,
+	int *ftm_param_cnt, rtt_target_info_t *rtt_target, uint16 tlvid);
+static int dhd_rtt_ac_az_ftm_config(dhd_pub_t *dhd, wl_proxd_session_id_t session_id,
+	void *ftm_cfg_opt, int ftm_cfg_opt_cnt, void *ftm_cfg_gen, int ftm_cfg_gen_cnt);
+#endif /* FTM */
 #ifdef WL_NAN
 static void dhd_rtt_trigger_pending_targets_on_session_end(dhd_pub_t *dhd);
 #endif /* WL_NAN */
@@ -1751,13 +1756,13 @@ dhd_rtt_nan_start_session(dhd_pub_t *dhd, rtt_target_info_t *rtt_target)
 
 	if (!rtt_status) {
 		err = BCME_NOTENABLED;
-		goto done;
+		goto exit;
 	}
 
 	if (NAN_RTT_ENABLED(cfg) != TRUE) {
 		/* If nan is not enabled or nan ranging is not enabled report error */
 		err = BCME_NOTENABLED;
-		goto done;
+		goto exit;
 	}
 
 	/* Below Scenarios should be avoided by callers/schedulers */
@@ -1765,39 +1770,52 @@ dhd_rtt_nan_start_session(dhd_pub_t *dhd, rtt_target_info_t *rtt_target)
 		DHD_RTT_ERR(("dhd_rtt_nan_start_session failed, setup already in prog\n"));
 		err = BCME_ERROR;
 		ASSERT(0);
-		goto done;
+		goto exit;
 	}
 
 	if (!dhd_rtt_nan_directed_sessions_allowed(dhd)) {
 		DHD_RTT_ERR(("dhd_rtt_nan_start_session failed, already max sessions running\n"));
 		err = BCME_ERROR;
 		ASSERT(0);
-		goto done;
+		goto exit;
 	}
 
 	ranging_inst = wl_cfgnan_get_ranging_inst(cfg,
 			&rtt_target->addr, NAN_RANGING_ROLE_INITIATOR);
 	if (!ranging_inst) {
 		err = BCME_NORESOURCE;
-		goto done;
+		goto exit;
 	}
 
 	/* apply event mask */
-	dhd_rtt_set_ftm_config_param(ftm_params, &ftm_param_cnt, rtt_target,
-		WL_PROXD_TLV_ID_EVENT_MASK);
-	dhd_rtt_ftm_config(dhd, 0, NULL, 0, ftm_params, ftm_param_cnt);
+#ifdef FTM
+	if (dhd->wlc_ver_major >= FTM_11AZ_MIN_WLC_API) {
+		DHD_RTT_AC_AZ_CHK_SET_PARAM(ftm_params, ftm_param_cnt, rtt_target,
+			WL_FTM_TLV_ID_EVENT_MASK);
+		err = dhd_rtt_ac_az_ftm_config(dhd, rtt_target->sid, NULL, 0, ftm_params,
+			ftm_param_cnt);
+		if (err) {
+			goto exit;
+		}
+	} else
+#endif /* FTM */
+	{
+		dhd_rtt_set_ftm_config_param(ftm_params, &ftm_param_cnt, rtt_target,
+			WL_PROXD_TLV_ID_EVENT_MASK);
+		dhd_rtt_ftm_config(dhd, 0, NULL, 0, ftm_params, ftm_param_cnt);
+	}
 
 	DHD_RTT(("Trigger nan based range request\n"));
 	err = wl_cfgnan_trigger_ranging(bcmcfg_to_prmry_ndev(cfg),
 			cfg, ranging_inst, NULL, NAN_RANGE_REQ_CMD, TRUE);
 	if (unlikely(err)) {
-		goto done;
+		goto exit;
 	}
 	ranging_inst->range_type = RTT_TYPE_NAN_DIRECTED;
 	ranging_inst->range_role = NAN_RANGING_ROLE_INITIATOR;
 	dhd_rtt_nan_update_directed_setup_inprog(dhd, ranging_inst, TRUE);
 
-done:
+exit:
 	if (err) {
 		DHD_RTT_ERR(("Failed to issue Nan Ranging Request err %d\n", err));
 		/* Fake session end event which will help in
@@ -3470,9 +3488,10 @@ dhd_rtt_set_ac_az_ftm_config_param(ftm_config_param_info_t *ftm_params,
 					event_mask |= (1 << WL_FTM_EVENT_CIVIC_MEAS_REP);
 				}
 #endif /* WL_RTT_LCI */
-				/* only burst end for directed nan-rtt target */
+				/* only burst end and resp_wait for directed nan-rtt target */
 				if (rtt_target && (rtt_target->peer == RTT_PEER_NAN)) {
-					event_mask = (1 << WL_FTM_EVENT_BURST_END);
+					event_mask = ((1 << WL_FTM_EVENT_BURST_END) |
+						(1 << WL_FTM_EVENT_RES_WAIT));
 				}
 				ftm_params[*ftm_param_cnt].event_mask = event_mask;
 				ftm_params[*ftm_param_cnt].tlvid = WL_FTM_TLV_ID_EVENT_MASK;
@@ -4454,9 +4473,8 @@ dhd_rtt_convert_results_to_host_v2(rtt_result_t *rtt_result, const uint8 *p_data
 	* On burst timeout we stop burst with "timeout" reason and
 	* on msch end we set status as "cancel"
 	*/
-	if ((proxd_status == WL_PROXD_E_TIMEOUT ||
-		proxd_status == WL_PROXD_E_CANCELED) &&
-		rtt_report->success_num) {
+	if (((proxd_status == WL_FTM_E_TIMEOUT) || (proxd_status == WL_FTM_E_CANCELED) ||
+			(proxd_status == WL_FTM_E_OFF_CHAN)) && rtt_report->success_num) {
 		rtt_report->status = RTT_STATUS_SUCCESS;
 	}
 

@@ -2259,15 +2259,6 @@ static s32
 wl_get_scan_timeout_val(struct bcm_cfg80211 *cfg)
 {
 	u32 scan_timer_interval_ms = WL_SCAN_TIMER_INTERVAL_MS;
-	struct net_device *ndev;
-	wl_config_t *rsdb_mode = NULL;
-	int ret = BCME_OK;
-	u8 ioctl_buf[WLC_IOCTL_SMLEN];
-	dhd_pub_t *dhd = (dhd_pub_t *)(cfg->pub);
-
-	bzero(ioctl_buf, WLC_IOCTL_SMLEN);
-
-	ndev = bcmcfg_to_prmry_ndev(cfg);
 
 #ifdef WES_SUPPORT
 #ifdef CUSTOMER_SCAN_TIMEOUT_SETTING
@@ -2295,15 +2286,8 @@ wl_get_scan_timeout_val(struct bcm_cfg80211 *cfg)
 #endif /* WL_6G_BAND */
 
 	/* check if chip is in non-rsdb mode */
-	if (FW_SUPPORTED(dhd, sdb_modesw)) {
-		ret = wldev_iovar_getbuf(ndev, "rsdb_mode", 0, 0,
-		(void *)ioctl_buf, WLC_IOCTL_SMLEN, NULL);
-		if (ret == BCME_OK) {
-			rsdb_mode = (wl_config_t*)ioctl_buf;
-			if (rsdb_mode->status != WL_RSDB_MODE_RSDB) {
-				scan_timer_interval_ms += WL_SCAN_TIMER_INTERVAL_MS_NON_RSDB;
-			}
-		}
+	if (!wl_cfg80211_get_rsdb_mode(cfg)) {
+		scan_timer_interval_ms += WL_SCAN_TIMER_INTERVAL_MS_NON_RSDB;
 	}
 
 	WL_MEM(("scan_timer_interval_ms %d\n", scan_timer_interval_ms));

@@ -112,27 +112,28 @@ typedef enum {
 
 	WLFC_CTL_TYPE_FLOWID_OPEN		= 26, /* open flowring with flowid */
 	WLFC_CTL_TYPE_FLOWID_CLOSE		= 27, /* close flowring with flowid */
+	WLFC_CTL_TYPE_FLOWID_MAC		= 28, /* Get flow's MAC (used by WLMESH) */
 
-	WLFC_CTL_TYPE_PENDING_TX_PKTS		= 28, /* Get the outstandinding packets in host
+	WLFC_CTL_TYPE_PENDING_TX_PKTS		= 29, /* Get the outstandinding packets in host
 							* flowring for the given interface.
 							*/
-	WLFC_CTL_TYPE_UPD_SCB_RATESEL_CHANGE	= 29, /* Upd flow's max rate dynamically */
-	WLFC_CTL_TYPE_AMSDU_STATE		= 30, /* Upd flow's AMSDU state(Enabled/Disabled) */
-	WLFC_CTL_TYPE_APP_STATE			= 31, /* Upd flow's APP state, enable/disable APP */
-	WLFC_CTL_TYPE_HP2P_EXT_TXSTATUS		= 32, /* Hp2p extended tx status */
-	WLFC_CTL_TYPE_HP2P_ACTIVE_STATE		= 33, /* Get status of HP2P ring active or not */
-	WLFC_CTL_TYPE_HP2P_QUERY_LIFETIME	= 34, /* Query lifetime for last unacked */
-
-	WLFC_CTL_TYPE_FLOWID_MAC		= 35, /* Get flow's MAC (used by WLMESH) */
+	WLFC_CTL_TYPE_UPD_SCB_RATESEL_CHANGE	= 30, /* Upd flow's max rate dynamically */
+	WLFC_CTL_TYPE_AMSDU_STATE		= 31, /* Upd flow's AMSDU state(Enabled/Disabled) */
+	WLFC_CTL_TYPE_APP_STATE			= 32, /* Upd flow's APP state, enable/disable APP */
+	WLFC_CTL_TYPE_HP2P_EXT_TXSTATUS		= 33, /* Hp2p extended tx status */
+	WLFC_CTL_TYPE_HP2P_ACTIVE_STATE		= 34, /* Get status of HP2P ring active or not */
+	WLFC_CTL_TYPE_HP2P_QUERY_LIFETIME	= 35, /* Query lifetime for last unacked */
 
 	WLFC_CTL_TYPE_LLW_OPEN			= 36, /* Open LLW interface */
 	WLFC_CTL_TYPE_LLW_CLOSE			= 37, /* Close LLW interface */
+	WLFC_CTL_TYPE_LLW_LATENCY		= 38, /* LLW latency TLV */
+	WLFC_CTL_TYPE_LLW_QUERY			= 39, /* Check if flowring with flowid is LLW */
 
-	WLFC_CTL_TYPE_D2HQ_STATUS		= 38,
-	WLFC_CTL_TYPE_LLW_LATENCY		= 39, /* LLW latency TLV */
+	WLFC_CTL_TYPE_D2HQ_STATUS		= 40,
 
-	WLFC_CTL_TYPE_CHECK_CTLCPL_FULL		= 40, /* Query current complietion ring is full */
-	WLFC_CTL_TYPE_CHECK_HLTH_THRTL		= 41, /* Query health resources to throttle */
+	WLFC_CTL_TYPE_CHECK_CTLCPL_FULL		= 41, /* Query current complietion ring is full */
+	WLFC_CTL_TYPE_CHECK_HLTH_THRTL		= 42, /* Query health resources to throttle */
+	WLFC_CTL_TYPE_CHECK_NINQ_THRTL		= 43, /* Query number not in q for throttle */
 
 	WLFC_CTL_TYPE_FILLER			= 255
 } wlfc_ctl_type_t;

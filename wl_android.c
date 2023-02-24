@@ -564,7 +564,7 @@ static LIST_HEAD(miracast_resume_list);
 static u8 miracast_cur_mode;
 
 #ifdef DEBUGABILITY
-#define CMD_NEW_DEBUG_PRINT_COREDUMP	"CORE_DUMP"
+#define CMD_NEW_DEBUG_PRINT_SOCRAMDUMP	"SOCRAM_DUMP"
 void dhd_coredump_trigger(dhd_pub_t *dhdp);
 #endif /* DEBUGABILITY */
 #ifdef DHD_LOG_DUMP
@@ -14057,8 +14057,8 @@ wl_handle_private_cmd(struct net_device *net, char *command, u32 cmd_len)
 	}
 #endif /* DHD_LOG_DUMP */
 #ifdef DEBUGABILITY
-	else if (strnicmp(command, CMD_NEW_DEBUG_PRINT_COREDUMP,
-		strlen(CMD_NEW_DEBUG_PRINT_COREDUMP)) == 0) {
+	else if (strnicmp(command, CMD_NEW_DEBUG_PRINT_SOCRAMDUMP,
+		strlen(CMD_NEW_DEBUG_PRINT_SOCRAMDUMP)) == 0) {
 		dhd_pub_t *dhdp = wl_cfg80211_get_dhdp(net);
 		dhd_coredump_trigger(dhdp);
 	}

@@ -1322,7 +1322,17 @@ dhd_rx_mon_pkt(dhd_pub_t *dhdp, host_rxbuf_cmpl_t* msg, void *pkt, int ifidx)
 				PKTDATA(dhdp->osh, pkt), PKTLEN(dhdp->osh, pkt));
 				dhd->monitor_len += PKTLEN(dhdp->osh, pkt);
 				PKTFREE(dhdp->osh, pkt, FALSE);
-				skb_put(dhd->monitor_skb, dhd->monitor_len);
+				if (dhd->monitor_len < MAX_MON_PKT_SIZE) {
+					skb_put(dhd->monitor_skb, dhd->monitor_len);
+				} else {
+					DHD_ERROR(("dhd_rx_mon_pkt: Invalid packet length %d "
+						"exceeds the max skb length %d\n",
+						dhd->monitor_len, MAX_MON_PKT_SIZE));
+					dev_kfree_skb(dhd->monitor_skb);
+					dhd->monitor_skb = NULL;
+					dhd->monitor_len = 0;
+					return;
+				}
 				dhd->monitor_skb->protocol =
 					eth_type_trans(dhd->monitor_skb, dhd->monitor_skb->dev);
 				dhd->monitor_len = 0;

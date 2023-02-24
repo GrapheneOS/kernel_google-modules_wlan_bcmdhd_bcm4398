@@ -1938,7 +1938,8 @@ wl_cfg80211_set_channel(struct wiphy *wiphy, struct net_device *dev,
 #ifdef WL_CELLULAR_CHAN_AVOID
 	if (!CHSPEC_IS6G(chspec)) {
 		wl_cellavoid_sync_lock(cfg);
-		cur_chspec = wl_cellavoid_find_widechspec_fromchspec(cfg->cellavoid_info, chspec);
+		cur_chspec =
+			wl_cellavoid_find_widechspec_fromchspec(cfg->cellavoid_info, chspec, dev);
 		if (cur_chspec == INVCHANSPEC) {
 			wl_cellavoid_sync_unlock(cfg);
 			return BCME_ERROR;
@@ -2336,8 +2337,10 @@ wl_validate_wpa2ie(struct net_device *dev, const bcm_tlv_t *wpa2ie, s32 bssidx)
 		}
 	}
 	if ((len -= (WPA_IE_SUITE_COUNT_LEN + (WPA_SUITE_LEN * suite_count))) >= RSN_CAP_LEN) {
+		uint16 rsn_ocv_cap = 0;
 		rsn_cap[0] = *(const u8 *)&mgmt->list[suite_count];
 		rsn_cap[1] = *((const u8 *)&mgmt->list[suite_count] + 1);
+		rsn_ocv_cap = *((const u16 *)rsn_cap);
 
 		if (rsn_cap[0] & (RSN_CAP_16_REPLAY_CNTRS << RSN_CAP_PTK_REPLAY_CNTR_SHIFT)) {
 			wme_bss_disable = 0;
@@ -2345,6 +2348,27 @@ wl_validate_wpa2ie(struct net_device *dev, const bcm_tlv_t *wpa2ie, s32 bssidx)
 			wme_bss_disable = 1;
 		}
 
+		if (rsn_ocv_cap & RSN_CAP_OCVC) {
+			u32 ocv_cap = (rsn_ocv_cap & RSN_CAP_OCVC) ? 1u : 0u;
+			dhd_pub_t *dhdp = (dhd_pub_t *)(cfg->pub);
+			err = BCME_OK;
+
+			/* Return error as hostapd conf is incorrectly used
+			 * without OCV firmware
+			 */
+			if (!FW_SUPPORTED(dhdp, ocv)) {
+				WL_ERR(("ocv firmware not used\n"));
+				return BCME_ERROR;
+			}
+
+			err = wl_cfg80211_set_wsec_info(dev, &ocv_cap,
+					sizeof(ocv_cap), WL_WSEC_INFO_OCV);
+			/* OCV if not supported in firmware report back */
+			if (err) {
+				WL_ERR(("ocv set failed err %d\n", err));
+				return BCME_ERROR;
+			}
+		}
 #ifdef MFP
 		if (wl_get_mfp_capability(rsn_cap[0], &wpa_auth, &mfp) != BCME_OK) {
 			WL_ERR(("mfp configuration invalid. rsn_cap:0x%x\n", rsn_cap[0]));
@@ -3090,6 +3114,15 @@ wl_cfg80211_bcn_validate_sec(
 				memcpy(bss->wps_ie, ies->wps_ie, ies->wps_ie_len);
 			}
 		}
+
+#ifdef BCN_PROT_AP
+		/* Check if Beacon protection advertised in Ext Cap IE in beacons */
+		if (ies->ext_cap_ie->len >= DOT11_EXTCAP_LEN_BCN_PROT &&
+		    isset(ies->ext_cap_ie->data, DOT11_EXT_CAP_BCN_PROT)) {
+			WL_DBG(("Enable Beacon protection for AP\n"));
+			cfg->bcnprot_ap = TRUE;
+		}
+#endif /* BCN_PROT_AP */
 	}
 
 	WL_INFORM_MEM(("[%s] wpa_auth:0x%x auth:0x%x wsec:0x%x mfp:0x%x\n",
@@ -3191,6 +3224,15 @@ wl_cfg80211_parse_ies(const u8 *ptr, u32 len, struct parsed_ies *ies)
 		WL_DBG((" WPA found\n"));
 		ies->wpa_ie_len = ies->wpa_ie->length;
 	}
+
+#ifdef BCN_PROT_AP
+	/* find the Ext Cap IE */
+	if ((ies->ext_cap_ie = bcm_parse_tlvs(ptr, len,
+		DOT11_MNG_EXT_CAP_ID)) != NULL) {
+		WL_DBG(("Ext Cap IE found\n"));
+		ies->ext_cap_ie_len = ies->ext_cap_ie->len;
+	}
+#endif /* BCN_PROT_AP */
 
 	return err;
 
@@ -3532,6 +3574,17 @@ wl_cfg80211_bcn_bringup_ap(
 				goto exit;
 			}
 		}
+
+#ifdef BCN_PROT_AP
+		err = wl_cfgvif_set_bcnprot_mode(dev, cfg);
+		if (err < 0) {
+			WL_ERR(("Beacon protection Setting failed. ret = %d \n", err));
+			/* If fw doesn't support beacon protection, Ignore the error */
+			if (err != BCME_UNSUPPORTED) {
+				goto exit;
+			}
+		}
+#endif /* BCN_PROT_AP */
 #endif /* MFP */
 
 		/* sync up host macaddr */
@@ -3605,7 +3658,9 @@ exit:
 
 #ifdef MFP
 	cfg->mfp_mode = 0;
-
+#ifdef BCN_PROT_AP
+	cfg->bcnprot_ap = 0;
+#endif
 	if (cfg->bip_pos) {
 		cfg->bip_pos = NULL;
 	}
@@ -5383,9 +5438,6 @@ wl_notify_connect_status_ap(struct bcm_cfg80211 *cfg, struct net_device *ndev,
 #ifdef BIGDATA_SOFTAP
 	dhd_pub_t *dhdp;
 #endif /* BIGDATA_SOFTAP */
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 2, 0))
-	struct cfg80211_update_owe_info owe_info;
-#endif /* LINUX_VERSION_CODE >= KERNEL_VERSION(5, 2, 0) */
 	bool cancel_timeout = FALSE;
 
 	WL_INFORM_MEM(("[%s] Mode AP/GO. Event:%d status:%d reason:%d\n",
@@ -5550,8 +5602,19 @@ wl_notify_connect_status_ap(struct bcm_cfg80211 *cfg, struct net_device *ndev,
 #endif /* WL_WPS_SYNC */
 	}
 #endif /* LINUX_VERSION < VERSION(3,2,0) && !WL_CFG80211_STA_EVENT && !WL_COMPAT_WIRELESS */
+	return err;
+}
+
+s32
+wl_cfgvif_notify_owe_event(struct bcm_cfg80211 *cfg, struct net_device *ndev,
+	const wl_event_msg_t *e, void *data)
+{
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 2, 0))
-	else if (event == WLC_E_OWE_INFO) {
+	u32 event = ntoh32(e->event_type);
+	u32 len = ntoh32(e->datalen);
+	struct cfg80211_update_owe_info owe_info = {0};
+
+	if (event == WLC_E_OWE_INFO) {
 		if (!data) {
 			WL_ERR(("No DH-IEs present in ASSOC/REASSOC_IND"));
 			return -EINVAL;
@@ -5562,12 +5625,15 @@ wl_notify_connect_status_ap(struct bcm_cfg80211 *cfg, struct net_device *ndev,
 		eacopy(e->addr.octet, owe_info.peer);
 		owe_info.ie = data;
 		owe_info.ie_len = len;
-		WL_INFORM_MEM(("Recieved owe_info. Mac addr" MACDBG "\n",
+		WL_INFORM_MEM(("Recieved owe info event for mac addr:" MACDBG "\n",
 			MAC2STRDBG((const u8*)(&e->addr))));
 		cfg80211_update_owe_info_event(ndev, &owe_info, GFP_ATOMIC);
 	}
+#else
+	WL_ERR(("OWE event on unsupported kernel\n"));
 #endif /* LINUX_VERSION_CODE >= KERNEL_VERSION(5, 2, 0) */
-	return err;
+
+	return BCME_OK;
 }
 
 s32
@@ -5715,8 +5781,6 @@ wl_tdls_event_handler(struct bcm_cfg80211 *cfg, bcm_struct_cfgdev *cfgdev,
 	return 0;
 
 }
-
-
 #endif  /* WLTDLS */
 
 #if (LINUX_VERSION_CODE > KERNEL_VERSION(3, 2, 0)) || \
@@ -8202,3 +8266,56 @@ wl_cfgvif_scb_authorized(struct bcm_cfg80211 *cfg, bcm_struct_cfgdev *cfgdev,
 	return err;
 }
 #endif /* WL_IDAUTH */
+
+
+#ifdef BCN_PROT_AP
+s32
+wl_cfgvif_set_bcnprot_mode(struct net_device *dev, struct bcm_cfg80211 *cfg)
+{
+	uint16 bcnprot_enab = 0;
+	u8 ioctl_buf[WLC_IOCTL_SMLEN] = {0};
+	bcm_iov_buf_t *iov_buf = (bcm_iov_buf_t *)ioctl_buf;
+	u8 resp_buf[WLC_IOCTL_SMLEN] = {0};
+	bcm_iov_buf_t *iov_resp = (bcm_iov_buf_t *)resp_buf;
+	bcm_iov_buf_t *p_resp = NULL;
+	uint8 *data = NULL;
+	uint16 iovlen = 0;
+	s32 err = BCME_OK;
+	int len = 0;
+
+	iov_buf->version = WL_BCN_PROT_VERSION_1;
+	iov_buf->id = WL_BCN_PROT_CMD_ENABLE;
+	len = OFFSETOF(bcm_iov_buf_t, data) + sizeof(uint16);
+
+	err = wldev_iovar_getbuf(dev, "bcnprot", iov_buf, len,
+			iov_resp, WLC_IOCTL_SMLEN, NULL);
+	if (err < 0) {
+		WL_ERR(("Beacon Protection Get failed, ret = %d \n", err));
+	} else {
+		p_resp = (bcm_iov_buf_t *)iov_resp;
+		bcnprot_enab =  *((uint16 *)p_resp->data);
+
+		WL_DBG(("Beacon protection Get: 0x%x \n", bcnprot_enab));
+		if (cfg->bcnprot_ap) {
+			bcnprot_enab = WL_BCN_PROT_ENABLE_FEATURE | WL_BCN_PROT_ENABLE_AP;
+		} else {
+			bcnprot_enab &= ~WL_BCN_PROT_ENABLE_AP;
+		}
+		WL_INFORM_MEM(("Beacon protection Set: 0x%x\n", bcnprot_enab));
+
+		iov_buf->version = WL_BCN_PROT_VERSION_1;
+		iov_buf->id = WL_BCN_PROT_CMD_ENABLE;
+		data = (uint8 *)&iov_buf->data[0];
+		*(uint16 *)data = bcnprot_enab;
+
+		iov_buf->len = sizeof(bcnprot_enab);
+		iovlen = sizeof(bcm_iov_buf_t) + iov_buf->len;
+		err = wldev_iovar_setbuf(dev, "bcnprot", iov_buf, iovlen,
+				iov_resp, WLC_IOCTL_SMLEN, NULL);
+		if (err) {
+			WL_ERR(("Beacon Protection Set failed, ret = %d \n", err));
+		}
+	}
+	return err;
+}
+#endif /* BCN_PROT_AP */

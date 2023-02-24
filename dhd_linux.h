@@ -62,7 +62,8 @@
 #include <bcmwifi_monitor.h>
 #else
 #define MAX_RADIOTAP_SIZE      256 /* Maximum size to hold HE Radiotap header format */
-#define MAX_MON_PKT_SIZE       (4096 + MAX_RADIOTAP_SIZE)
+/* SKB length to accommodate max AMSDU frame in monitor mode */
+#define MAX_MON_PKT_SIZE       ((12 * 1024u) + MAX_RADIOTAP_SIZE)
 #endif /* HOST_RADIOTAP_CONV */
 #endif /* WL_MONITOR */
 

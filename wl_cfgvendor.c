@@ -3480,7 +3480,7 @@ wl_cfgvendor_set_sae_password(struct wiphy *wiphy,
 	BCM_REFERENCE(pmk);
 /* This api not needed for wpa_supplicant based sae authentication */
 #ifdef WL_CLIENT_SAE
-	WL_INFORM_MEM(("Ignore for external sae auth\n"));
+	WL_DBG(("Ignore for external sae auth\n"));
 	return BCME_OK;
 #endif /* WL_CLIENT_SAE */
 
@@ -8156,7 +8156,7 @@ static int wl_update_ml_link_stat(struct bcm_cfg80211 *cfg, struct net_device *i
 	COMPAT_ASSIGN_VALUE(iface, rssi_mgmt, scbval.val);
 
 	/* Update duty cycle info based on RSDB/VSDB */
-	if (wl_cfg80211_determine_rsdb_scc_mode(cfg)) {
+	if (wl_cfg80211_determine_rsdb_scc_mode(cfg, link_idx)) {
 		COMPAT_ASSIGN_VALUE(iface, time_slicing_duty_cycle_percent,
 			WIFI_RSDB_TIMESLICE_DUTY_CYCLE);
 	} else {
@@ -8184,7 +8184,7 @@ static int wl_update_ml_link_stat(struct bcm_cfg80211 *cfg, struct net_device *i
 	}
 
 	if ((err == BCME_OK) && (peer_list_info && peer_list_info->count > 0)) {
-		err = wldev_link_iovar_getint(inet_ndev, link_id, "nrate", (int*)&rspec);
+		err = wldev_link_iovar_getint(inet_ndev, link_idx, "nrate", (int*)&rspec);
 		if (err != BCME_OK) {
 			WL_ERR(("Error (%d) in getting nrate\n", err));
 			goto exit;
@@ -8218,14 +8218,14 @@ static int wl_update_ml_link_stat(struct bcm_cfg80211 *cfg, struct net_device *i
 
 	if ((err == BCME_OK) && (peer_list_info && peer_list_info->count > 0)) {
 		err = wldev_link_iovar_getbuf(inet_ndev, link_idx, "ratestat", NULL, 0,
-				iovar_buf, WLC_IOCTL_MAXLEN, NULL);
+			iovar_buf, WLC_IOCTL_MAXLEN, NULL);
 		if (err != BCME_OK && err != BCME_UNSUPPORTED) {
 			WL_ERR(("error (%d) - size = %zu\n", err, num_rate*sizeof(wifi_rate_stat)));
 			goto exit;
 		}
 		for (i = 0; i < num_rate; i++) {
 			p_wifi_rate_stat =
-				(wifi_rate_stat *)(iovar_buf + i*sizeof(wifi_rate_stat_v1));
+				(wifi_rate_stat *)(iovar_buf + i*sizeof(wifi_rate_stat));
 			p_wifi_rate_stat_v1 = (wifi_rate_stat_v1 *)*output;
 			p_wifi_rate_stat_v1->rate.preamble = p_wifi_rate_stat->rate.preamble;
 			p_wifi_rate_stat_v1->rate.nss = p_wifi_rate_stat->rate.nss;
@@ -8275,7 +8275,7 @@ exit:
 static int wl_update_multi_link_stat(struct bcm_cfg80211 *cfg, struct net_device *inet_ndev,
 	char **output, uint *total_len) {
 	int err = 0;
-	u8 link_idx = 0;
+	u8 link_idx = NON_ML_LINK;
 	u8 link_id = 0;
 	u8 i = 0;
 	wifi_iface_ml_stat ml_iface;
@@ -8286,13 +8286,6 @@ static int wl_update_multi_link_stat(struct bcm_cfg80211 *cfg, struct net_device
 
 	bzero(&ml_iface, sizeof(wifi_iface_ml_stat));
 
-	/* Update duty cycle info based on RSDB/VSDB */
-	if (wl_cfg80211_determine_rsdb_scc_mode(cfg)) {
-		ml_iface.info.time_slicing_duty_cycle_percent = WIFI_RSDB_TIMESLICE_DUTY_CYCLE;
-	} else {
-		ml_iface.info.time_slicing_duty_cycle_percent = WIFI_VSDB_TIMESLICE_DUTY_CYCLE;
-	}
-
 #ifdef WL_MLO
 	/* Get ml specific info */
 	mld_netinfo = wl_cfg80211_get_mld_netinfo_by_cfg(cfg, &ml_count);
@@ -8302,6 +8295,14 @@ static int wl_update_multi_link_stat(struct bcm_cfg80211 *cfg, struct net_device
 	} else
 #endif /* WL_MLO */
 	{
+		/* Update duty cycle info based on RSDB/VSDB for non-mlo case */
+		if (wl_cfg80211_determine_rsdb_scc_mode(cfg, 0)) {
+			ml_iface.info.time_slicing_duty_cycle_percent =
+				WIFI_RSDB_TIMESLICE_DUTY_CYCLE;
+		} else {
+			ml_iface.info.time_slicing_duty_cycle_percent =
+				WIFI_VSDB_TIMESLICE_DUTY_CYCLE;
+		}
 		/* For legacy, single link is only populated */
 		ml_iface.num_links = 1;
 	}

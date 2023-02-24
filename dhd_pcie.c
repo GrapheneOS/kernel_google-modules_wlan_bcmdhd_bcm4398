@@ -1666,10 +1666,9 @@ dhdpcie_bus_intstatus(dhd_bus_t *bus)
 		intmask = si_corereg(bus->sih, bus->sih->buscoreidx, bus->pcie_mailbox_mask, 0, 0);
 		/* Is device removed. intstatus & intmask read 0xffffffff */
 		if (intstatus == (uint32)-1 || intmask == (uint32)-1) {
-			DHD_ERROR(("%s: Device is removed or Link is down.\n", __FUNCTION__));
 			DHD_ERROR(("%s: INTSTAT : 0x%x INTMASK : 0x%x.\n",
 			    __FUNCTION__, intstatus, intmask));
-			bus->is_linkdown = TRUE;
+			dhd_validate_pcie_link_cbp_wlbp(bus);
 			dhd_pcie_debug_info_dump(bus->dhd);
 #ifdef CUSTOMER_HW4_DEBUG
 
@@ -1723,10 +1722,12 @@ dhdpcie_cto_recovery_handler(dhd_pub_t *dhd)
 	dhd_bus_t *bus = dhd->bus;
 	int ret;
 
+#ifndef CONFIG_X86
 	if (dhd->up == FALSE) {
 		DHD_ERROR(("%s : dhd is not up\n", __FUNCTION__));
 		return;
 	}
+#endif /* !CONFIG_X86 */
 
 	if (bus->is_linkdown) {
 		DHD_ERROR(("%s: link is down\n", __FUNCTION__));
@@ -1777,7 +1778,9 @@ dhdpcie_cto_recovery_handler(dhd_pub_t *dhd)
 #ifdef DHD_SSSR_DUMP
 			DHD_PRINT(("%s : Set collect_sssr as TRUE\n", __FUNCTION__));
 			bus->dhd->collect_sssr = TRUE;
+#if defined(BOARD_HIKEY) || defined(CONFIG_X86)
 			bus->dhd->fis_enab_cto = TRUE;
+#endif /* BOARD_HIKEY || CONFIG_X86 */
 #endif /* DHD_SSSR_DUMP */
 #ifdef DHD_SDTC_ETB_DUMP
 			if (bus->dhd->etb_dap_flush_supported) {
@@ -3286,6 +3289,15 @@ dhdpcie_advertise_bus_cleanup(dhd_pub_t *dhdp)
 			dhdp->db7_trap.fw_db7w_trap_inprogress = TRUE;
 			dhdpcie_fw_trap(dhdp->bus);
 			if (!dhdp->db7_trap.fw_db7w_trap_received) {
+				char buf[512];
+				struct bcmstrbuf b;
+				struct bcmstrbuf *strbuf = &b;
+				bcm_binit(strbuf, buf, sizeof(buf));
+
+				bcm_bprintf_bypass = TRUE;
+				dhd_dump_intr_counters(dhdp, strbuf);
+				bcm_bprintf_bypass = FALSE;
+
 				DHD_ERROR(("%s : Did not receive DB7 Ack\n", __FUNCTION__));
 				if (dhdp->memdump_enabled) {
 					dhdp->memdump_type = DUMP_TYPE_NO_DB7_ACK;
@@ -4350,6 +4362,7 @@ concate_revision(dhd_bus_t *bus, char *fw_path, char *nv_path)
 			break;
 		case BCM4389_CHIP_ID:
 		case BCM4397_CHIP_GRPID:
+		case BCM4383_CHIP_ID:
 			res = dhd_get_fw_nvram_names(bus->dhd, chipid, chiprev, fw_path,
 				nv_path, map_path);
 			if (res != BCME_OK) {
@@ -5329,13 +5342,20 @@ dhdpcie_schedule_log_dump(dhd_bus_t *bus)
 extern uint fis_enab_always;
 #endif /* DHD_SSSR_DUMP */
 
+#define ARMCA7_WAR_REG_OFF 0x1e4u
+#define ARMCA7_WAR_REG_VAL 0xFF00u
+#define CC_BPIND_ACCESS_POLL_TMO_US 10000u
+
 dhd_pcie_link_state_type_t
 dhdpcie_get_link_state(dhd_bus_t *bus)
 {
 	uint32 intstatus;
 	uint origidx;
 	dhd_pcie_link_state_type_t link_state = DHD_PCIE_ALL_GOOD;
-	uint32 status_cmd;
+	uint32 base_addr0, base_addr1;
+	uint buscorerev = bus->sih->buscorerev;
+	uint offset = 0, bpaddr = 0, val = 0;
+	uint32 idx = 0, core_addr = 0;
 
 	/* If the link down is already set, no need to further access registers */
 	if (bus->is_linkdown) {
@@ -5343,9 +5363,12 @@ dhdpcie_get_link_state(dhd_bus_t *bus)
 		goto exit;
 	}
 
-	status_cmd = dhd_pcie_config_read(bus, PCIECFGREG_STATUS_CMD, sizeof(uint32));
-	if (status_cmd == (uint32) -1) {
-		DHD_PRINT(("%s: pcie link down: status_cmd:0x%x\n", __FUNCTION__, status_cmd));
+	/* check for pcie link down and link reset */
+	base_addr0 = dhd_pcie_config_read(bus, PCI_CFG_BAR0, sizeof(uint32));
+	base_addr1 = dhd_pcie_config_read(bus, PCI_CFG_BAR1, sizeof(uint32));
+	if ((base_addr0 == (uint32)-1) || (base_addr1 == (uint32)-1)) {
+		DHD_PRINT(("%s: pcie link down: config space base_addr0=0x%x, base_addr1=0x%x\n",
+			__FUNCTION__, base_addr0, base_addr1));
 		link_state = DHD_PCIE_LINK_DOWN;
 #ifdef SUPPORT_LINKDOWN_RECOVERY
 #ifdef CONFIG_ARCH_MSM
@@ -5355,9 +5378,34 @@ dhdpcie_get_link_state(dhd_bus_t *bus)
 		bus->is_linkdown = 1;
 		goto exit;
 	}
+	if ((base_addr0 == PCI_CFG_BAR0_RESET_VAL) || (base_addr1 == PCI_CFG_BAR1_RESET_VAL)) {
+		DHD_PRINT(("%s: pcie link reset: config space base_addr0=0x%x, base_addr1=0x%x\n",
+			__FUNCTION__, base_addr0, base_addr1));
+		link_state = DHD_PCIE_LINK_RESET;
+#ifdef SUPPORT_LINKDOWN_RECOVERY
+#ifdef CONFIG_ARCH_MSM
+		bus->no_cfg_restore = 1;
+#endif /* CONFIG_ARCH_MSM */
+#endif /* SUPPORT_LINKDOWN_RECOVERY */
+		bus->is_linkdown = 1;
+		goto exit;
+	}
 
-	/* Check the common backplane status */
-	intstatus = si_corereg(bus->sih, bus->sih->buscoreidx, bus->pcie_mailbox_int, 0, 0);
+	origidx = si_coreidx(bus->sih);
+
+	/* Check the common backplane status - via cfg space indirect BP
+	 * read of PcieMailBoxInt status reg
+	 */
+	offset = PCIMailBoxInt(buscorerev);
+	idx = si_findcoreidx(bus->sih, PCIE2_CORE_ID, 0);
+	core_addr = si_get_coreaddr(bus->sih, idx);
+	if (!core_addr) {
+		DHD_ERROR(("%s: Failed to get pcie core addr for idx 0x%x !\n",
+			__FUNCTION__, idx));
+		goto exit;
+	}
+	bpaddr = core_addr + offset;
+	intstatus = dhdpcie_cfg_indirect_bpaccess(bus, bpaddr, TRUE, 0);
 	if (intstatus == (uint32) -1) {
 		DHD_PRINT(("%s: common backplane is down, intstatus:0x%x\n",
 			__FUNCTION__, intstatus));
@@ -5369,29 +5417,39 @@ dhdpcie_get_link_state(dhd_bus_t *bus)
 		dhd_bus_pcie_pwr_req(bus);
 	}
 
-	origidx = si_coreidx(bus->sih);
-
-	/* Switch to SYSMEM core and check for wlan backplane status */
-	if (si_setcore(bus->sih, SYSMEM_CORE_ID, 0)) {
-		if (CHIPTYPE(bus->sih->socitype) == SOCI_NCI) {
-			if (!si_iscoreup(bus->sih)) {
+	/* check WL BP status using chip common indirect read on an ARM
+	 * register
+	 */
+	if (CHIPTYPE(bus->sih->socitype) == SOCI_NCI) {
+		idx = si_findcoreidx(bus->sih, ARMCA7_CORE_ID, 0);
+		core_addr = si_get_coreaddr(bus->sih, idx);
+		if (!core_addr) {
+			DHD_ERROR(("%s: Failed to get armca7 core addr for idx 0x%x !\n",
+				__FUNCTION__, idx));
+			goto exit;
+		}
+		bpaddr = core_addr + ARMCA7_WAR_REG_OFF;
+		if (si_bpind_access(bus->sih, 0, bpaddr, (int32 *)&val,
+			TRUE, CC_BPIND_ACCESS_POLL_TMO_US) == BCME_OK) {
+			if (val != ARMCA7_WAR_REG_VAL) {
 				link_state = DHD_PCIE_WLAN_BP_DOWN;
 				DHD_PRINT(("%s: wlan backplane is down \n",
 					__FUNCTION__));
 			}
 		} else {
-			uint32 ioctrl = si_wrapperreg(bus->sih, AI_IOCTRL, 0, 0);
-			uint32 resetctrl = si_wrapperreg(bus->sih, AI_RESETCTRL, 0, 0);
-			DHD_PRINT(("%s: sysmem ioctrl:0x%x resetctrl:0x%x\n",
-				__FUNCTION__, ioctrl, resetctrl));
-			if (ioctrl == (uint32) -1) {
-				DHD_PRINT(("%s: wlan backplane is down ioctrl:0x%x\n",
-					__FUNCTION__, ioctrl));
-				link_state = DHD_PCIE_WLAN_BP_DOWN;
-			}
+			DHD_ERROR(("%s: Failed to read armca7 reg !\n",	__FUNCTION__));
+			goto exit;
 		}
 	} else {
-		DHD_INFO(("%s: Failed to find SYSMEM core!\n", __FUNCTION__));
+		uint32 ioctrl = si_wrapperreg(bus->sih, AI_IOCTRL, 0, 0);
+		uint32 resetctrl = si_wrapperreg(bus->sih, AI_RESETCTRL, 0, 0);
+		DHD_PRINT(("%s: sysmem ioctrl:0x%x resetctrl:0x%x\n",
+			__FUNCTION__, ioctrl, resetctrl));
+		if (ioctrl == (uint32) -1) {
+			DHD_PRINT(("%s: wlan backplane is down ioctrl:0x%x\n",
+				__FUNCTION__, ioctrl));
+			link_state = DHD_PCIE_WLAN_BP_DOWN;
+		}
 	}
 
 	/* Restore back to original core */
@@ -5421,6 +5479,14 @@ dhd_validate_pcie_link_cbp_wlbp(dhd_bus_t *bus)
 #endif /* CONFIG_ARCH_MSM */
 #endif /* SUPPORT_LINKDOWN_RECOVERY */
 		bus->is_linkdown = 1;
+	} else if (bus->link_state == DHD_PCIE_LINK_RESET) {
+		DHD_ERROR(("%s: pcie link reset\n", __FUNCTION__));
+#ifdef SUPPORT_LINKDOWN_RECOVERY
+#ifdef CONFIG_ARCH_MSM
+		bus->no_cfg_restore = 1;
+#endif /* CONFIG_ARCH_MSM */
+#endif /* SUPPORT_LINKDOWN_RECOVERY */
+		bus->is_linkdown = 1;
 	} else if (bus->link_state == DHD_PCIE_COMMON_BP_DOWN) {
 		dhd_bus_dump_imp_cfg_registers(bus);
 		dhd_bus_dump_dar_registers(bus);
@@ -5436,15 +5502,15 @@ dhd_validate_pcie_link_cbp_wlbp(dhd_bus_t *bus)
 #if defined(DHD_FW_COREDUMP)
 #ifdef DHD_SSSR_DUMP
 #ifdef OEM_ANDROID
-			DHD_PRINT(("%s : Set collect_sssr\n", __FUNCTION__));
-			bus->dhd->collect_sssr = TRUE;
+		DHD_PRINT(("%s : Set collect_sssr\n", __FUNCTION__));
+		bus->dhd->collect_sssr = TRUE;
 #endif /* OEM_ANDROID */
 #endif /* DHD_SSSR_DUMP */
-			/* save core dump or write to a file */
-			if (bus->dhd->memdump_enabled) {
-				bus->dhd->memdump_type = DUMP_TYPE_READ_SHM_FAIL;
-				dhdpcie_mem_dump(bus);
-			}
+		/* save core dump or write to a file */
+		if (bus->dhd->memdump_enabled) {
+			bus->dhd->memdump_type = DUMP_TYPE_READ_SHM_FAIL;
+			dhdpcie_mem_dump(bus);
+		}
 #endif /* DHD_FW_COREDUMP */
 	}
 	return;
@@ -6080,6 +6146,7 @@ dhdpcie_mem_dump(dhd_bus_t *bus)
 	int ret = BCME_OK;
 	uint32 dhd_console_ms_prev = 0;
 	bool timeout = FALSE;
+	bool collect_cbaon_dmps = FALSE;
 
 #ifdef GDB_PROXY
 	bus->gdb_proxy_mem_dump_count++;
@@ -6191,15 +6258,17 @@ dhdpcie_mem_dump(dhd_bus_t *bus)
 					bus->dhd->do_chip_bighammer = TRUE;
 #endif /* WBRC */
 					/* For android collect FIS dumps */
-#ifdef OEM_ANDROID
 #ifdef DHD_SSSR_DUMP
+					dhdp->collect_sssr = TRUE;
+#if defined(BOARD_HIKEY) || defined(CONFIG_X86)
 					DHD_PRINT(("%s : Collect FIS dumps\n",
 						__FUNCTION__));
-					dhdp->collect_sssr = TRUE;
 					dhdp->fis_enab_no_db7ack = TRUE;
+#endif /* BOARD_HIKEY || CONFIG_X86 */
 #endif /* DHD_SSSR_DUMP */
-#endif /* OEM_ANDROID */
-
+					if (timeout) {
+						collect_cbaon_dmps = TRUE;
+					}
 				}
 				DHD_PRINT(("Function_Intstatus(0x%x)=0x%x "
 					"Function_Intmask(0x%x)=0x%x\n",
@@ -6215,6 +6284,10 @@ dhdpcie_mem_dump(dhd_bus_t *bus)
 			}
 			break;
 
+		case DUMP_TYPE_CTO_RECOVERY:
+			collect_cbaon_dmps = TRUE;
+			break;
+
 		default:
 			break;
 	}
@@ -6223,6 +6296,11 @@ dhdpcie_mem_dump(dhd_bus_t *bus)
 	if (pm_runtime_get_sync(dhd_bus_to_dev(bus)) < 0)
 		return BCME_ERROR;
 #endif /* DHD_PCIE_NATIVE_RUNTIMEPM */
+
+	if (collect_cbaon_dmps) {
+		DHD_PRINT(("%s: collect CB and AON core dumps \n", __FUNCTION__));
+		dhdpcie_get_cbaon_coredumps(bus);
+	}
 
 	if (dhdp->skip_memdump_map_read == FALSE) {
 		ret = dhdpcie_get_mem_dump(bus);
@@ -6348,6 +6426,11 @@ dhdpcie_bus_membytes(dhd_bus_t *bus, bool write, dhd_pcie_mem_region_t region,
 	uint dsize;
 	int detect_endian_flag = 0x01;
 	bool little_endian;
+
+	if (!bus || !bus->sih || !bus->tcm) {
+		DHD_ERROR(("%s: bus not inited !\n", __FUNCTION__));
+		return BCME_ERROR;
+	}
 
 	if (bus->is_linkdown) {
 		DHD_ERROR(("%s: PCIe link was down\n", __FUNCTION__));
@@ -8692,6 +8775,7 @@ dhd_bus_devreset(dhd_pub_t *dhdp, uint8 flag)
 			if (bcmerror) {
 				DHD_ERROR(("%s: host pcie clock enable failed: %d\n",
 					__FUNCTION__, bcmerror));
+				bcmerror = BCME_NOTREADY;
 				goto done;
 			}
 #if defined(DHD_CONTROL_PCIE_ASPM_WIFI_TURNON)
@@ -8706,6 +8790,7 @@ dhd_bus_devreset(dhd_pub_t *dhdp, uint8 flag)
 			if (bcmerror) {
 				DHD_ERROR(("%s: host configuration restore failed: %d\n",
 					__FUNCTION__, bcmerror));
+				bcmerror = BCME_NOTREADY;
 				goto done;
 			}
 
@@ -8713,6 +8798,7 @@ dhd_bus_devreset(dhd_pub_t *dhdp, uint8 flag)
 			if (bcmerror) {
 				DHD_ERROR(("%s: dhdpcie_bus_resource_alloc failed: %d\n",
 					__FUNCTION__, bcmerror));
+				bcmerror = BCME_NOTREADY;
 				goto done;
 			}
 
@@ -8732,6 +8818,7 @@ dhd_bus_devreset(dhd_pub_t *dhdp, uint8 flag)
 			if (bcmerror) {
 				DHD_ERROR(("%s: dhdpcie_bus_dongle_attach failed: %d\n",
 					__FUNCTION__, bcmerror));
+				bcmerror = BCME_NOTREADY;
 				goto done;
 			}
 
@@ -8739,6 +8826,7 @@ dhd_bus_devreset(dhd_pub_t *dhdp, uint8 flag)
 			if (bcmerror) {
 				DHD_ERROR(("%s: dhd_bus_request_irq failed: %d\n",
 					__FUNCTION__, bcmerror));
+				bcmerror = BCME_NOTREADY;
 				goto done;
 			}
 
@@ -8749,6 +8837,7 @@ dhd_bus_devreset(dhd_pub_t *dhdp, uint8 flag)
 			if (bcmerror) {
 				DHD_ERROR(("%s: dhd_bus_start: %d\n",
 					__FUNCTION__, bcmerror));
+				bcmerror = BCME_NOTUP;
 				goto done;
 			}
 
@@ -8761,6 +8850,7 @@ dhd_bus_devreset(dhd_pub_t *dhdp, uint8 flag)
 			DHD_PRINT(("%s: WLAN Power On Done\n", __FUNCTION__));
 		} else {
 			DHD_ERROR(("%s: what should we do here\n", __FUNCTION__));
+			bcmerror = BCME_NOTUP;
 			goto done;
 		}
 	}
@@ -17000,6 +17090,36 @@ fail:
 	return ret;
 }
 
+#ifdef DHD_SSSR_DUMP
+static void
+dhdpcie_set_pmu_fisctrlsts(struct dhd_bus *bus)
+{
+	uint32 FISCtrlStatus = 0;
+#ifdef OEM_ANDROID
+	/* for android platforms since reg on toggle support is present
+	 * FIS with common subcore is collected, so set PcieSaveEn bit in
+	 * PMU FISCtrlStatus reg
+	 */
+	FISCtrlStatus = PMU_REG(bus->sih, FISCtrlStatus, PMU_FIS_PCIE_SAVE_EN_VALUE,
+		PMU_FIS_PCIE_SAVE_EN_VALUE);
+	FISCtrlStatus = PMU_REG(bus->sih, FISCtrlStatus, 0, 0);
+	DHD_PRINT(("%s: reg on support present, set PMU FISCtrlStatus=0x%x \n",
+		__FUNCTION__, FISCtrlStatus));
+#endif /* OEM_ANDROID */
+
+#ifndef OEM_ANDROID
+	/* for non android platforms since reg on toggle support is absent
+	 * FIS without common subcore is collected, so reset PcieSaveEn bit in
+	 * PMU FISCtrlStatus reg
+	 */
+	FISCtrlStatus = PMU_REG(bus->sih, FISCtrlStatus, PMU_FIS_PCIE_SAVE_EN_VALUE, 0x0);
+	FISCtrlStatus = PMU_REG(bus->sih, FISCtrlStatus, 0, 0);
+	DHD_PRINT(("%s: reg on not supported, set PMU FISCtrlStatus=0x%x \n",
+		__FUNCTION__, FISCtrlStatus));
+#endif /* !OEM_ANDROID */
+}
+#endif /* DHD_SSSR_DUMP */
+
 /**
  * Initialize bus module: prepare for communication with the dongle. Called after downloading
  * firmware into the dongle.
@@ -17068,6 +17188,10 @@ int dhd_bus_init(dhd_pub_t *dhdp, bool enforce_mutex)
 	dhdp->busstate = DHD_BUS_DATA;
 	DHD_SET_BUS_NOT_IN_LPS(bus);
 	dhdp->dhd_bus_busy_state = 0;
+
+#ifdef DHD_SSSR_DUMP
+	dhdpcie_set_pmu_fisctrlsts(bus);
+#endif /* DHD_SSSR_DUMP */
 
 	/* D11 status via PCIe completion header */
 	if ((ret = dhdpcie_init_d11status(bus)) < 0) {
@@ -19890,8 +20014,9 @@ dhdpcie_sssr_dump(dhd_pub_t *dhd)
 	return BCME_OK;
 }
 
-#define PCIE_CFG_DSTATE_MASK	0x11u
+#define PCIE_CFG_DSTATE_MASK		0x11u
 #define CHIPCOMMON_WAR_SIGNATURE	0xabcdu
+#define FIS_DONE_DELAY			(100 * 1000) /* 100ms */
 
 static int
 dhdpcie_fis_trigger(dhd_pub_t *dhd)
@@ -19899,6 +20024,9 @@ dhdpcie_fis_trigger(dhd_pub_t *dhd)
 	uint32 FISCtrlStatus, FISMinRsrcMask, FISTrigRsrcState, RsrcState, MinResourceMask;
 	uint32 cfg_status_cmd;
 	uint32 cfg_pmcsr;
+
+	BCM_REFERENCE(cfg_status_cmd);
+	BCM_REFERENCE(cfg_pmcsr);
 
 	if (!dhd->sssr_inited) {
 		DHD_ERROR(("%s: SSSR not inited\n", __FUNCTION__));
@@ -19924,9 +20052,15 @@ dhdpcie_fis_trigger(dhd_pub_t *dhd)
 	FISMinRsrcMask = PMU_REG(dhd->bus->sih, FISMinRsrcMask, 0, 0);
 	RsrcState = PMU_REG(dhd->bus->sih, RsrcState, 0, 0);
 
-	DHD_PRINT(("%s: FISCtrlStatus=0x%x FISMinRsrcMask=0x%x, RsrcState=0x%x\n",
-		__FUNCTION__, FISCtrlStatus, FISMinRsrcMask, RsrcState));
+	DHD_PRINT(("%s: before trigger, PMU FISCtrlStatus=0x%x FISMinRsrcMask=0x%x, "
+		"RsrcState=0x%x\n", __FUNCTION__, FISCtrlStatus,
+		FISMinRsrcMask, RsrcState));
 
+#ifdef OEM_ANDROID
+	/* for android platforms, since they support WL_REG_ON toggle,
+	 * trigger FIS with common subcore - which involves saving pcie
+	 * config space, toggle REG_ON and restoring pcie config space
+	 */
 	cfg_status_cmd = dhd_pcie_config_read(dhd->bus, PCIECFGREG_STATUS_CMD, sizeof(uint32));
 	cfg_pmcsr = dhd_pcie_config_read(dhd->bus, PCIE_CFG_PMCSR, sizeof(uint32));
 	DHD_PRINT(("before save: Status Command(0x%x)=0x%x PCIE_CFG_PMCSR(0x%x)=0x%x\n",
@@ -19949,10 +20083,9 @@ dhdpcie_fis_trigger(dhd_pub_t *dhd)
 
 	/* Trigger FIS */
 	si_corereg(dhd->bus->sih, dhd->bus->sih->buscoreidx,
-	DAR_FIS_CTRL(dhd->bus->sih->buscorerev), ~0, DAR_FIS_START_MASK);
-	OSL_DELAY(100 * 1000);
+		DAR_FIS_CTRL(dhd->bus->sih->buscorerev), ~0, DAR_FIS_START_MASK);
+	OSL_DELAY(FIS_DONE_DELAY);
 
-#ifdef OEM_ANDROID
 	/*
 	 * For android built-in platforms need to perform REG ON/OFF
 	 * to restore pcie link.
@@ -19967,7 +20100,6 @@ dhdpcie_fis_trigger(dhd_pub_t *dhd)
 		/* Restore inited pcie cfg from pci_load_saved_state */
 		dhdpcie_bus_enable_device(dhd->bus);
 	}
-#endif /* OEM_ANDROID */
 
 	/* Use dhd restore function instead of kernel api */
 	dhdpcie_config_restore(dhd->bus, TRUE);
@@ -20010,9 +20142,31 @@ dhdpcie_fis_trigger(dhd_pub_t *dhd)
 	FISTrigRsrcState = PMU_REG(dhd->bus->sih, FISTrigRsrcState, 0, 0);
 	RsrcState = PMU_REG(dhd->bus->sih, RsrcState, 0, 0);
 	MinResourceMask = PMU_REG(dhd->bus->sih, MinResourceMask, 0, 0);
-	DHD_PRINT(("%s: After 100 ms : FISCtrlStatus=0x%x, FISTrigRsrcState=0x%x,"
+	DHD_PRINT(("%s: After trigger & %u us delay: FISCtrlStatus=0x%x, FISTrigRsrcState=0x%x,"
 		" RsrcState=0x%x MinResourceMask=0x%x\n",
-		__FUNCTION__, FISCtrlStatus, FISTrigRsrcState, RsrcState, MinResourceMask));
+		__FUNCTION__, FIS_DONE_DELAY, FISCtrlStatus, FISTrigRsrcState,
+		RsrcState, MinResourceMask));
+#endif /* OEM_ANDROID */
+
+#ifndef OEM_ANDROID
+	/* for non-android platforms, since they do not support
+	 * WL_REG_ON toggle, trigger FIS without common subcore
+	 * the PcieSaveEn bit in PMU FISCtrlStatus reg would be
+	 * set to 0 during init time
+	 */
+	si_corereg(dhd->bus->sih, dhd->bus->sih->buscoreidx,
+		DAR_FIS_CTRL(dhd->bus->sih->buscorerev), DAR_FIS_START_MASK, DAR_FIS_START_MASK);
+	/* wait for FIS done */
+	OSL_DELAY(FIS_DONE_DELAY);
+	FISCtrlStatus = PMU_REG(dhd->bus->sih, FISCtrlStatus, 0, 0);
+	FISTrigRsrcState = PMU_REG(dhd->bus->sih, FISTrigRsrcState, 0, 0);
+	RsrcState = PMU_REG(dhd->bus->sih, RsrcState, 0, 0);
+	MinResourceMask = PMU_REG(dhd->bus->sih, MinResourceMask, 0, 0);
+	DHD_PRINT(("%s: After trigger & %u us delay: FISCtrlStatus=0x%x, FISTrigRsrcState=0x%x,"
+		" RsrcState=0x%x MinResourceMask=0x%x\n",
+		__FUNCTION__, FIS_DONE_DELAY, FISCtrlStatus, FISTrigRsrcState,
+		RsrcState, MinResourceMask));
+#endif /* !OEM_ANDROID */
 
 	if ((FISCtrlStatus & PMU_CLEAR_FIS_DONE_MASK) == 0) {
 		DHD_ERROR(("%s: FIS Done bit not set. exit\n", __FUNCTION__));
@@ -20448,7 +20602,7 @@ dhd_bus_get_etb_dump_cmn(dhd_bus_t *bus, uint8 *buf, uint bufsize, uint32 etb_co
 	uint curcore = 0;
 	chipcregs_t *chipcregs = NULL;
 	uint ccrev = 0;
-	bool skip_rwp_update = FALSE;
+	bool skip_flush_and_rwp_update = FALSE;
 	dhd_pub_t *dhdp = bus->dhd;
 	bool flushed[ETB_USER_MAX] = {TRUE, TRUE, TRUE};
 	bool all_flushed = TRUE;
@@ -20473,12 +20627,16 @@ dhd_bus_get_etb_dump_cmn(dhd_bus_t *bus, uint8 *buf, uint bufsize, uint32 etb_co
 	ccrev = si_corerev(bus->sih);
 	si_setcore(bus->sih, curcore, 0);
 
-	/* if FIS dump is collected skip DAP TMC flush
-	 * as recommended by ASIC. Also do not update RWP
+#if defined(OEM_ANDROID)
+	/* if FIS dump with common subcore is collected, which happens
+	 * only on android platforms which support reg on,
+	 * skip DAP TMC flush as recommended by ASIC. Also do not update RWP.
 	 */
-	if (dhdp->fis_triggered) {
+	 skip_flush_and_rwp_update = dhdp->fis_triggered;
+#endif /* OEM_ANDROID */
+
+	if (skip_flush_and_rwp_update) {
 		DHD_PRINT(("%s: skip DAP TMC flush and RWP update due to FIS\n", __FUNCTION__));
-		skip_rwp_update = TRUE;
 	} else if (ccrev >= EWP_ETB_DAP_TMC_FLUSH_CCREV) {
 		/* ASIC advise is to flush the DAP TMC registers
 		 * before reading ETB dumps, so that ETB
@@ -20544,12 +20702,12 @@ dhd_bus_get_etb_dump_cmn(dhd_bus_t *bus, uint8 *buf, uint bufsize, uint32 etb_co
 				} else {
 					etb->rwp = ltoh32(rwp);
 				}
-			} else if (!skip_rwp_update) {
+			} else if (!skip_flush_and_rwp_update) {
 				/* if no trap, then read rwp via DAP register */
 				addr = debug_base + TMC_REG_OFF(rwp);
 				serialized_backplane_access(bus, addr, 4, &etb->rwp, TRUE);
 			} else {
-				DHD_INFO(("%s: no RWP update due to FIS\n", __FUNCTION__));
+				DHD_PRINT(("%s: no RWP update due to FIS\n", __FUNCTION__));
 			}
 
 			/* first write etb_block_t */
@@ -21806,6 +21964,115 @@ dhdpcie_fill_sssr_reg_info(dhd_pub_t *dhd)
 	}
 }
 #endif /* DHD_SSSR_DUMP */
+
+uint32
+dhdpcie_cfg_indirect_bpaccess(struct dhd_bus *bus, uint32 addr, bool read, uint value)
+{
+	uint32 ssctrl = 0;
+	uint32 low_addr = 0, high_addr = 0;
+	uint32 bar0 = 0, val = 0;
+	unsigned long flags = 0;
+
+	/* enable indirect config space access through SubSystemControl reg
+	 * by setting BackplaneAccessEn bit (bit6)
+	 */
+	ssctrl = dhd_pcie_config_read(bus, PCIE_CFG_SUBSYSTEM_CONTROL, sizeof(uint32));
+	val = ssctrl | PCI_CFG_SSCTRL_BPACCESSEN;
+	dhd_pcie_config_write(bus, PCIE_CFG_SUBSYSTEM_CONTROL, sizeof(uint32), val);
+
+	/* program lower 12 bits of addr into bits 0:11 of BackplaneAddr reg */
+	low_addr = addr & 0xFFFu;
+	dhd_pcie_config_write(bus, PCI_CFG_INDBP_ADDR, sizeof(uint32), low_addr);
+
+	/* program higher 20 bits of addr into bits 12:31 of PCIBar0Window reg */
+	high_addr = addr & 0xFFFFF000u;
+	DHD_BACKPLANE_ACCESS_LOCK(bus->backplane_access_lock, flags);
+	bar0 = dhd_pcie_config_read(bus, PCI_BAR0_WIN, sizeof(uint32));
+	dhd_pcie_config_write(bus, PCI_BAR0_WIN, sizeof(uint32), high_addr);
+	/* perform indirect read/write via BackplaneData reg */
+	if (read) {
+		val = dhd_pcie_config_read(bus, PCI_CFG_INDBP_DATA, sizeof(uint32));
+	} else {
+		dhd_pcie_config_write(bus, PCI_CFG_INDBP_DATA, sizeof(uint32), value);
+		val = value;
+	}
+	/* restore PCIBar0Window reg */
+	dhd_pcie_config_write(bus, PCI_BAR0_WIN, sizeof(uint32), bar0);
+	DHD_BACKPLANE_ACCESS_UNLOCK(bus->backplane_access_lock, flags);
+
+	/* restore SubSystemControl reg */
+	dhd_pcie_config_write(bus, PCIE_CFG_SUBSYSTEM_CONTROL, sizeof(uint32), ssctrl);
+
+	return val;
+}
+
+static int
+dhdpcie_get_cbcore_dmps(struct dhd_bus * bus)
+{
+	return 0;
+}
+
+static int
+dhdpcie_get_aoncore_dmps(struct dhd_bus * bus)
+{
+	return 0;
+}
+
+int
+dhdpcie_get_cbaon_coredumps(struct dhd_bus *bus)
+{
+	uint32 chipid = 0, idx = 0, core_addr = 0;
+	uint32 gcichipid_addr = 0;
+	si_t *sih = bus->sih;
+	int ret = 0;
+
+	/* read chipcommon chipid using config space indirect backplane addressing,
+	 * if successful, dump CB core regs
+	 */
+	chipid = dhdpcie_cfg_indirect_bpaccess(bus, si_enum_base(0), TRUE, 0);
+	chipid = chipid & CID_ID_MASK;
+	DHD_INFO(("%s: chipcommon chipid from cfgspc ind-bp read 0x%x\n", __FUNCTION__, chipid));
+	if (chipid == 0xffff) {
+		DHD_ERROR(("%s: invalid chip id!\n", __FUNCTION__));
+		return BCME_BADADDR;
+	}
+
+	/* TODO: dump CB core regs */
+	ret = dhdpcie_get_cbcore_dmps(bus);
+	if (ret) {
+		DHD_ERROR(("%s: dhdpcie_get_cbcore_dmps failed !\n", __FUNCTION__));
+		return ret;
+	}
+
+
+	/* read GCI chipid using config space indirect backplane addressing,
+	 * if successful, dump CB core regs
+	 */
+	idx = si_findcoreidx(sih, GCI_CORE_ID, 0);
+	core_addr = si_get_coreaddr(sih, idx);
+	if (!core_addr) {
+		DHD_ERROR(("%s: Failed to get core addr for idx 0x%x !\n",
+			__FUNCTION__, idx));
+		return BCME_ERROR;
+	}
+	gcichipid_addr = core_addr + OFFSETOF(gciregs_t, gci_chipid);
+	chipid = dhdpcie_cfg_indirect_bpaccess(bus, gcichipid_addr, TRUE, 0);
+	chipid = chipid & CID_ID_MASK;
+	DHD_INFO(("%s: gci chipid from cfgspc ind-bp read 0x%x\n", __FUNCTION__, chipid));
+	if (chipid == 0xffff) {
+		DHD_ERROR(("%s: invalid chip id!\n", __FUNCTION__));
+		return BCME_BADADDR;
+	}
+
+	/* TODO: dump AON core regs */
+	ret = dhdpcie_get_aoncore_dmps(bus);
+	if (ret) {
+		DHD_ERROR(("%s: dhdpcie_get_aoncore_dmps failed !\n", __FUNCTION__));
+		return ret;
+	}
+
+	return BCME_OK;
+}
 
 void
 dhd_bus_update_flow_watermark_stats(struct dhd_bus *bus, uint16 flowid, uint16 rd, uint16 wr,

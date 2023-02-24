@@ -98,6 +98,7 @@ typedef struct chip_rev_table {
 } chip_rev_table_t;
 
 chip_rev_table_t chip_revs[] = {
+	{0x4383, {"a0", "b0", "c0", "d0", "\0", "\0", "\0", "\0", "\0", "\0"}},
 	{0x4398, {"a0", "b0", "c0", "d0", "\0", "\0", "\0", "\0", "\0", "\0"}},
 	/* 4389 - not yet supported for now */
 	{0x4389, {"\0", "\0", "\0", "\0", "\0", "\0", "\0", "\0", "\0", "\0"}},
@@ -881,6 +882,11 @@ dhd_get_fw_nvram_names(dhd_pub_t *dhdp, uint chipid, uint chiprev,
 			DHD_ERROR(("%s: try nvram '%s'\n", __FUNCTION__, nv_path));
 		}
 	} else {
+		/* set vid info global variable, reflected in -
+		 * /sys/module/bcmdhd/parameters/info_string
+		 */
+		memcpy_s(&cur_vid_info, sizeof(cur_vid_info), vid, sizeof(cur_vid_info));
+
 		switch (chipid) {
 			case BCM4389_CHIP_ID:
 				vid_info = vid_naming_table_4389;
@@ -2036,7 +2042,7 @@ board_info_t murata_board_info[] = {
 #endif /* BCM4361_CHIP */
 #endif /* SUPPORT_MULTIPLE_BOARDTYPE */
 
-uint32 cur_vid_info;
+uint32 cur_vid_info = 0;
 /* CID managment functions */
 
 char *
@@ -2184,7 +2190,10 @@ write_cid:
 #else
 	strlcpy(cidinfostr, cid_info, MAX_VNAME_LEN);
 #endif /* DHD_EXPORT_CNTL_FILE */
-	memcpy_s(&cur_vid_info, sizeof(cur_vid_info), cur_info->vid, sizeof(cur_vid_info));
+
+	if (!cur_vid_info) {
+		memcpy_s(&cur_vid_info, sizeof(cur_vid_info), cur_info->vid, sizeof(cur_vid_info));
+	}
 
 	return ret;
 }

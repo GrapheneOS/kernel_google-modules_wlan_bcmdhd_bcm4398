@@ -196,6 +196,8 @@ typedef volatile struct chipcregs chipcregs_t;
 #define chipcommon_ClockCtlStatus_ADDR                                                  0x1e0u
 #define chipcommon_BackplaneAddrLow_ADDR                                                0xd0u
 #define chipcommon_BackplaneAddrHi_ADDR                                                 0xd4u
+#define chipcommon_BackplaneData_ADDR                                                   0xd8u
+#define chipcommon_BackplaneIndAccess_ADDR                                              0xe0u
 #define chipcommon_WatchdogCounter_ADDR                                                 0x80u
 #define chipcommon_IntMask_ADDR                                                         0x24u
 #define chipcommon_ChipControl_ADDR                                                     0x28u

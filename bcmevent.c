@@ -167,9 +167,9 @@ static const bcmevent_name_str_t bcmevent_names[] = {
 #ifdef WLWNM
 	BCMEVENT_NAME(WLC_E_WNM_STA_SLEEP),
 #endif /* WLWNM */
-#if defined(WL_PROXDETECT) || defined(RTT_SUPPORT)
+#if defined(FTM) || defined(WL_PROXDETECT) || defined(RTT_SUPPORT)
 	BCMEVENT_NAME(WLC_E_PROXD),
-#endif
+#endif /* FTM || WL_PROXDETECT || RTT_SUPPORT */
 	BCMEVENT_NAME(WLC_E_CCA_CHAN_QUAL),
 	BCMEVENT_NAME(WLC_E_BSSID),
 #ifdef PROP_TXSTATUS
