@@ -350,9 +350,27 @@ typedef struct {
 	uint32 contention_num_samples;     /* num of data pkts used for contention statistics */
 } wifi_wmm_ac_stat;
 
+/* Various states for the link */
+typedef enum {
+	/* Chip does not support reporting the state of the link. */
+	WIFI_LINK_STATE_UNKNOWN = 0,
+	/* Link has not been in use since last report. It is placed in power save. All
+	* management, control and data frames for the MLO connection are carried over
+	* other links. In this state the link will not listen to beacons even in DTIM
+	* period and does not perform any GTK/IGTK/BIGTK updates but remains associated
+	*/
+	WIFI_LINK_STATE_NOT_IN_USE = 1,
+	/* Link is in use. In presence of traffic, it is set to be power active. When
+	* the traffic stops, the link will go into power save mode and will listen
+	* for beacons every DTIM period.
+	*/
+	WIFI_LINK_STATE_IN_USE = 2,
+} wifi_link_state;
+
 /* ML interface statistics */
 typedef struct {
 	uint8 link_id;			/* Identifier for the link */
+	wifi_link_state state;		/* State for the link.*/
 	wifi_radio radio;		/* Radio on which link stats are sampled. */
 	u32 frequency;			/* Frequency on which link is operating. */
 	uint32 beacon_rx;		/* access point beacon received count from connected AP */
