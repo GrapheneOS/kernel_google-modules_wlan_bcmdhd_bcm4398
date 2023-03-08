@@ -10256,9 +10256,6 @@ dhd_bus_start(dhd_pub_t *dhdp)
 	/* Start the watchdog timer */
 	dhd->pub.tickcnt = 0;
 	dhd_os_wd_timer(&dhd->pub, dhd_watchdog_ms);
-#ifdef DHD_PCIE_RUNTIMEPM
-	dhd_os_runtimepm_timer(dhdp, dhd_runtimepm_ms);
-#endif /* DHD_PCIE_RUNTIMEPM */
 
 	/* Bring up the bus */
 	if ((ret = dhd_bus_init(&dhd->pub, FALSE)) != 0) {
