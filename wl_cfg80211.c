@@ -264,7 +264,7 @@ _Pragma("GCC diagnostic ignored \"-Wmissing-field-initializers\"")
 #endif
 static const struct ieee80211_regdomain brcm_regdom = {
 #ifdef WL_6G_BAND
-	.n_reg_rules = 9,
+	.n_reg_rules = 5,
 #else
 	.n_reg_rules = 4,
 #endif
@@ -287,11 +287,7 @@ static const struct ieee80211_regdomain brcm_regdom = {
 		REG_RULE(5470-10, 5850+10, 80, 6, 20, 0),
 #endif /* WL_5P9G */
 #ifdef WL_6G_BAND
-		REG_RULE(6105-160, 6905+160, 320, 6, 20, 0),
-		REG_RULE(6025-80, 6985+80, 160, 6, 20, 0),
-		REG_RULE(5935-10, 7115+10, 20, 6, 20, 0),
-		REG_RULE(5965-20, 7085+20, 40, 6, 20, 0),
-		REG_RULE(5985-40, 7025+40, 80, 6, 20, 0),
+		REG_RULE(5955-10, 7115+10, 160, 6, 20, 0),
 #endif /* WL_6G_BAND */
 		}
 };
@@ -1048,6 +1044,194 @@ struct chan_info {
 extern uint dhd_use_idsup;
 #endif /* BCMSUP_4WAY_HANDSHAKE */
 
+#ifdef WL_CAP_HE
+/* STA specific HE/EHT capabilities  for consumption by supplicant/hostapd */
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 19, 0))
+static struct ieee80211_sband_iftype_data __wl_he_sta_cap = {
+	.types_mask = BIT(NL80211_IFTYPE_STATION),
+	.he_cap = {
+		.has_he = true,
+		.he_cap_elem = {
+			.mac_cap_info[0] = (IEEE80211_HE_MAC_CAP0_HTC_HE |
+			IEEE80211_HE_MAC_CAP0_TWT_REQ),
+			.mac_cap_info[1] = IEEE80211_HE_MAC_CAP1_TF_MAC_PAD_DUR_16US,
+			.mac_cap_info[2] = IEEE80211_HE_MAC_CAP2_BSR,
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 1, 0))
+			.mac_cap_info[5] = IEEE80211_HE_MAC_CAP5_HT_VHT_TRIG_FRAME_RX,
+#endif /* LINUX_VERSION_CODE >= KERNEL_VERSION(5, 1, 0) */
+
+			.phy_cap_info[0] =
+			IEEE80211_HE_PHY_CAP0_CHANNEL_WIDTH_SET_40MHZ_80MHZ_IN_5G |
+			IEEE80211_HE_PHY_CAP0_CHANNEL_WIDTH_SET_160MHZ_IN_5G,
+			.phy_cap_info[1] = IEEE80211_HE_PHY_CAP1_DEVICE_CLASS_A |
+			IEEE80211_HE_PHY_CAP1_LDPC_CODING_IN_PAYLOAD,
+			.phy_cap_info[2] = IEEE80211_HE_PHY_CAP2_NDP_4x_LTF_AND_3_2US,
+			.phy_cap_info[3] = IEEE80211_HE_PHY_CAP3_SU_BEAMFORMER,
+			.phy_cap_info[4] = IEEE80211_HE_PHY_CAP4_SU_BEAMFORMEE |
+			IEEE80211_HE_PHY_CAP4_BEAMFORMEE_MAX_STS_UNDER_80MHZ_MASK |
+			IEEE80211_HE_PHY_CAP4_BEAMFORMEE_MAX_STS_ABOVE_80MHZ_4,
+			.phy_cap_info[5] =
+			IEEE80211_HE_PHY_CAP5_BEAMFORMEE_NUM_SND_DIM_UNDER_80MHZ_2,
+			.phy_cap_info[6] = IEEE80211_HE_PHY_CAP6_CODEBOOK_SIZE_42_SU |
+			IEEE80211_HE_PHY_CAP6_CODEBOOK_SIZE_75_MU |
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 13, 0))
+			IEEE80211_HE_PHY_CAP6_TRIG_SU_BEAMFORMING_FB |
+			IEEE80211_HE_PHY_CAP6_TRIG_MU_BEAMFORMING_PARTIAL_BW_FB |
+#else
+			IEEE80211_HE_PHY_CAP6_TRIG_SU_BEAMFORMER_FB |
+			IEEE80211_HE_PHY_CAP6_TRIG_MU_BEAMFORMER_FB |
+#endif /* (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 13, 0) */
+			IEEE80211_HE_PHY_CAP6_TRIG_CQI_FB |
+			IEEE80211_HE_PHY_CAP6_PPE_THRESHOLD_PRESENT,
+			.phy_cap_info[7] = IEEE80211_HE_PHY_CAP7_MAX_NC_1,
+			.phy_cap_info[8] = IEEE80211_HE_PHY_CAP8_20MHZ_IN_160MHZ_HE_PPDU |
+			IEEE80211_HE_PHY_CAP8_80MHZ_IN_160MHZ_HE_PPDU,
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 20, 0))
+			.phy_cap_info[9] =
+			IEEE80211_HE_PHY_CAP9_TX_1024_QAM_LESS_THAN_242_TONE_RU |
+			IEEE80211_HE_PHY_CAP9_RX_1024_QAM_LESS_THAN_242_TONE_RU,
+#endif /* LINUX_VERSION_CODE >= KERNEL_VERSION(4, 20, 0) */
+			},
+			.he_mcs_nss_supp = {
+			.rx_mcs_80 = cpu_to_le16(0xfffa),
+			.tx_mcs_80 = cpu_to_le16(0xfffa),
+			.rx_mcs_160 = cpu_to_le16((0xfffa)),
+			.tx_mcs_160 = cpu_to_le16((0xfffa)),
+			}
+	},
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 8, 0))
+	.he_6ghz_capa = {.capa = cpu_to_le16(0x3038)},
+#endif /* LINUX_VERSION_CODE >= KERNEL_VERSION(5, 8, 0) */
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 18, 0)) || defined(WL_MLO_BKPORT)
+	/* Android framework looks for eht capability for enabling EHT related code/functionality */
+	.eht_cap = {
+		.has_eht = true,
+		.eht_cap_elem = {
+			.mac_cap_info[0] = IEEE80211_EHT_MAC_CAP0_OM_CONTROL |
+#ifdef WL_MLO_BKPORT_CAP
+			(IEEE80211_EHT_MAC_CAP0_MAX_AMPDU_LEN_MASK &
+			(IEEE80211_EHT_MAC_CAP0_MAX_AMPDU_LEN_7991 << 6)) |
+#endif
+			0,
+			.mac_cap_info[1] = 0,
+			.phy_cap_info[0] = IEEE80211_EHT_PHY_CAP0_242_TONE_RU_GT20MHZ |
+			IEEE80211_EHT_PHY_CAP0_NDP_4_EHT_LFT_32_GI |
+			IEEE80211_EHT_PHY_CAP0_SU_BEAMFORMEE |
+			(IEEE80211_EHT_PHY_CAP0_BEAMFORMEE_SS_80MHZ_MASK &
+			(u8)(EHT_PHY_CAP_BFE_SS_80MHZ_SUP_VAL << 7)),
+			.phy_cap_info[1] = (IEEE80211_EHT_PHY_CAP1_BEAMFORMEE_SS_80MHZ_MASK &
+			(EHT_PHY_CAP_BFE_SS_80MHZ_SUP_VAL >> 1)) |
+			(IEEE80211_EHT_PHY_CAP1_BEAMFORMEE_SS_160MHZ_MASK &
+			(EHT_PHY_CAP_BFE_SS_160MHZ_SUP_VAL << 2)),
+			.phy_cap_info[2] = 0,
+			.phy_cap_info[3] = IEEE80211_EHT_PHY_CAP3_NG_16_SU_FEEDBACK |
+			IEEE80211_EHT_PHY_CAP3_NG_16_MU_FEEDBACK |
+			IEEE80211_EHT_PHY_CAP3_CODEBOOK_4_2_SU_FDBK |
+			IEEE80211_EHT_PHY_CAP3_CODEBOOK_7_5_MU_FDBK |
+			IEEE80211_EHT_PHY_CAP3_TRIG_SU_BF_FDBK |
+			IEEE80211_EHT_PHY_CAP3_TRIG_MU_BF_PART_BW_FDBK |
+			IEEE80211_EHT_PHY_CAP3_TRIG_CQI_FDBK,
+			.phy_cap_info[4] = (IEEE80211_EHT_PHY_CAP4_MAX_NC_MASK &
+			(EHT_PHY_CAP_MAX_NC_SUP_VAL << 4)),
+			.phy_cap_info[5] = IEEE80211_EHT_PHY_CAP5_NON_TRIG_CQI_FEEDBACK |
+			IEEE80211_EHT_PHY_CAP5_TX_LESS_242_TONE_RU_SUPP |
+			IEEE80211_EHT_PHY_CAP5_RX_LESS_242_TONE_RU_SUPP |
+			(IEEE80211_EHT_PHY_CAP5_COMMON_NOMINAL_PKT_PAD_MASK	&
+			(IEEE80211_EHT_PHY_CAP5_COMMON_NOMINAL_PKT_PAD_16US << 4)) |
+			(IEEE80211_EHT_PHY_CAP5_MAX_NUM_SUPP_EHT_LTF_MASK &
+			(u8)(EHT_PHY_CAP_MAX_EHT_LTF_SUP_VAL << 6)),
+			.phy_cap_info[6] = (IEEE80211_EHT_PHY_CAP6_MAX_NUM_SUPP_EHT_LTF_MASK &
+			(u8)(EHT_PHY_CAP_MAX_EHT_LTF_SUP_VAL >> 2)),
+			.phy_cap_info[7] = IEEE80211_EHT_PHY_CAP7_20MHZ_STA_RX_NDP_WIDER_BW,
+			.phy_cap_info[8] = 0
+		},
+		.eht_mcs_nss_supp = {
+			.only_20mhz = {
+				.rx_tx_mcs7_max_nss = 0,
+				.rx_tx_mcs9_max_nss = 0,
+				.rx_tx_mcs11_max_nss = 0,
+				.rx_tx_mcs13_max_nss = 0
+			},
+			.bw = {
+				._80 = {
+					. rx_tx_mcs9_max_nss = 2,
+					. rx_tx_mcs11_max_nss = 2,
+					. rx_tx_mcs13_max_nss = 2
+				},
+				._160 = {
+					. rx_tx_mcs9_max_nss = 2,
+					. rx_tx_mcs11_max_nss = 2,
+					. rx_tx_mcs13_max_nss = 2
+				}
+			}
+		}
+	},
+#endif /* (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 18, 0)) || WL_MLO_BKPORT */
+};
+
+/* AP specific HE/EHT capabilities for consumption by supplicant/hostapd */
+static struct ieee80211_sband_iftype_data __wl_he_ap_cap = {
+	.types_mask = BIT(NL80211_IFTYPE_AP),
+	.he_cap = {
+		.has_he = true,
+		.he_cap_elem = {
+			.mac_cap_info[0] = (IEEE80211_HE_MAC_CAP0_HTC_HE |
+			IEEE80211_HE_MAC_CAP0_TWT_REQ),
+			.mac_cap_info[1] = IEEE80211_HE_MAC_CAP1_TF_MAC_PAD_DUR_16US,
+			.mac_cap_info[2] = IEEE80211_HE_MAC_CAP2_BSR,
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 1, 0))
+			.mac_cap_info[5] = IEEE80211_HE_MAC_CAP5_HT_VHT_TRIG_FRAME_RX,
+#endif /* LINUX_VERSION_CODE >= KERNEL_VERSION(5, 1, 0) */
+
+			.phy_cap_info[0] =
+			IEEE80211_HE_PHY_CAP0_CHANNEL_WIDTH_SET_40MHZ_80MHZ_IN_5G |
+			IEEE80211_HE_PHY_CAP0_CHANNEL_WIDTH_SET_160MHZ_IN_5G,
+			.phy_cap_info[1] = IEEE80211_HE_PHY_CAP1_DEVICE_CLASS_A |
+			IEEE80211_HE_PHY_CAP1_LDPC_CODING_IN_PAYLOAD,
+			.phy_cap_info[2] = IEEE80211_HE_PHY_CAP2_NDP_4x_LTF_AND_3_2US,
+			.phy_cap_info[3] = IEEE80211_HE_PHY_CAP3_SU_BEAMFORMER,
+			.phy_cap_info[4] = IEEE80211_HE_PHY_CAP4_SU_BEAMFORMEE |
+			IEEE80211_HE_PHY_CAP4_BEAMFORMEE_MAX_STS_UNDER_80MHZ_MASK |
+			IEEE80211_HE_PHY_CAP4_BEAMFORMEE_MAX_STS_ABOVE_80MHZ_4,
+			.phy_cap_info[5] =
+			IEEE80211_HE_PHY_CAP5_BEAMFORMEE_NUM_SND_DIM_UNDER_80MHZ_2,
+			.phy_cap_info[6] = IEEE80211_HE_PHY_CAP6_CODEBOOK_SIZE_42_SU |
+			IEEE80211_HE_PHY_CAP6_CODEBOOK_SIZE_75_MU |
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 13, 0))
+			IEEE80211_HE_PHY_CAP6_TRIG_SU_BEAMFORMING_FB |
+			IEEE80211_HE_PHY_CAP6_TRIG_MU_BEAMFORMING_PARTIAL_BW_FB |
+#else
+			IEEE80211_HE_PHY_CAP6_TRIG_SU_BEAMFORMER_FB |
+			IEEE80211_HE_PHY_CAP6_TRIG_MU_BEAMFORMER_FB |
+#endif /* (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 13, 0) */
+			IEEE80211_HE_PHY_CAP6_TRIG_CQI_FB |
+			IEEE80211_HE_PHY_CAP6_PPE_THRESHOLD_PRESENT,
+			.phy_cap_info[7] = IEEE80211_HE_PHY_CAP7_MAX_NC_1,
+			.phy_cap_info[8] = IEEE80211_HE_PHY_CAP8_20MHZ_IN_160MHZ_HE_PPDU |
+			IEEE80211_HE_PHY_CAP8_80MHZ_IN_160MHZ_HE_PPDU,
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 20, 0))
+			.phy_cap_info[9] =
+			IEEE80211_HE_PHY_CAP9_TX_1024_QAM_LESS_THAN_242_TONE_RU |
+			IEEE80211_HE_PHY_CAP9_RX_1024_QAM_LESS_THAN_242_TONE_RU,
+#endif /* LINUX_VERSION_CODE >= KERNEL_VERSION(4, 20, 0) */
+			},
+			.he_mcs_nss_supp = {
+			.rx_mcs_80 = cpu_to_le16(0xfffa),
+			.tx_mcs_80 = cpu_to_le16(0xfffa),
+			.rx_mcs_160 = cpu_to_le16((0xfffa)),
+			.tx_mcs_160 = cpu_to_le16((0xfffa)),
+			}
+	},
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 8, 0))
+	.he_6ghz_capa = {.capa = cpu_to_le16(0x3038)},
+#endif /* LINUX_VERSION_CODE >= KERNEL_VERSION(5, 8, 0) */
+};
+#endif /* LINUX_VERSION_CODE >= KERNEL_VERSION(4, 19, 0) */
+
+#define MAX_IF_TYPE_DATA	2
+static struct ieee80211_sband_iftype_data __wl_he_cap[MAX_IF_TYPE_DATA];
+#endif /* WL_CAP_HE */
+
 #define RATE_TO_BASE100KBPS(rate)   (((rate) * 10) / 2)
 #define RATETAB_ENT(_rateid, _flags) \
 	{								\
@@ -1211,141 +1395,6 @@ static struct ieee80211_channel __wl_6ghz_channels[] = {
 };
 #endif /* CFG80211_6G_SUPPORT */
 
-#ifdef WL_CAP_HE
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 19, 0))
-static struct ieee80211_sband_iftype_data __wl_he_cap = {
-	.types_mask = BIT(NL80211_IFTYPE_STATION),
-	.he_cap = {
-		.has_he = true,
-		.he_cap_elem = {
-			.mac_cap_info[0] = (IEEE80211_HE_MAC_CAP0_HTC_HE |
-			IEEE80211_HE_MAC_CAP0_TWT_REQ),
-			.mac_cap_info[1] = IEEE80211_HE_MAC_CAP1_TF_MAC_PAD_DUR_16US,
-			.mac_cap_info[2] = IEEE80211_HE_MAC_CAP2_BSR,
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 1, 0))
-			.mac_cap_info[5] = IEEE80211_HE_MAC_CAP5_HT_VHT_TRIG_FRAME_RX,
-#endif /* LINUX_VERSION_CODE >= KERNEL_VERSION(5, 1, 0) */
-
-			.phy_cap_info[0] =
-			IEEE80211_HE_PHY_CAP0_CHANNEL_WIDTH_SET_40MHZ_80MHZ_IN_5G |
-			IEEE80211_HE_PHY_CAP0_CHANNEL_WIDTH_SET_160MHZ_IN_5G,
-			.phy_cap_info[1] =
-			IEEE80211_HE_PHY_CAP1_DEVICE_CLASS_A |
-			IEEE80211_HE_PHY_CAP1_LDPC_CODING_IN_PAYLOAD,
-			.phy_cap_info[2] =
-			IEEE80211_HE_PHY_CAP2_NDP_4x_LTF_AND_3_2US,
-			.phy_cap_info[3] =
-			IEEE80211_HE_PHY_CAP3_SU_BEAMFORMER,
-			.phy_cap_info[4] =
-			IEEE80211_HE_PHY_CAP4_SU_BEAMFORMEE |
-			IEEE80211_HE_PHY_CAP4_BEAMFORMEE_MAX_STS_UNDER_80MHZ_MASK |
-			IEEE80211_HE_PHY_CAP4_BEAMFORMEE_MAX_STS_ABOVE_80MHZ_4,
-			.phy_cap_info[5] =
-			IEEE80211_HE_PHY_CAP5_BEAMFORMEE_NUM_SND_DIM_UNDER_80MHZ_2,
-			.phy_cap_info[6] =
-			IEEE80211_HE_PHY_CAP6_CODEBOOK_SIZE_42_SU |
-			IEEE80211_HE_PHY_CAP6_CODEBOOK_SIZE_75_MU |
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 13, 0))
-			IEEE80211_HE_PHY_CAP6_TRIG_SU_BEAMFORMING_FB |
-			IEEE80211_HE_PHY_CAP6_TRIG_MU_BEAMFORMING_PARTIAL_BW_FB |
-#else
-			IEEE80211_HE_PHY_CAP6_TRIG_SU_BEAMFORMER_FB |
-			IEEE80211_HE_PHY_CAP6_TRIG_MU_BEAMFORMER_FB |
-#endif /* (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 13, 0) */
-			IEEE80211_HE_PHY_CAP6_TRIG_CQI_FB |
-			IEEE80211_HE_PHY_CAP6_PPE_THRESHOLD_PRESENT,
-			.phy_cap_info[7] =
-			IEEE80211_HE_PHY_CAP7_MAX_NC_1,
-			.phy_cap_info[8] =
-			IEEE80211_HE_PHY_CAP8_20MHZ_IN_160MHZ_HE_PPDU |
-			IEEE80211_HE_PHY_CAP8_80MHZ_IN_160MHZ_HE_PPDU,
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 20, 0))
-			.phy_cap_info[9] =
-			IEEE80211_HE_PHY_CAP9_TX_1024_QAM_LESS_THAN_242_TONE_RU |
-			IEEE80211_HE_PHY_CAP9_RX_1024_QAM_LESS_THAN_242_TONE_RU,
-#endif /* LINUX_VERSION_CODE >= KERNEL_VERSION(4, 20, 0) */
-			},
-			.he_mcs_nss_supp = {
-			.rx_mcs_80 = cpu_to_le16(0xfffa),
-			.tx_mcs_80 = cpu_to_le16(0xfffa),
-			.rx_mcs_160 = cpu_to_le16((0xfffa)),
-			.tx_mcs_160 = cpu_to_le16((0xfffa)),
-			}
-	},
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 8, 0))
-	.he_6ghz_capa = {.capa = cpu_to_le16(0x3038)},
-#endif /* LINUX_VERSION_CODE >= KERNEL_VERSION(5, 8, 0) */
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 18, 0)) || defined(WL_MLO_BKPORT)
-	/* Android framework looks for eht capability for enabling EHT related code/functionality */
-	.eht_cap = {
-		.has_eht = true,
-		.eht_cap_elem = {
-			.mac_cap_info[0] =
-			IEEE80211_EHT_MAC_CAP0_OM_CONTROL |
-#ifdef WL_MLO_BKPORT_CAP
-			(IEEE80211_EHT_MAC_CAP0_MAX_AMPDU_LEN_MASK &
-			(IEEE80211_EHT_MAC_CAP0_MAX_AMPDU_LEN_7991 << 6)) |
-#endif
-			0,
-			.mac_cap_info[1] = 0,
-			.phy_cap_info[0] = IEEE80211_EHT_PHY_CAP0_242_TONE_RU_GT20MHZ |
-			IEEE80211_EHT_PHY_CAP0_NDP_4_EHT_LFT_32_GI |
-			IEEE80211_EHT_PHY_CAP0_SU_BEAMFORMEE |
-			(IEEE80211_EHT_PHY_CAP0_BEAMFORMEE_SS_80MHZ_MASK &
-			(u8)(EHT_PHY_CAP_BFE_SS_80MHZ_SUP_VAL << 7)),
-			.phy_cap_info[1] =
-			(IEEE80211_EHT_PHY_CAP1_BEAMFORMEE_SS_80MHZ_MASK &
-			(EHT_PHY_CAP_BFE_SS_80MHZ_SUP_VAL >> 1)) |
-			(IEEE80211_EHT_PHY_CAP1_BEAMFORMEE_SS_160MHZ_MASK &
-			(EHT_PHY_CAP_BFE_SS_160MHZ_SUP_VAL << 2)),
-			.phy_cap_info[2] = 0,
-			.phy_cap_info[3] = IEEE80211_EHT_PHY_CAP3_NG_16_SU_FEEDBACK |
-			IEEE80211_EHT_PHY_CAP3_NG_16_MU_FEEDBACK |
-			IEEE80211_EHT_PHY_CAP3_CODEBOOK_4_2_SU_FDBK |
-			IEEE80211_EHT_PHY_CAP3_CODEBOOK_7_5_MU_FDBK |
-			IEEE80211_EHT_PHY_CAP3_TRIG_SU_BF_FDBK |
-			IEEE80211_EHT_PHY_CAP3_TRIG_MU_BF_PART_BW_FDBK |
-			IEEE80211_EHT_PHY_CAP3_TRIG_CQI_FDBK,
-			.phy_cap_info[4] = (IEEE80211_EHT_PHY_CAP4_MAX_NC_MASK &
-			(EHT_PHY_CAP_MAX_NC_SUP_VAL << 4)),
-			.phy_cap_info[5] = IEEE80211_EHT_PHY_CAP5_NON_TRIG_CQI_FEEDBACK |
-			IEEE80211_EHT_PHY_CAP5_TX_LESS_242_TONE_RU_SUPP |
-			IEEE80211_EHT_PHY_CAP5_RX_LESS_242_TONE_RU_SUPP |
-			(IEEE80211_EHT_PHY_CAP5_COMMON_NOMINAL_PKT_PAD_MASK	&
-			(IEEE80211_EHT_PHY_CAP5_COMMON_NOMINAL_PKT_PAD_16US << 4)) |
-			(IEEE80211_EHT_PHY_CAP5_MAX_NUM_SUPP_EHT_LTF_MASK &
-			(u8)(EHT_PHY_CAP_MAX_EHT_LTF_SUP_VAL << 6)),
-			.phy_cap_info[6] = (IEEE80211_EHT_PHY_CAP6_MAX_NUM_SUPP_EHT_LTF_MASK &
-			(u8)(EHT_PHY_CAP_MAX_EHT_LTF_SUP_VAL >> 2)),
-			.phy_cap_info[7] = IEEE80211_EHT_PHY_CAP7_20MHZ_STA_RX_NDP_WIDER_BW,
-			.phy_cap_info[8] = 0
-		},
-		.eht_mcs_nss_supp = {
-			.only_20mhz = {
-				.rx_tx_mcs7_max_nss = 0,
-				.rx_tx_mcs9_max_nss = 0,
-				.rx_tx_mcs11_max_nss = 0,
-				.rx_tx_mcs13_max_nss = 0
-			},
-			.bw = {
-				._80 = {
-					. rx_tx_mcs9_max_nss = 2,
-					. rx_tx_mcs11_max_nss = 2,
-					. rx_tx_mcs13_max_nss = 2
-				},
-				._160 = {
-					. rx_tx_mcs9_max_nss = 2,
-					. rx_tx_mcs11_max_nss = 2,
-					. rx_tx_mcs13_max_nss = 2
-				}
-			}
-		}
-	},
-#endif /* (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 18, 0)) || WL_MLO_BKPORT */
-};
-#endif /* LINUX_VERSION_CODE >= KERNEL_VERSION(4, 19, 0) */
-#endif /* WL_CAP_HE */
-
 static struct ieee80211_supported_band __wl_band_2ghz = {
 	.band = IEEE80211_BAND_2GHZ,
 	.channels = __wl_2ghz_channels,
@@ -1354,7 +1403,7 @@ static struct ieee80211_supported_band __wl_band_2ghz = {
 	.n_bitrates = wl_g_rates_size,
 #ifdef WL_CAP_HE
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 19, 0))
-	.iftype_data = &__wl_he_cap,
+	.iftype_data = &__wl_he_sta_cap,
 	.n_iftype_data = 1
 #endif /* LINUX_VERSION_CODE >= KERNEL_VERSION(4, 19, 0) */
 #endif /* WL_CAP_HE */
@@ -1368,7 +1417,7 @@ static struct ieee80211_supported_band __wl_band_5ghz_a = {
 	.n_bitrates = wl_a_rates_size,
 #ifdef WL_CAP_HE
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 19, 0))
-	.iftype_data = &__wl_he_cap,
+	.iftype_data = &__wl_he_sta_cap,
 	.n_iftype_data = 1
 #endif /* LINUX_VERSION_CODE >= KERNEL_VERSION(4, 19, 0) */
 #endif /* WL_CAP_HE */
@@ -1383,7 +1432,7 @@ static struct ieee80211_supported_band __wl_band_6ghz = {
 	.n_bitrates = wl_a_rates_size,
 #ifdef WL_CAP_HE
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 19, 0))
-	.iftype_data = &__wl_he_cap,
+	.iftype_data = &__wl_he_sta_cap,
 	.n_iftype_data = 1
 #endif /* LINUX_VERSION_CODE >= KERNEL_VERSION(4, 19, 0) */
 #endif /* WL_CAP_HE */
@@ -19707,6 +19756,39 @@ static s32 wl_update_chan_param(struct net_device *dev, u32 cur_chspec, u32 chan
 	return err;
 }
 
+
+#ifdef WL_CAP_HE
+static void wl_update_if_type_data(void)
+{
+	s32 err = 0;
+
+	bzero(&__wl_he_cap, sizeof(__wl_he_cap));
+	/* Update STA HE/EHT cap in interface type data array */
+	err = memcpy_s(&__wl_he_cap[0], sizeof(__wl_he_cap[0]),
+		&__wl_he_sta_cap, sizeof(struct ieee80211_sband_iftype_data));
+	if (err) {
+		WL_ERR(("STA he/eht cap copy failed, proceed with default he/eht cap\n"));
+		return;
+	}
+	/* Update AP HE/EHT cap in interface type data array */
+	err = memcpy_s(&__wl_he_cap[1], sizeof(__wl_he_cap[1]),
+		&__wl_he_ap_cap, sizeof(struct ieee80211_sband_iftype_data));
+	if (err) {
+		WL_ERR(("AP he/eht cap copy failed, proceed with default he/eht cap\n"));
+		return;
+	}
+
+	__wl_band_2ghz.iftype_data = &__wl_he_cap[0];
+	__wl_band_2ghz.n_iftype_data = MAX_IF_TYPE_DATA;
+	__wl_band_5ghz_a.iftype_data = &__wl_he_cap[0];
+	__wl_band_5ghz_a.n_iftype_data = MAX_IF_TYPE_DATA;
+#ifdef CFG80211_6G_SUPPORT
+	__wl_band_6ghz.iftype_data = &__wl_he_cap[0];
+	__wl_band_6ghz.n_iftype_data = MAX_IF_TYPE_DATA;
+#endif /* CFG80211_6G_SUPPORT */
+}
+#endif /* WL_CAP_HE */
+
 static int wl_construct_reginfo(struct bcm_cfg80211 *cfg, s32 bw_cap_2g,
 	s32 bw_cap_5g, s32 bw_cap_6g)
 {
@@ -19878,6 +19960,11 @@ static int wl_construct_reginfo(struct bcm_cfg80211 *cfg, s32 bw_cap_2g,
 #ifdef CFG80211_6G_SUPPORT
 	WL_CHANNEL_COPY_FLAG(__wl_6ghz_channels);
 #endif /* CFG80211_6G_SUPPORT */
+
+	/* Update if_type data */
+#ifdef WL_CAP_HE
+	wl_update_if_type_data();
+#endif /* WL_CAP_HE */
 
 	__wl_band_2ghz.n_channels = ARRAYSIZE(__wl_2ghz_channels);
 	__wl_band_5ghz_a.n_channels = ARRAYSIZE(__wl_5ghz_a_channels);

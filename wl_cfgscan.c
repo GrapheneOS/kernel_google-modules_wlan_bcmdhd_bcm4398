@@ -6092,9 +6092,11 @@ static int wl_cfgscan_acs_parse_result(acs_selected_channels_t *pResult,
 			case WL_CHANSPEC_CTL_SB_LUL:
 			case WL_CHANSPEC_CTL_SB_LUU:
 				pResult->pri_freq = chspec_ctl_freq;
-				pResult->sec_freq = chspec_ctl_freq + SEC_FREQ_HT40_OFFSET;
-				pResult->vht_seg0_center_ch = chspec_center_ch;
-				pResult->vht_seg1_center_ch = chspec_center_ch + CH_80MHZ_APART;
+				pResult->sec_freq = 0;
+				pResult->vht_seg0_center_ch =
+					wf_chspec_primary160_channel((chanspec_t)ch_chosen);
+				pResult->vht_seg1_center_ch =
+					wf_chspec_secondary160_channel((chanspec_t)ch_chosen);
 				break;
 			case WL_CHANSPEC_CTL_SB_ULL:
 			case WL_CHANSPEC_CTL_SB_ULU:
@@ -6102,9 +6104,11 @@ static int wl_cfgscan_acs_parse_result(acs_selected_channels_t *pResult,
 			case WL_CHANSPEC_CTL_SB_UUU:
 			default:
 				pResult->pri_freq = chspec_ctl_freq;
-				pResult->sec_freq = chspec_ctl_freq - SEC_FREQ_HT40_OFFSET;
-				pResult->vht_seg0_center_ch = chspec_center_ch;
-				pResult->vht_seg1_center_ch = chspec_center_ch - CH_80MHZ_APART;
+				pResult->sec_freq = 0;
+				pResult->vht_seg0_center_ch =
+					wf_chspec_primary160_channel((chanspec_t)ch_chosen);
+				pResult->vht_seg1_center_ch =
+					wf_chspec_secondary160_channel((chanspec_t)ch_chosen);
 				break;
 			}
 			WL_TRACE(("%s: HT160 ok\n", __FUNCTION__));
