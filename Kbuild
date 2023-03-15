@@ -352,6 +352,8 @@ ifneq ($(CONFIG_SOC_GOOGLE),)
     DHDCFLAGS += -DDHD_DUMP_START_COMMAND
     # MLO related back port changes
     DHDCFLAGS += -DWL_MLO_BKPORT
+    # TDI policy kernel back port changes
+    DHDCFLAGS += -DWL_MLO_BKPORT_NEW_PORT_AUTH
     # CROSS AKM related back port changes
     DHDCFLAGS += -DWL_CROSS_AKM_BKPORT
     DHDCFLAGS := $(filter-out -DDHD_DUMP_FILE_WRITE_FROM_KERNEL ,$(DHDCFLAGS))
