@@ -33,6 +33,7 @@
 #include <linux/eventpoll.h>
 #include <linux/version.h>
 #include <linux/delay.h>
+#include <linux/vmalloc.h>
 
 #include <wb_regon_coordinator.h>
 #include <bcmstdlib_s.h>
@@ -379,7 +380,7 @@ wbrc_init(void)
 
 	pr_info("%s\n", __func__);
 
-	wbrc_data = kzalloc(sizeof(struct wbrc_pvt_data), GFP_KERNEL);
+	wbrc_data = vzalloc(sizeof(struct wbrc_pvt_data));
 	if (wbrc_data == NULL) {
 		return -ENOMEM;
 	}
@@ -423,7 +424,7 @@ err_device:
 err_class:
 	unregister_chrdev(wbrc_data->wbrc_bt_dev_major_number, DEVICE_NAME);
 err_register:
-	kfree(wbrc_data);
+	vfree(wbrc_data);
 	g_wbrc_data = NULL;
 	return err;
 }
@@ -433,11 +434,14 @@ wbrc_exit(void)
 {
 	struct wbrc_pvt_data *wbrc_data = g_wbrc_data;
 	pr_info("%s\n", __func__);
+	if (!wbrc_data) {
+		return;
+	}
 	wake_up_interruptible(&wbrc_data->outmsg_waitq);
 	device_destroy(wbrc_data->wbrc_bt_dev_class, MKDEV(wbrc_data->wbrc_bt_dev_major_number, 0));
 	class_destroy(wbrc_data->wbrc_bt_dev_class);
 	unregister_chrdev(wbrc_data->wbrc_bt_dev_major_number, DEVICE_NAME);
-	kfree(wbrc_data);
+	vfree(wbrc_data);
 	g_wbrc_data = NULL;
 }
 
@@ -478,6 +482,10 @@ wl2wbrc_wlan_on_finished(void)
 	int state = 0;
 
 	pr_err("%s: enter \n", __func__);
+	if (!wbrc_data) {
+		pr_err("%s: not allocated mem\n", __func__);
+		return;
+	}
 
 	WBRC_STATE_LOCK(wbrc_data);
 
@@ -504,6 +512,10 @@ wl2wbrc_wlan_on(void)
 	int tmo_ret = 0;
 
 	pr_err("%s: enter \n", __func__);
+	if (!wbrc_data) {
+		pr_err("%s: not allocated mem\n", __func__);
+		return WBRC_ERR;
+	}
 
 	WBRC_STATE_LOCK(wbrc_data);
 
@@ -633,6 +645,10 @@ wl2wbrc_wlan_off(void)
 	int ret = 0;
 
 	pr_info("%s: enter \n", __func__);
+	if (!wbrc_data) {
+		pr_err("%s: not allocated mem\n", __func__);
+		return WBRC_ERR;
+	}
 
 	WBRC_STATE_LOCK(wbrc_data);
 
@@ -677,6 +693,11 @@ wl2wbrc_wlan_off_finished(void)
 	int state = 0;
 	int ret = 0;
 
+	if (!wbrc_data) {
+		pr_err("%s: not allocated mem\n", __func__);
+		return WBRC_ERR;
+	}
+
 	WBRC_STATE_LOCK(wbrc_data);
 	state = wbrc_data->state;
 	if (state == WLAN_OFF_IN_PROGRESS) {
@@ -700,6 +721,10 @@ wl2wbrc_req_bt_reset(void)
 	struct wbrc_pvt_data *wbrc_data = g_wbrc_data;
 
 	pr_err("%s: enter \n", __func__);
+	if (!wbrc_data) {
+		pr_err("%s: not allocated mem\n", __func__);
+		return WBRC_ERR;
+	}
 
 	WBRC_LOCK(wbrc_data);
 	if (!wbrc_data->bt_dev_opened) {
