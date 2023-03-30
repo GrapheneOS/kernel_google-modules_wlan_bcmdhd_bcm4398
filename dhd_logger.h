@@ -156,7 +156,7 @@ do { \
  * For scenarios where,
  * 1. Ring updates are aggregated and then sent to FW
  *      a. Descriptor log is logged on to logger interface. In this case driver_state is NULL.
- *      b. When the treshold is reached or after timeout,
+ *      b. When the threshold is reached or after timeout,
  *         when dorbell is rung driver state is logged. In this case buf is NULL.
  * 2. Dorebell is rung as well as ring is updated, both are logged on to logger interface.
  *    In this case both driver_state and buf are not NULL

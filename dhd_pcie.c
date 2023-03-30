@@ -1779,7 +1779,9 @@ dhdpcie_cto_recovery_handler(dhd_pub_t *dhd)
 			DHD_PRINT(("%s : Set collect_sssr as TRUE\n", __FUNCTION__));
 			bus->dhd->collect_sssr = TRUE;
 #if defined(BOARD_HIKEY) || defined(CONFIG_X86)
-			bus->dhd->fis_enab_cto = TRUE;
+			if (CHIPTYPE(bus->sih->socitype) == SOCI_NCI) {
+				bus->dhd->fis_enab_cto = TRUE;
+			}
 #endif /* BOARD_HIKEY || CONFIG_X86 */
 #endif /* DHD_SSSR_DUMP */
 #ifdef DHD_SDTC_ETB_DUMP
@@ -3547,7 +3549,7 @@ dhdpcie_bus_release(dhd_bus_t *bus)
 	int bcmerror = 0;
 #endif /* __linux__ */
 
-	DHD_TRACE(("%s: Enter\n", __FUNCTION__));
+	DHD_PRINT(("%s: Enter\n", __FUNCTION__));
 
 	if (bus) {
 
@@ -3598,6 +3600,16 @@ dhdpcie_bus_release(dhd_bus_t *bus)
 			dhd_detach(bus->dhd);
 			dhdpcie_bus_release_dongle(bus, osh, dongle_isolation, TRUE);
 #if defined(__linux__)
+			BCM_REFERENCE(bcmerror);
+#ifdef BOARD_STB
+			/* For STB, it is causing kernel panic during reboot if RC is kept in off
+			 * state, so keep the RC in ON state
+			 */
+			DHD_PRINT(("%s: Keep EP powered on during rmmod to avoid Kernel Panic\n",
+				__FUNCTION__));
+			dhd_wifi_platform_set_power(bus->dhd, TRUE);
+			dhdpcie_bus_start_host_dev(bus);
+#else
 			DHD_PRINT(("%s: disable pcie dev\n", __FUNCTION__));
 			bcmerror = dhdpcie_bus_disable_device(bus);
 			if (bcmerror) {
@@ -3610,6 +3622,7 @@ dhdpcie_bus_release(dhd_bus_t *bus)
 				DHD_ERROR(("%s: dhdpcie_bus_stop_host_dev failed: %d\n",
 					__FUNCTION__, bcmerror));
 			}
+#endif /* BOARD_STB */
 #endif /* __linux__ */
 			dhd_free(bus->dhd);
 			bus->dhd = NULL;
@@ -5342,6 +5355,33 @@ dhdpcie_schedule_log_dump(dhd_bus_t *bus)
 extern uint fis_enab_always;
 #endif /* DHD_SSSR_DUMP */
 
+static int
+dhdpcie_chk_cmnbp_status_indirect(dhd_bus_t *bus)
+{
+	uint32 intstatus;
+	uint offset = 0, bpaddr = 0;
+	uint32 idx = 0, core_addr = 0;
+	uint buscorerev = bus->sih->buscorerev;
+
+	offset = PCIMailBoxInt(buscorerev);
+	idx = si_findcoreidx(bus->sih, PCIE2_CORE_ID, 0);
+	core_addr = si_get_coreaddr(bus->sih, idx);
+	if (!core_addr) {
+		DHD_ERROR(("%s: Failed to get pcie core addr for idx 0x%x !\n",
+			__FUNCTION__, idx));
+		return BCME_ERROR;
+	}
+	bpaddr = core_addr + offset;
+	intstatus = dhdpcie_cfg_indirect_bpaccess(bus, bpaddr, TRUE, 0);
+	if (intstatus == (uint32) -1) {
+		DHD_PRINT(("%s: common backplane is down, intstatus:0x%x\n",
+			__FUNCTION__, intstatus));
+		return BCME_NOTUP;
+	}
+
+	return BCME_OK;
+}
+
 #define ARMCA7_WAR_REG_OFF 0x1e4u
 #define ARMCA7_WAR_REG_VAL 0xFF00u
 #define CC_BPIND_ACCESS_POLL_TMO_US 10000u
@@ -5349,12 +5389,10 @@ extern uint fis_enab_always;
 dhd_pcie_link_state_type_t
 dhdpcie_get_link_state(dhd_bus_t *bus)
 {
-	uint32 intstatus;
 	uint origidx;
 	dhd_pcie_link_state_type_t link_state = DHD_PCIE_ALL_GOOD;
 	uint32 base_addr0, base_addr1;
-	uint buscorerev = bus->sih->buscorerev;
-	uint offset = 0, bpaddr = 0, val = 0;
+	uint bpaddr = 0, val = 0;
 	uint32 idx = 0, core_addr = 0;
 
 	/* If the link down is already set, no need to further access registers */
@@ -5396,19 +5434,7 @@ dhdpcie_get_link_state(dhd_bus_t *bus)
 	/* Check the common backplane status - via cfg space indirect BP
 	 * read of PcieMailBoxInt status reg
 	 */
-	offset = PCIMailBoxInt(buscorerev);
-	idx = si_findcoreidx(bus->sih, PCIE2_CORE_ID, 0);
-	core_addr = si_get_coreaddr(bus->sih, idx);
-	if (!core_addr) {
-		DHD_ERROR(("%s: Failed to get pcie core addr for idx 0x%x !\n",
-			__FUNCTION__, idx));
-		goto exit;
-	}
-	bpaddr = core_addr + offset;
-	intstatus = dhdpcie_cfg_indirect_bpaccess(bus, bpaddr, TRUE, 0);
-	if (intstatus == (uint32) -1) {
-		DHD_PRINT(("%s: common backplane is down, intstatus:0x%x\n",
-			__FUNCTION__, intstatus));
+	if (dhdpcie_chk_cmnbp_status_indirect(bus) != BCME_OK) {
 		link_state = DHD_PCIE_COMMON_BP_DOWN;
 		goto exit;
 	}
@@ -6147,6 +6173,7 @@ dhdpcie_mem_dump(dhd_bus_t *bus)
 	uint32 dhd_console_ms_prev = 0;
 	bool timeout = FALSE;
 	bool collect_cbaon_dmps = FALSE;
+	bool cmnbp_state = BCME_OK;
 
 #ifdef GDB_PROXY
 	bus->gdb_proxy_mem_dump_count++;
@@ -6261,23 +6288,28 @@ dhdpcie_mem_dump(dhd_bus_t *bus)
 #ifdef DHD_SSSR_DUMP
 					dhdp->collect_sssr = TRUE;
 #if defined(BOARD_HIKEY) || defined(CONFIG_X86)
-					DHD_PRINT(("%s : Collect FIS dumps\n",
-						__FUNCTION__));
-					dhdp->fis_enab_no_db7ack = TRUE;
+					if (CHIPTYPE(bus->sih->socitype) == SOCI_NCI) {
+						DHD_PRINT(("%s : Collect FIS dumps\n",
+							__FUNCTION__));
+						dhdp->fis_enab_no_db7ack = TRUE;
+					}
 #endif /* BOARD_HIKEY || CONFIG_X86 */
 #endif /* DHD_SSSR_DUMP */
 					if (timeout) {
 						collect_cbaon_dmps = TRUE;
 					}
 				}
-				DHD_PRINT(("Function_Intstatus(0x%x)=0x%x "
-					"Function_Intmask(0x%x)=0x%x\n",
-					PCIFunctionIntstatus(bus->sih->buscorerev),
-					si_corereg(bus->sih, bus->sih->buscoreidx,
-					PCIFunctionIntstatus(bus->sih->buscorerev), 0, 0),
-					PCIFunctionIntmask(bus->sih->buscorerev),
-					si_corereg(bus->sih, bus->sih->buscoreidx,
-					PCIFunctionIntmask(bus->sih->buscorerev), 0, 0)));
+				if ((cmnbp_state = dhdpcie_chk_cmnbp_status_indirect(bus))
+					== BCME_OK) {
+					DHD_PRINT(("Function_Intstatus(0x%x)=0x%x "
+						"Function_Intmask(0x%x)=0x%x\n",
+						PCIFunctionIntstatus(bus->sih->buscorerev),
+						si_corereg(bus->sih, bus->sih->buscoreidx,
+						PCIFunctionIntstatus(bus->sih->buscorerev), 0, 0),
+						PCIFunctionIntmask(bus->sih->buscorerev),
+						si_corereg(bus->sih, bus->sih->buscoreidx,
+						PCIFunctionIntmask(bus->sih->buscorerev), 0, 0)));
+				}
 			} else {
 				DHD_ERROR(("%s: DB7 Not supported!!!\n",
 					__FUNCTION__));
@@ -6302,7 +6334,7 @@ dhdpcie_mem_dump(dhd_bus_t *bus)
 		dhdpcie_get_cbaon_coredumps(bus);
 	}
 
-	if (dhdp->skip_memdump_map_read == FALSE) {
+	if (dhdp->skip_memdump_map_read == FALSE && cmnbp_state == BCME_OK) {
 		ret = dhdpcie_get_mem_dump(bus);
 		if (ret == BCME_NOTUP && CHIPTYPE(bus->sih->socitype) == SOCI_NCI) {
 			DHD_ERROR(("%s: failed to get mem dump! err=%d, retry\n",
@@ -6325,7 +6357,14 @@ dhdpcie_mem_dump(dhd_bus_t *bus)
 	bus->dhd->memdump_success = TRUE;
 #endif	/* DHD_DEBUG_UART */
 
+	/* for no db7 ack case, since BP may be bad, do not dump anything
+	 * collect FIS - this will have arm pc and nci wrapper regs anyway
+	 */
+#ifdef DHD_SSSR_DUMP
+	if (timeout && !dhdp->fis_enab_no_db7ack) {
+#else
 	if (timeout) {
+#endif /* DHD_SSSR_DUMP */
 		/* print ARMCA7 PC, SR engine regs, and nci wrapper dump for timeout cases */
 		dhd_bus_get_armca7_pc(dhdp->bus, TRUE);
 		dhdpcie_dump_sreng_regs(bus);
@@ -13236,15 +13275,16 @@ dhdpcie_lcreg(osl_t *osh, uint32 mask, uint32 val)
 	return OSL_PCI_READ_CONFIG(osh, lcreg_offset, sizeof(uint32));
 }
 
-#if defined(NDIS)
-/* set min res mask to highest value, preventing sleep */
+/* QUIRKS_CB: set min res mask to given value */
 void
-dhdpcie_set_pmu_min_res_mask(struct dhd_bus *bus, uint min_res_mask)
+dhdpcie_set_pmu_min_res_mask(void *dhd_bus_p, uint min_res_mask)
 {
-	si_pmu_set_min_res_mask(bus->sih, bus->osh, min_res_mask);
+	struct dhd_bus *bus = (struct dhd_bus *)dhd_bus_p;
+	DHD_PRINT(("%s BEFORE=%08x\n", __FUNCTION__, PMU_REG(bus->sih, MinResourceMask, 0, 0)));
+	PMU_REG(bus->sih, MinResourceMask, ~0, min_res_mask);
+	OSL_DELAY(100);
+	DHD_PRINT(("%s AFTER=%08x\n", __FUNCTION__, PMU_REG(bus->sih, MinResourceMask, 0, 0)));
 }
-#endif /* defined(NDIS) */
-
 
 uint8
 dhdpcie_clkreq(osl_t *osh, uint32 mask, uint32 val)
@@ -14280,7 +14320,7 @@ dhdpcie_fw_trap(dhd_bus_t *bus)
 			bus->dhd->db7_trap.db7_magic_number);
 		while (retries--) {
 			if (bus->dhd->db7_trap.fw_db7w_trap_received) {
-				DHD_PRINT(("%s: db7 ack recieved\n", __FUNCTION__));
+				DHD_PRINT(("%s: db7 ack received\n", __FUNCTION__));
 				break;
 			}
 			/* wait max 100 ms */
@@ -14782,6 +14822,11 @@ BCMFASTPATH(dhd_bus_dpc)(struct dhd_bus *bus)
 	DHD_TRACE(("%s: Enter\n", __FUNCTION__));
 
 	bus->dpc_entry_time = OSL_LOCALTIME_NS();
+
+	if (bus->dhd->db7_trap.fw_db7w_trap_received) {
+		DHD_PRINT(("%s: fw_db7w_trap_received exit\n", __FUNCTION__));
+		return 0;
+	}
 
 	if (dhd_query_bus_erros(bus->dhd)) {
 		if (bus->dhd->db7_trap.fw_db7w_trap_inprogress == FALSE) {
@@ -15969,6 +16014,33 @@ dhdpcie_validate_sh_ring_info(dhd_bus_t *bus, ring_info_t *ring_info)
 	return ret;
 }
 
+/* QUIRKS_CB: skip XORCSUM if platform requests and DMA index is enabled */
+int
+dhdpcie_skip_xorcsum_request(void *dhd_bus_p)
+{
+	struct dhd_bus *bus = (struct dhd_bus *)dhd_bus_p;
+	/*
+	 * if d2h sync mode = XORCSUM supported by FW and DMA Index is also enabled
+	 * its safe to skip XORCSUM on platforms where XORCSUM causes high host CPU load
+	 * STB74165 tput dropped when XORCSUM was enabled along with DMA index
+	 */
+	if (bus->dhd->d2h_sync_mode == PCIE_SHARED_D2H_SYNC_XORCSUM) {
+		if (bus->dhd->dma_d2h_ring_upd_support) {
+			bus->dhd->d2h_sync_mode = 0;
+			DHD_PRINT(("%s: Success. d2h_sync_mode=%08x\n",
+				__FUNCTION__, bus->dhd->d2h_sync_mode));
+			return BCME_OK;
+		} else {
+			DHD_ERROR(("%s: Failed. D2H DMA Index not enabled. d2h_sync_mode=%08x\n",
+				__FUNCTION__, bus->dhd->d2h_sync_mode));
+			return BCME_UNSUPPORTED;
+		}
+	} else {
+		DHD_PRINT(("%s: XORCSUM already disabled\n", __FUNCTION__));
+		return BCME_OK;
+	}
+}
+
 static int
 dhdpcie_readshared(dhd_bus_t *bus)
 {
@@ -16285,7 +16357,7 @@ dhdpcie_readshared(dhd_bus_t *bus)
 			__FUNCTION__, bus->d2h_mb_data_ptr_addr));
 	}
 
-	DHD_INFO(("%s: d2h_sync_mode 0x%08x\n",
+	DHD_INFO(("%s: FW supported d2h_sync_mode 0x%08x\n",
 		__FUNCTION__, bus->dhd->d2h_sync_mode));
 
 	bus->dhd->d2h_hostrdy_supported =
@@ -17095,6 +17167,11 @@ static void
 dhdpcie_set_pmu_fisctrlsts(struct dhd_bus *bus)
 {
 	uint32 FISCtrlStatus = 0;
+
+	if (CHIPTYPE(bus->sih->socitype) != SOCI_NCI) {
+		return;
+	}
+
 #ifdef OEM_ANDROID
 	/* for android platforms since reg on toggle support is present
 	 * FIS with common subcore is collected, so set PcieSaveEn bit in
@@ -17119,6 +17196,17 @@ dhdpcie_set_pmu_fisctrlsts(struct dhd_bus *bus)
 #endif /* !OEM_ANDROID */
 }
 #endif /* DHD_SSSR_DUMP */
+
+#if defined(__linux__)
+/*
+ * Add any quirks post bus_init here
+ * This is the state after FW Download and FW readshared success
+ */
+static void dhdpcie_bus_post_init_quirks(dhd_bus_t *bus)
+{
+	dhd_plat_bus_post_init_quirks(bus->dhd->plat_info, (void *)bus);
+}
+#endif /* __linux__ */
 
 /**
  * Initialize bus module: prepare for communication with the dongle. Called after downloading
@@ -17147,6 +17235,9 @@ int dhd_bus_init(dhd_pub_t *dhdp, bool enforce_mutex)
 	if (MULTIBP_ENAB(bus->sih)) {
 		dhd_bus_pcie_pwr_req(bus);
 	}
+
+	/* Clear fw_db7w_trap_received at init */
+	bus->dhd->db7_trap.fw_db7w_trap_received = FALSE;
 
 	/* Configure AER registers to log the TLP header */
 	dhd_bus_aer_config(bus);
@@ -17266,6 +17357,9 @@ int dhd_bus_init(dhd_pub_t *dhdp, bool enforce_mutex)
 			__FUNCTION__));
 		return BCME_NOMEM;
 	}
+#if defined(__linux__)
+	dhdpcie_bus_post_init_quirks(bus);
+#endif /* __linux__ */
 
 exit:
 	if (ret) {
@@ -22046,7 +22140,7 @@ dhdpcie_get_cbaon_coredumps(struct dhd_bus *bus)
 
 
 	/* read GCI chipid using config space indirect backplane addressing,
-	 * if successful, dump CB core regs
+	 * if successful, dump AON core regs
 	 */
 	idx = si_findcoreidx(sih, GCI_CORE_ID, 0);
 	core_addr = si_get_coreaddr(sih, idx);

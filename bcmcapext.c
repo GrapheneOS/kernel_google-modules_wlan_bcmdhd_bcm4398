@@ -116,8 +116,8 @@ static const capext_bitpos_to_string_map_t capext_bus_features_subfeature_map[] 
  * Insert new entries in the array below in sorted order of output string to be printed
  */
 static const capext_bitpos_to_string_map_t capext_pktlat_subfeature_map[] = {
-	CAPEXT_SUBFEATURE_MAP(CAPEXT_PKTLAT_BITPOS_IPC, "ipc"),
-	CAPEXT_SUBFEATURE_MAP(CAPEXT_PKTLAT_BITPOS_META, "meta"),
+	CAPEXT_SUBFEATURE_MAP(CAPEXT_PKTLAT_BITPOS_IPC, "pktlat_ipc"),
+	CAPEXT_SUBFEATURE_MAP(CAPEXT_PKTLAT_BITPOS_META, "pktlat_meta"),
 	CAPEXT_SUBFEATURE_MAP(CAPEXT_PKTLAT_BITPOS_MAX, NULL)
 };
 
@@ -148,6 +148,7 @@ static const capext_bitpos_to_string_map_t capext_ecounters_subfeature_map[] = {
 	CAPEXT_SUBFEATURE_MAP(CAPEXT_ECOUNTERS_BITPOS_PHY, "phy_ecounter"),
 	CAPEXT_SUBFEATURE_MAP(CAPEXT_ECOUNTERS_BITPOS_PEERSTATS, "peerstats"),
 	CAPEXT_SUBFEATURE_MAP(CAPEXT_ECOUNTERS_BITPOS_TXHIST, "txhist"),
+	CAPEXT_SUBFEATURE_MAP(CAPEXT_ECOUNTERS_BITPOS_DTIM_MISS, "dtim_miss"),
 	CAPEXT_SUBFEATURE_MAP(CAPEXT_ECOUNTERS_BITPOS_MAX, NULL)
 };
 
@@ -367,6 +368,9 @@ static const capext_bitpos_to_string_map_t capext_wl_features_subfeature_map[] =
 	CAPEXT_SUBFEATURE_MAP(WLC_CAPEXT_FEATURE_BITPOS_WNM, "wnm"),
 	CAPEXT_SUBFEATURE_MAP(WLC_CAPEXT_FEATURE_BITPOS_OCV, "ocv"),
 	CAPEXT_SUBFEATURE_MAP(WLC_CAPEXT_FEATURE_BITPOS_OCV_AP, "ocv_ap"),
+
+	CAPEXT_SUBFEATURE_MAP(WLC_CAPEXT_FEATURE_BITPOS_SAE_EXT, "sae_ext"),
+
 	CAPEXT_SUBFEATURE_MAP(WLC_CAPEXT_FEATURE_BITPOS_MAX, NULL)
 };
 

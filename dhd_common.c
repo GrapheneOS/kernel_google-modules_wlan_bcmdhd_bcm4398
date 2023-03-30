@@ -5741,6 +5741,10 @@ wl_show_host_event(dhd_pub_t *dhd_pub, wl_event_msg_t *event, void *event_data,
 	case WLC_E_PSK_SUP:
 		DHD_EVENT(("MACEVENT: %s, status %d, reason %d ifidx %d cfgidx %d ",
 			event_name, (int)status, (int)reason, ifidx, bsscfgidx));
+#ifdef REPORT_FATAL_TIMEOUTS
+		OSL_ATOMIC_SET(dhd_pub->osh, &dhd_pub->psk_sup_rcvd, TRUE);
+		dhd_clear_join_error(dhd_pub, WLC_WPA_MASK);
+#endif /* REPORT_FATAL_TIMEOUTS */
 		if (datalen >= sizeof(vndr_ie_t)) {
 			uint8 type = BCM_SUP_4WAY_HS_IE_TYPE;
 			sup_wpa_timing_prop_ie_t *psk_sup_data =
@@ -5773,6 +5777,7 @@ wl_show_host_event(dhd_pub_t *dhd_pub, wl_event_msg_t *event, void *event_data,
 		DHD_EVENT(("MACEVENT: %s, status %d, reason %d ifidx %d cfgidx %d\n",
 		           event_name, (int)status, (int)reason, ifidx, bsscfgidx));
 #ifdef REPORT_FATAL_TIMEOUTS
+		OSL_ATOMIC_SET(dhd_pub->osh, &dhd_pub->psk_sup_rcvd, TRUE);
 		dhd_clear_join_error(dhd_pub, WLC_WPA_MASK);
 #endif /* REPORT_FATAL_TIMEOUTS */
 		break;
@@ -9497,6 +9502,7 @@ init_dhd_timeouts(dhd_pub_t *pub)
 		pub->timeout_info->cmd_request_id = 0;
 		OSL_ATOMIC_SET(pub->osh, &pub->set_ssid_rcvd, FALSE);
 		OSL_ATOMIC_SET(pub->osh, &pub->set_ssid_err_rcvd, FALSE);
+		OSL_ATOMIC_SET(pub->osh, &pub->psk_sup_rcvd, FALSE);
 	}
 }
 
@@ -9668,6 +9674,9 @@ __dhd_stop_join_timer(dhd_pub_t *pub)
 	} else {
 		DHD_INFO(("%s join timer is not active\n", __FUNCTION__));
 	}
+	OSL_ATOMIC_SET(pub->osh, &pub->set_ssid_rcvd, FALSE);
+	OSL_ATOMIC_SET(pub->osh, &pub->set_ssid_err_rcvd, FALSE);
+	OSL_ATOMIC_SET(pub->osh, &pub->psk_sup_rcvd, FALSE);
 
 	return ret;
 }
@@ -9694,6 +9703,10 @@ dhd_join_timeout(void *ctx)
 			DHD_ERROR(("\n%s ERROR JOIN TIMEOUT TO:%d:0x%x\n", __FUNCTION__,
 				pub->timeout_info->join_timeout_val,
 				pub->timeout_info->cmd_join_error));
+			DHD_ERROR(("%s: set_ssid_rcvd: %d set_ssid_err_rcvd: %d "
+				"psk_sup_rcvd: %d secure_join: %d\n",
+				__FUNCTION__, pub->set_ssid_rcvd,
+				pub->set_ssid_err_rcvd, pub->psk_sup_rcvd, pub->secure_join));
 			if (!dhd_query_bus_erros(pub)) {
 				dhd_send_trap_to_fw_for_timeout(pub, DHD_REASON_JOIN_TO);
 			}

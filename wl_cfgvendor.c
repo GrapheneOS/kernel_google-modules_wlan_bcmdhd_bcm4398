@@ -4014,10 +4014,10 @@ wl_cfgvendor_brcm_to_nanhal_status(int32 vendor_status)
 			break;
 		case BCME_BADLEN:
 		case BCME_BADBAND:
-		case BCME_UNSUPPORTED:
 		case BCME_USAGE_ERROR:
 		case BCME_BADARG:
 		case BCME_NOTENABLED:
+		case WL_NAN_E_INVALID_OPTION:
 			hal_status = NAN_STATUS_INVALID_PARAM;
 			break;
 		case BCME_NOMEM:
@@ -4030,6 +4030,16 @@ wl_cfgvendor_brcm_to_nanhal_status(int32 vendor_status)
 			break;
 		case WL_NAN_E_BAD_INSTANCE:
 			hal_status = NAN_STATUS_INVALID_PUBLISH_SUBSCRIBE_ID;
+			break;
+		case WL_NAN_E_REDUNDANT:
+			hal_status = NAN_STATUS_REDUNDANT_REQUEST;
+			break;
+		case WL_NAN_E_NOT_ASSOCIATED:
+			hal_status = NAN_STATUS_NO_CONNECTION;
+			break;
+		case BCME_UNSUPPORTED:
+		case WL_NAN_E_NOT_SUPPORTED:
+			hal_status = NAN_STATUS_NOT_SUPPORTED;
 			break;
 		default:
 			WL_ERR(("%s Unknown vendor status, status = %d\n",
@@ -4541,6 +4551,13 @@ wl_cfgvendor_nan_parse_datapath_args(struct wiphy *wiphy,
 				WL_ERR(("Failed to scid data\n"));
 				return ret;
 			}
+			break;
+		case NAN_ATTRIBUTE_INST_ID:
+			if (nla_len(iter) != sizeof(uint16)) {
+				ret = -EINVAL;
+				goto exit;
+			}
+			cmd_data->service_instance_id = nla_get_u16(iter);
 			break;
 		default:
 			WL_ERR(("Unknown type, %d\n", attr_type));
@@ -5221,6 +5238,14 @@ wl_cfgvendor_nan_parse_discover_args(struct wiphy *wiphy,
 			}
 			cmd_data->service_responder_policy = nla_get_u8(iter);
 			break;
+		/* pub/sub service can be suspendable */
+		case NAN_ATTRIBUTE_SVC_CFG_SUSPENDABLE:
+			if (nla_len(iter) != sizeof(uint8)) {
+				ret = -EINVAL;
+				goto exit;
+			}
+			cmd_data->svc_suspendable = nla_get_u8(iter);
+			break;
 		default:
 			WL_ERR(("Unknown type, %d\n", attr_type));
 			ret = -EINVAL;
@@ -5253,6 +5278,14 @@ wl_cfgvendor_nan_parse_args(struct wiphy *wiphy, const void *buf,
 
 		switch (attr_type) {
 		/* NAN Enable request attributes */
+		case NAN_ATTRIBUTE_INST_ID: {
+			if (nla_len(iter) != sizeof(uint16)) {
+				ret = -EINVAL;
+				goto exit;
+			}
+			cmd_data->svc_id = nla_get_u16(iter);
+			break;
+		}
 		case NAN_ATTRIBUTE_2G_SUPPORT:{
 			if (nla_len(iter) != sizeof(uint8)) {
 				ret = -EINVAL;
@@ -6542,6 +6575,21 @@ wl_cfgvendor_send_nan_event(struct wiphy *wiphy, struct net_device *dev,
 		break;
 	}
 
+	case GOOGLE_NAN_EVENT_SUSPENSION_STATUS: {
+		WL_INFORM_MEM(("[NAN] GOOGLE_NAN_EVENT_SUSPENSION_STATUS\n"));
+		ret = nla_put_u8(msg, NAN_ATTRIBUTE_HANDLE, 0);
+		if (unlikely(ret)) {
+			WL_ERR(("Failed to put handle, ret=%d\n", ret));
+			goto fail;
+		}
+		ret = nla_put_u16(msg, NAN_ATTRIBUTE_STATUS, event_data->status);
+		if (unlikely(ret)) {
+			WL_ERR(("Failed to put status, ret=%d\n", ret));
+			goto fail;
+		}
+		break;
+	}
+
 	case GOOGLE_NAN_EVENT_SUBSCRIBE_TERMINATED:
 	case GOOGLE_NAN_EVENT_PUBLISH_TERMINATED: {
 		WL_DBG(("GOOGLE_NAN_SVC_TERMINATED, %d\n", event_id));
@@ -7533,6 +7581,69 @@ exit:
 	}
 	NAN_DBG_EXIT();
 	return ret;
+}
+
+static int
+wl_cfgvendor_nan_cmn_suspend_resume(struct wiphy *wiphy,
+	struct wireless_dev *wdev, const void * data, int len, uint8 suspend)
+{
+	int ret = 0;
+	nan_config_cmd_data_t *cmd_data = NULL;
+	struct bcm_cfg80211 *cfg = wiphy_priv(wiphy);
+	int status = BCME_OK;
+	uint32 nan_attr_mask = 0;
+
+	if (!cfg->nancfg->is_suspension_supported) {
+		ret = BCME_UNSUPPORTED;
+		goto exit;
+	}
+
+	BCM_REFERENCE(nan_attr_mask);
+	NAN_DBG_ENTER();
+	cmd_data = (nan_config_cmd_data_t *)MALLOCZ(cfg->osh, sizeof(*cmd_data));
+	if (!cmd_data) {
+		WL_ERR(("%s: memory allocation failed\n", __func__));
+		ret = BCME_NOMEM;
+		goto exit;
+	}
+
+	wdev = bcmcfg_to_prmry_wdev(cfg);
+	ret = wl_cfgvendor_nan_parse_args(wiphy, data, len, cmd_data, &nan_attr_mask);
+	if (ret) {
+		WL_ERR((" Suspension Start: failed to parse nan config vendor args, ret = %d\n",
+				ret));
+		goto exit;
+	}
+	ret = wl_cfgnan_suspend_resume_request(wdev->netdev, cfg, suspend, cmd_data->svc_id,
+			&status);
+	if (unlikely(ret) || unlikely(status)) {
+		WL_ERR(("Suspension Start : failed to set config request  [%d]\n", ret));
+		/* As there is no cmd_reply, return status if error is in status return ret */
+		if (status) {
+			ret = status;
+		}
+		goto exit;
+	}
+exit:
+	if (cmd_data) {
+		MFREE(cfg->osh, cmd_data, sizeof(*cmd_data));
+	}
+	NAN_DBG_EXIT();
+	return ret;
+}
+
+static int
+wl_cfgvendor_nan_suspend(struct wiphy *wiphy,
+	struct wireless_dev *wdev, const void * data, int len)
+{
+	return wl_cfgvendor_nan_cmn_suspend_resume(wiphy, wdev, data, len, WL_NAN_CMD_SUSPEND);
+}
+
+static int
+wl_cfgvendor_nan_resume(struct wiphy *wiphy,
+	struct wireless_dev *wdev, const void * data, int len)
+{
+	return wl_cfgvendor_nan_cmn_suspend_resume(wiphy, wdev, data, len, WL_NAN_CMD_RESUME);
 }
 #endif /* WL_NAN */
 
@@ -13331,6 +13442,7 @@ const struct nla_policy nan_attr_policy[NAN_ATTRIBUTE_MAX] = {
 	[NAN_ATTRIBUTE_INSTANT_MODE_ENABLE] = { .type = NLA_U32, .len = sizeof(uint32) },
 	[NAN_ATTRIBUTE_INSTANT_COMM_CHAN] = { .type = NLA_U32, .len = sizeof(uint32) },
 	[NAN_ATTRIBUTE_CHRE_REQUEST] = { .type = NLA_U8, .len = sizeof(uint8) },
+	[NAN_ATTRIBUTE_SVC_CFG_SUSPENDABLE] = { .type = NLA_U8, .len = sizeof(uint8) },
 };
 #endif /* WL_NAN */
 
@@ -14260,6 +14372,30 @@ static struct wiphy_vendor_command wl_vendor_cmds [] = {
 		.maxattr = NAN_ATTRIBUTE_MAX
 #endif /* LINUX_VERSION >= 5.3 */
 	},
+	{
+		{
+			.vendor_id = OUI_GOOGLE,
+			.subcmd = NAN_WIFI_SUBCMD_SUSPEND
+		},
+		.flags = WIPHY_VENDOR_CMD_NEED_WDEV | WIPHY_VENDOR_CMD_NEED_NETDEV,
+		.doit = wl_cfgvendor_nan_suspend,
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 3, 0))
+		.policy = nan_attr_policy,
+		.maxattr = NAN_ATTRIBUTE_MAX
+#endif /* LINUX_VERSION >= 5.3 */
+	},
+	{
+		{
+			.vendor_id = OUI_GOOGLE,
+			.subcmd = NAN_WIFI_SUBCMD_RESUME
+		},
+		.flags = WIPHY_VENDOR_CMD_NEED_WDEV | WIPHY_VENDOR_CMD_NEED_NETDEV,
+		.doit = wl_cfgvendor_nan_resume,
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 3, 0))
+		.policy = nan_attr_policy,
+		.maxattr = NAN_ATTRIBUTE_MAX
+#endif /* LINUX_VERSION >= 5.3 */
+	},
 #endif /* WL_NAN */
 #if defined(APF)
 	{
@@ -14839,6 +14975,7 @@ static const struct  nl80211_vendor_cmd_info wl_vendor_events [] = {
 		{ OUI_BRCM, BRCM_VENDOR_EVENT_RCC_FREQ_INFO},
 		{ OUI_BRCM, BRCM_VENDOR_EVENT_CONNECTIVITY_LOG},
 		{ OUI_BRCM, BRCM_VENDOR_EVENT_HAPD_TSF},
+		{ OUI_GOOGLE, GOOGLE_NAN_EVENT_SUSPENSION_STATUS},
 };
 
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 3, 0))
@@ -15395,4 +15532,25 @@ wl_cfgvendor_custom_advlog_btm_query(void *plog, uint32 armcycle)
 	SUPP_ADVLOG(("[BTM] QUERY token=%d reason=%d [%d]\n",
 		log->token, log->reason, armcycle));
 }
+
+void
+wl_cfgvendor_custom_advlog_disconn(struct bcm_cfg80211 *cfg, wl_assoc_status_t *as)
+{
+	int err = 0;
+	scb_val_t scbval;
+
+	bzero(&scbval, sizeof(scb_val_t));
+	err = wldev_get_rssi(bcmcfg_to_prmry_ndev(cfg), &scbval);
+	if (unlikely(err)) {
+		WL_ERR(("get_rssi error (%d)\n", err));
+		scbval.val = 0;
+	}
+	/* Beacon loss link down */
+	/* do not print to the kernel, only for framework (MACDBG_FULL) */
+	SUPP_ADVLOG(("[CONN] DISCONN bssid=" MACDBG_FULL " rssi=%d reason=0\n",
+		MAC2STRDBG_FULL((const u8*)(&as->addr)), scbval.val));
+
+	return;
+}
+
 #endif /* WL_CFGVENDOR_CUST_ADVLOG */

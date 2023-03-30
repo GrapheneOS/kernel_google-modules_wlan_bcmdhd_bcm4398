@@ -124,7 +124,7 @@ typedef int bcmerror_t;
 #define BCME_DACBUF_RCCAL_FAIL		-65	/* RCCAL failed */
 #define BCME_VCOCAL_FAIL		-66	/* VCOCAL failed */
 #define BCME_BANDLOCKED			-67	/* interface is restricted to a band */
-#define BCME_BAD_IE_DATA		-68	/* Recieved ie with invalid/bad data */
+#define BCME_BAD_IE_DATA		-68	/* Received ie with invalid/bad data */
 #define BCME_REG_FAILED			-69	/* Generic registration failed */
 #define BCME_NOCHAN			-70	/* Registration with 0 chans in list */
 #define BCME_PKTTOSS			-71	/* Pkt tossed */
@@ -362,6 +362,10 @@ typedef int32 wl_proxd_status_t;
 /** status - TBD BCME_ vs NAN status - range reserved for BCME_ */
 enum {
 	/* add new status here... */
+	WL_NAN_E_NOT_SUPPORTED		= -2141,
+	WL_NAN_E_NOT_ASSOCIATED		= -2140,
+	WL_NAN_E_BUSY			= -2139,
+	WL_NAN_E_REDUNDANT		= -2138,
 	WL_NAN_E_GRP_REKEY_FAIL		= -2137,
 	WL_NAN_E_NO_ACTION		= -2136,	/* status for no action */
 	WL_NAN_E_INVALID_TOKEN		= -2135,	/* invalid token or mismatch */
@@ -854,13 +858,13 @@ enum {
 	BCM_FSM_E_NO_ERR_HANDLER	= -9227,
 	BCM_FSM_E_FATAL_ERROR		= -9228,
 	BCM_FSM_E_NO_TRANSITION		= -9229,
-	BCM_FSM_E_DESTROY_FSM		= -9230,
+	BCM_FSM_E_DESTROY_FSM		= -9230,	/* fsm needs to be destroyed */
 	BCM_FSM_E_ASYNC_REQUIRED	= -9231,
 	BCM_FSM_E_INVALID_FSM		= -9232,
 	BCM_FSM_E_CHILD_EXISTS		= -9233,
 	BCM_FSM_E_BAD_POST_OPTIONS	= -9234,
 	BCM_FSM_E_NO_OSH		= -9235,
-
+	BCM_FSM_E_FSM_DESTROYED		= -9236,	/* fsm is destroyed */
 	/* add additional errors above this line */
 	BCM_FSM_E_MAX			= -10239
 };

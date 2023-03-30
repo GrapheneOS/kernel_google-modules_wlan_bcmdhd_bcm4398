@@ -1815,7 +1815,7 @@ wl_cfg80211_set_channel(struct wiphy *wiphy, struct net_device *dev,
 		sta_chspec = wl_cfg80211_get_sta_chanspec(cfg);
 		if (sta_chspec && wf_chspec_valid(sta_chspec)) {
 			/* 5G cant be upgraded to 6G since dual band clients
-			 * wont be able able to scan 6G
+			 * won't be able able to scan 6G
 			 */
 			if (CHSPEC_IS6G(sta_chspec) && (incoming_band == WLC_BAND_5G)) {
 				WL_ERR(("DUAL AP not allowed for"
@@ -3398,10 +3398,6 @@ wl_cfg80211_bcn_bringup_ap(
 	s32 err = BCME_OK;
 	s32 is_rsdb_supported = BCME_ERROR;
 	u8 buf[WLC_IOCTL_SMLEN] = {0};
-#ifdef WL_MLO
-	struct net_info *mld_netinfo = NULL;
-	u8 ml_count = 0;
-#endif /* WL_MLO */
 
 #if defined (BCMDONGLEHOST)
 	is_rsdb_supported = DHD_OPMODE_SUPPORTED(cfg->pub, DHD_FLAG_RSDB_MODE);
@@ -3576,7 +3572,7 @@ wl_cfg80211_bcn_bringup_ap(
 		}
 
 #ifdef BCN_PROT_AP
-		err = wl_cfgvif_set_bcnprot_mode(dev, cfg);
+		err = wl_cfgvif_set_bcnprot_mode(dev, cfg, bssidx);
 		if (err < 0) {
 			WL_ERR(("Beacon protection Setting failed. ret = %d \n", err));
 			/* If fw doesn't support beacon protection, Ignore the error */
@@ -3600,18 +3596,6 @@ wl_cfg80211_bcn_bringup_ap(
 		if (cfg->mlo.ap.config_in_progress == FALSE)
 #endif /* WL_MLO && WL_MLO_AP */
 		{
-#ifdef WL_MLO
-			/* MLO setting for single link before start of SoftAP */
-			mld_netinfo = wl_cfg80211_get_mld_netinfo_by_cfg(cfg, &ml_count);
-			if (ml_count > 1) {
-				WL_ERR(("multi ML connections. AP/GO can't be supported\n"));
-				goto exit;
-			}
-
-			if (mld_netinfo && (mld_netinfo->mlinfo.num_links > 1)) {
-				wl_mlo_set_multilink(cfg, dev, FALSE);
-			}
-#endif
 			bzero(&join_params, sizeof(join_params));
 			/* join parameters starts with ssid */
 			join_params_size = sizeof(join_params.ssid);
@@ -4113,7 +4097,7 @@ wl_apply_ap_mlo_config(struct bcm_cfg80211 *cfg,
 		mlo_config->mode = MLO_STR;
 		mlo_config->flags = WL_MLO_LINK_INTERFACES;
 
-		/* use ndev on which connect command recieved as MLD interface */
+		/* use ndev on which connect command received as MLD interface */
 		eacopy(cfg->mlo.ap.mld_dev->dev_addr, mlo_config->mld_addr.octet);
 
 		for (i = 0; i < MAX_MLO_LINK; i++) {
@@ -4553,10 +4537,6 @@ wl_cfg80211_stop_ap(
 #endif /* DHD_PCIE_RUNTIMEPM */
 #endif /* CUSTOMER_HW4 */
 	u8 null_mac[ETH_ALEN];
-#ifdef WL_MLO
-	struct net_info *mld_netinfo = NULL;
-	u8 ml_count = 0;
-#endif /* WL_MLO */
 
 	WL_DBG(("Enter \n"));
 
@@ -4626,14 +4606,6 @@ wl_cfg80211_stop_ap(
 	if ((err = wl_cfg80211_bss_up(cfg, dev, bssidx, 0)) < 0) {
 		WL_ERR(("bss down error %d\n", err));
 	}
-
-#ifdef WL_MLO
-	/* MLO setting for max supported MLO links */
-	mld_netinfo = wl_cfg80211_get_mld_netinfo_by_cfg(cfg, &ml_count);
-	if (mld_netinfo && ml_count) {
-		wl_mlo_set_multilink(cfg, mld_netinfo->ndev, TRUE);
-	}
-#endif /* WL_MLO */
 
 #if defined(WL_MLO) && defined(WL_MLO_AP)
 	if (cfg->mlo.supported && mlo_ap_enable) {
@@ -5509,13 +5481,13 @@ wl_notify_connect_status_ap(struct bcm_cfg80211 *cfg, struct net_device *ndev,
 				}
 				if (cfg->mlo.ap.num_links_up == cfg->mlo.ap.num_links_configured)
 				{
-					/* Expected link UP event recieved. cancel ap_work */
+					/* Expected link UP event received. cancel ap_work */
 					cancel_timeout = TRUE;
 				}
 			} else
 #endif /* WL_MLO && WL_MLO_AP */
 			{
-				/* Expected link UP event recieved. cancel ap_work */
+				/* Expected link UP event received. cancel ap_work */
 				cancel_timeout = TRUE;
 			}
 
@@ -5625,7 +5597,7 @@ wl_cfgvif_notify_owe_event(struct bcm_cfg80211 *cfg, struct net_device *ndev,
 		eacopy(e->addr.octet, owe_info.peer);
 		owe_info.ie = data;
 		owe_info.ie_len = len;
-		WL_INFORM_MEM(("Recieved owe info event for mac addr:" MACDBG "\n",
+		WL_INFORM_MEM(("Received owe info event for mac addr:" MACDBG "\n",
 			MAC2STRDBG((const u8*)(&e->addr))));
 		cfg80211_update_owe_info_event(ndev, &owe_info, GFP_ATOMIC);
 	}
@@ -8267,55 +8239,128 @@ wl_cfgvif_scb_authorized(struct bcm_cfg80211 *cfg, bcm_struct_cfgdev *cfgdev,
 }
 #endif /* WL_IDAUTH */
 
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 19, 0)) || defined(WL_MLO_BKPORT)
+s32 wl_cfgvif_get_channel(struct wiphy *wiphy,
+	struct wireless_dev *wdev, u32 link_id, struct cfg80211_chan_def *chandef)
+#else
+s32 wl_cfgvif_get_channel(struct wiphy *wiphy,
+	struct wireless_dev *wdev, struct cfg80211_chan_def *chandef)
+#endif /* (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 19, 0)) || defined(WL_MLO_BKPORT) */
+{
+	int err = BCME_OK;
+	int cur_chansp = 0;
+	chanspec_t cur_chanspec;
+	struct net_device *primary_ndev = NULL;
+	struct bcm_cfg80211 *cfg = wiphy_priv(wiphy);
+	struct net_info *netinfo = NULL;
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 19, 0)) || defined(WL_MLO_BKPORT)
+	wl_mlo_link_t *linkinfo = NULL;
+#endif /* (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 19, 0)) || defined(WL_MLO_BKPORT) */
+
+	if (!wdev || !chandef) {
+		WL_ERR(("wrong input\n"));
+		err = -EINVAL;
+		goto exit;
+	}
+
+	primary_ndev = bcmcfg_to_prmry_ndev(cfg);
+	if (unlikely(!wl_get_drv_status(cfg, READY, primary_ndev))) {
+		WL_ERR(("device is not ready\n"));
+		err = -EINVAL;
+		goto exit;
+	}
+
+	if (!wdev->netdev) {
+		WL_DBG(("get channel not supported for non-ndev Ifaces\n"));
+		err = -EINVAL;
+		goto exit;
+	}
+
+	netinfo = wl_get_netinfo_by_wdev(cfg, wdev);
+	if (!netinfo) {
+		err = -EINVAL;
+		WL_ERR(("netinfo not found\n"));
+		goto exit;
+	}
+
+	if ((netinfo->iftype == WL_IF_TYPE_NAN_NMI) || (netinfo->iftype == WL_IF_TYPE_NAN)) {
+		WL_ERR(("get channel not supported for non-iflist Iface\n"));
+		err = -EINVAL;
+		goto exit;
+	}
+
+	WL_INFORM(("get_channel for I/F (%s) iftype %d\n", wdev->netdev->name, netinfo->iftype));
+
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 19, 0)) || defined(WL_MLO_BKPORT)
+	if (netinfo->mlinfo.num_links) {
+		linkinfo = wl_cfg80211_get_ml_link_by_linkid(cfg, netinfo, link_id);
+		if (linkinfo && linkinfo->chspec) {
+			cur_chansp = linkinfo->chspec;
+			WL_INFORM_MEM(("get_channel for ml link_id:%d chspec:%x\n",
+				link_id, cur_chansp));
+		} else {
+			WL_ERR(("ml linkinfo not found for linkid:%d\n", link_id));
+			err = -EINVAL;
+			goto exit;
+		}
+	} else
+#endif /* (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 19, 0)) || defined(WL_MLO_BKPORT) */
+	{
+		err = wldev_iovar_getint(wdev->netdev, "chanspec", (s32 *)&cur_chansp);
+		if (err != BCME_OK) {
+			WL_ERR(("chanspec error (%d) \n", err));
+			err = -EINVAL;
+			goto exit;
+		}
+		WL_INFORM_MEM(("get_channel for non_ml. chspec:%x\n", cur_chansp));
+	}
+
+	cur_chanspec = wl_chspec_driver_to_host(cur_chansp);
+	if (!wf_chspec_valid(cur_chanspec)) {
+		WL_ERR(("Invalid chanspec : %x\n", cur_chanspec));
+		err = -EINVAL;
+		goto exit;
+	}
+
+	if (wl_chspec_chandef(cur_chanspec, chandef, wiphy)) {
+		WL_ERR(("chspec_chandef failed\n"));
+		err = -EINVAL;
+	}
+
+	if (!err) {
+		WL_INFORM(("freq:%d width:%d returned\n", chandef->center_freq1, chandef->width));
+	}
+exit:
+	return err;
+}
 
 #ifdef BCN_PROT_AP
 s32
-wl_cfgvif_set_bcnprot_mode(struct net_device *dev, struct bcm_cfg80211 *cfg)
+wl_cfgvif_set_bcnprot_mode(struct net_device *dev, struct bcm_cfg80211 *cfg, s32 bssidx)
 {
 	uint16 bcnprot_enab = 0;
 	u8 ioctl_buf[WLC_IOCTL_SMLEN] = {0};
 	bcm_iov_buf_t *iov_buf = (bcm_iov_buf_t *)ioctl_buf;
-	u8 resp_buf[WLC_IOCTL_SMLEN] = {0};
-	bcm_iov_buf_t *iov_resp = (bcm_iov_buf_t *)resp_buf;
-	bcm_iov_buf_t *p_resp = NULL;
 	uint8 *data = NULL;
 	uint16 iovlen = 0;
 	s32 err = BCME_OK;
-	int len = 0;
+
+	WL_INFORM_MEM(("Beacon protection Set: 0x%x \n", cfg->bcnprot_ap));
 
 	iov_buf->version = WL_BCN_PROT_VERSION_1;
 	iov_buf->id = WL_BCN_PROT_CMD_ENABLE;
-	len = OFFSETOF(bcm_iov_buf_t, data) + sizeof(uint16);
+	data = (uint8 *)&iov_buf->data[0];
+	bcnprot_enab = cfg->bcnprot_ap ? 0x1u : 0;
+	*(uint16 *)data = bcnprot_enab;
 
-	err = wldev_iovar_getbuf(dev, "bcnprot", iov_buf, len,
-			iov_resp, WLC_IOCTL_SMLEN, NULL);
-	if (err < 0) {
-		WL_ERR(("Beacon Protection Get failed, ret = %d \n", err));
-	} else {
-		p_resp = (bcm_iov_buf_t *)iov_resp;
-		bcnprot_enab =  *((uint16 *)p_resp->data);
-
-		WL_DBG(("Beacon protection Get: 0x%x \n", bcnprot_enab));
-		if (cfg->bcnprot_ap) {
-			bcnprot_enab = WL_BCN_PROT_ENABLE_FEATURE | WL_BCN_PROT_ENABLE_AP;
-		} else {
-			bcnprot_enab &= ~WL_BCN_PROT_ENABLE_AP;
-		}
-		WL_INFORM_MEM(("Beacon protection Set: 0x%x\n", bcnprot_enab));
-
-		iov_buf->version = WL_BCN_PROT_VERSION_1;
-		iov_buf->id = WL_BCN_PROT_CMD_ENABLE;
-		data = (uint8 *)&iov_buf->data[0];
-		*(uint16 *)data = bcnprot_enab;
-
-		iov_buf->len = sizeof(bcnprot_enab);
-		iovlen = sizeof(bcm_iov_buf_t) + iov_buf->len;
-		err = wldev_iovar_setbuf(dev, "bcnprot", iov_buf, iovlen,
-				iov_resp, WLC_IOCTL_SMLEN, NULL);
-		if (err) {
-			WL_ERR(("Beacon Protection Set failed, ret = %d \n", err));
-		}
+	iov_buf->len = sizeof(bcnprot_enab);
+	iovlen = sizeof(bcm_iov_buf_t) + iov_buf->len;
+	err = wldev_iovar_setbuf_bsscfg(dev, "bcnprot", iov_buf, iovlen,
+		cfg->ioctl_buf, WLC_IOCTL_SMLEN, bssidx, &cfg->ioctl_buf_sync);
+	if (err) {
+		WL_ERR(("Beacon Protection Set failed, ret = %d \n", err));
 	}
+
 	return err;
 }
 #endif /* BCN_PROT_AP */

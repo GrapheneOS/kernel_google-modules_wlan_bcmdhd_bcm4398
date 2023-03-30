@@ -164,6 +164,7 @@ typedef struct {
 #define PCIE_SHARED2_H2D_D11_TX_STATUS	0x80000000
 
 #define PCIE_SHARED3_CFG_TRAP_SUPPORT   0x00000001 /* special trap sig supported in config space */
+#define PCIE_SHARED3_TXDESC_ATTR_SUPPORT  0x00000002 /* txdesc.ext_flags supported */
 
 #define PCIE_SHARED_D2H_MAGIC		0xFEDCBA09
 #define PCIE_SHARED_H2D_MAGIC		0x12345678

@@ -1315,8 +1315,8 @@ struct wl_eap_exp {
 typedef struct wl_eap_exp wl_eap_exp_t;
 
 #ifdef WL_MLO
-#define MAX_MLO_LINK 3
 #define NON_ML_LINK 0xFFu
+#define WL_ASSOC_LINK_IDX 0u
 typedef struct wl_mlo_link {
 	u8 link_id;
 	u8 link_idx;
@@ -1331,6 +1331,7 @@ typedef struct wl_mlo_link_info {
 	u8 num_links;
 	u8 active_links;
 	struct net_device *mld_dev;
+	u8 peer_mld_addr[ETH_ALEN];
 	wl_mlo_link_t links[MAX_MLO_LINK];
 } wl_mlo_link_info_t;
 
@@ -1479,25 +1480,27 @@ struct wl_assoc_ielen {
 	u32 resp_len;
 };
 
-#define WL_EXTJOIN_VERSION_V1	1
 /* MIN branch version supporting join iovar versioning */
 #define MIN_JOINEXT_V1_FW_MAJOR 17u
 /* Branch/es supporting join iovar versioning prior to
  * MIN_JOINEXT_V1_FW_MAJOR
  */
-#define MIN_JOINEXT_V1_BR2_FW_MAJOR 16u
-#define MIN_JOINEXT_V1_BR2_FW_MINOR 1u
+#define MIN_JOINEXT_V1_BR2_FW_MAJOR      16u
+#define MIN_JOINEXT_V1_BR2_FW_MINOR      1u
 
-#define MIN_JOINEXT_V1_BR1_FW_MAJOR 14u
-#define MIN_JOINEXT_V1_BR1_FW_MINOR_2 2u
-#define MIN_JOINEXT_V1_BR1_FW_MINOR_4 4u
+#define MIN_JOINEXT_V1_BR1_FW_MAJOR      14u
+#define MIN_JOINEXT_V1_BR1_FW_MINOR_2    2u
+#define MIN_JOINEXT_V1_BR1_FW_MINOR_4    4u
 
-#define PMKDB_WLC_VER 14
-#define MIN_PMKID_LIST_V3_FW_MAJOR 13
-#define MIN_PMKID_LIST_V3_FW_MINOR 0
+#define WL_JOIN_DEFAULT_HOME_TIME        -1
+#define WL_JOIN_DEFAULT_SCAN_TYPE        0u
 
-#define MIN_PMKID_LIST_V2_FW_MAJOR 12
-#define MIN_PMKID_LIST_V2_FW_MINOR 0
+#define PMKDB_WLC_VER                    14u
+#define MIN_PMKID_LIST_V3_FW_MAJOR       13u
+#define MIN_PMKID_LIST_V3_FW_MINOR       0u
+
+#define MIN_PMKID_LIST_V2_FW_MAJOR       12u
+#define MIN_PMKID_LIST_V2_FW_MINOR       0u
 
 /* wpa2 pmk list */
 struct wl_pmk_list {
@@ -3894,7 +3897,7 @@ typedef struct wl_ext_reassoc_params_cvt_v1 {
 } wl_ext_reassoc_params_cvt_v1_t;
 
 #define WL_REASSOC_VERSION_V0	0u
-#define WL_REASSOC_VERSION_V1	WL_EXTJOIN_VERSION_V1
+#define WL_REASSOC_VERSION_V1	WL_JOIN_VERSION_MAJOR_1
 #define WL_REASSOC_VERSION_V2	WL_EXT_REASSOC_VER_1
 #ifdef WL_CP_COEX
 struct wl_cp_coex {

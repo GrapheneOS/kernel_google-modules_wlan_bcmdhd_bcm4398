@@ -172,6 +172,8 @@ struct osl_info {
 	void *dhd_map_log;
 	void *dhd_unmap_log;
 #endif /* DHD_MAP_LOGGING */
+	spinlock_t bpaccess_lock_r;
+	spinlock_t bpaccess_lock_w;
 };
 
 #endif /* _LINUX_OSL_PRIV_H_ */

@@ -104,6 +104,8 @@ typedef struct dot11_bsstrans_req dot11_bsstrans_req_t;
 #define DOT11_BSSTRANS_REQMODE_DISASSOC_IMMINENT	0x04
 #define DOT11_BSSTRANS_REQMODE_BSS_TERM_INCL		0x08
 #define DOT11_BSSTRANS_REQMODE_ESS_DISASSOC_IMNT	0x10
+/* Draft P802.11be_D2.2.pdf */
+#define DOT11_BSSTRANS_REQMODE_LINK_REMOVAL_IMNT	0x20
 
 /** BSS Management transition response frame header */
 BWL_PRE_PACKED_STRUCT struct dot11_bsstrans_resp {

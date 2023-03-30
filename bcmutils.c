@@ -717,6 +717,123 @@ bcm_mdelay(uint ms)
 	}
 }
 
+/* State machine logger info (per module) */
+struct bcm_sm_log_info {
+	uint32 idx;		/* Index into the circular buffer of entries */
+	uint32 flags;		/* State machine logger flags */
+	uint32 num_entries;	/* Number of entries */
+	uint32 module_entry_sz;	/* Size of each module specific entry in bytes */
+	/* Note: The following elements are not grouped into a structure to avoid memory
+	 * waste that can cause by padding.
+	 * TODO: any issue with packing?
+	 */
+	uint8 *state;		/* Logger data: State number */
+	uint8 *event;		/* Logger data: State number */
+	void **call_site;	/* Logger data: Caller address */
+	uint32 *time_stamp;	/* Logger data: Caller address */
+	void *data;		/* Logger data: Module specific data */
+};
+
+/**
+ * @brief Initialization of a logger instance. A module who wants to use the bcm state machine
+ * logger infra has to instantiate a logger before starting the logging.
+ *
+ * @param[in] osh		OS handler
+ * @param[in] flags		State machine logger flags
+ * @param[in] num_enries	Max number of entries to hold in the logger instance
+ * @param[in] module_entry_sz	Size (in bytes) of each module specific entry
+ *
+ * @return Returns the pointer to logger instance
+ */
+void *
+bcm_sm_logger_init(osl_t *osh, uint32 flags, uint32 num_entries, uint32 module_entry_sz)
+{
+	bcm_sm_log_info_t *bsli;
+
+	bsli = MALLOCZ(osh, sizeof(*bsli));
+	if (bsli) {
+		bsli->flags = flags;
+		bsli->num_entries = num_entries;
+		bsli->module_entry_sz = module_entry_sz;
+
+		bsli->state = MALLOCZ(osh, (num_entries * sizeof(*bsli->state)));
+		if (!bsli->state) {
+			goto fail;
+		}
+
+		if (flags & BCM_SM_LOG_FLAG_EVENT_PRESENT) {
+			bsli->event = MALLOCZ(osh, (num_entries * sizeof(*bsli->state)));
+			if (!bsli->state) {
+				goto fail;
+			}
+		}
+
+		bsli->call_site = MALLOCZ(osh, (num_entries * sizeof(*bsli->call_site)));
+		if (!bsli->call_site) {
+			goto fail;
+		}
+
+		bsli->time_stamp = MALLOCZ(osh, (num_entries * sizeof(*bsli->time_stamp)));
+		if (!bsli->time_stamp) {
+			goto fail;
+		}
+
+		bsli->data = MALLOCZ(osh, (num_entries * module_entry_sz));
+		if (!bsli->data) {
+			goto fail;
+		}
+	}
+
+	return bsli;
+
+fail:
+	MFREE(osh, bsli, sizeof(*bsli));
+	MFREE(osh, bsli->state, (num_entries * sizeof(*bsli->state)));
+	MFREE(osh, bsli->event, (num_entries * sizeof(*bsli->event)));
+	MFREE(osh, bsli->call_site, (num_entries * sizeof(*bsli->call_site)));
+	MFREE(osh, bsli->time_stamp, (num_entries * sizeof(*bsli->time_stamp)));
+	MFREE(osh, bsli->data, (num_entries * (num_entries * module_entry_sz)));
+
+	return NULL;
+}
+
+/**
+ * @brief Logs the state info in a given logger instance.
+ *
+ * @param[in] bcmli	 Pointer to logger instance
+ * @param[in] state      State number (supports up to 255)
+ * @param[in] event      Event number (supports up to 255)
+ * @param[in] call_site  Caller address
+ *
+ * @return Returns the pointer to module specific portion of each entry
+ */
+void *
+bcm_sm_log(bcm_sm_log_info_t *bsli, uint32 state, uint32 event, void *call_site)
+{
+	uint32 idx = bsli->idx;
+	void *data;
+
+	if (state > 255u) {
+		OSL_SYS_HALT();
+	}
+
+	bsli->state[idx] = (uint8) state;
+	bsli->call_site[idx] = call_site;
+#ifdef DONGLEBUILD
+	bsli->time_stamp[idx] = OSL_SYSUPTIME();
+#endif /* DONGLEBUILD */
+
+	if (bsli->flags & BCM_SM_LOG_FLAG_EVENT_PRESENT) {
+		bsli->event[idx] = (uint8) event;
+	}
+
+	data = ((uint8 *)(bsli->data)) + (idx * bsli->module_entry_sz);
+
+	bsli->idx = (idx + 1u) % bsli->num_entries;
+
+	return data;
+}
+
 #if defined(BCMPERFSTATS) || defined(BCMTSTAMPEDLOGS)
 
 #if defined(__ARM_ARCH_7R__)
@@ -5641,34 +5758,6 @@ ipv6_tcp_hdr_cksum(uint8 *ipv6, uint8 *tcp, uint16 tcp_len)
 }
 
 void *_bcmutils_dummy_fn = NULL;
-
-/* GROUP 1 --- start
- * These function under GROUP 1 are general purpose functions to do complex number
- * calculations and square root calculation.
- */
-
-uint32 sqrt_int(uint32 value)
-{
-	uint32 root = 0, shift = 0;
-
-	/* Compute integer nearest to square root of input integer value */
-	for (shift = 0; shift < 32; shift += 2) {
-		if (((0x40000000u >> shift) + root) <= value) {
-			value -= ((0x40000000u >> shift) + root);
-			root = (root >> 1) | (0x40000000u >> shift);
-		}
-		else {
-			root = root >> 1;
-		}
-	}
-
-	/* round to the nearest integer */
-	if (root < value) ++root;
-
-	return root;
-}
-
-/* GROUP 1 --- end */
 
 /* read/write field in a consecutive bits in an octet array.
  * 'addr' is the octet array's start byte address

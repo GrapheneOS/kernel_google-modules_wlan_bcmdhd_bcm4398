@@ -587,8 +587,16 @@ void wifi_ctrlfunc_unregister_drv(void)
 		wifi_adapter_info_t *adapter;
 		adapter = &dhd_wifi_platdata->adapters[0];
 		if (is_power_on) {
+#ifdef BOARD_STB
+			BCM_REFERENCE(adapter);
+			/* For STB, it is causing kernel panic during reboot if RC is kept in off
+			 * state, so keep the RC in ON state
+			 */
+			DHD_PRINT(("%s: Do not turn off EP during rmmod\n",	__FUNCTION__));
+#else
 			wifi_platform_set_power(adapter, FALSE, WIFI_TURNOFF_DELAY);
 			wifi_platform_bus_enumerate(adapter, FALSE);
+#endif /* BOARD_STB */
 		}
 	}
 #ifdef BCMDHD_MODULAR
@@ -1031,6 +1039,16 @@ int __attribute__ ((weak)) dhd_plat_pcie_suspend(void *plat_info)
 int __attribute__ ((weak)) dhd_plat_pcie_resume(void *plat_info)
 {
 	return 0;
+}
+
+void __attribute__ ((weak)) dhd_plat_get_rc_port_dev_details(void *plat_info, void *ep_pdev)
+{
+	return;
+}
+
+void __attribute__ ((weak)) dhd_plat_bus_post_init_quirks(void *plat_info, void *dhd_bus)
+{
+	return;
 }
 
 void __attribute__ ((weak)) dhd_plat_pcie_register_dump(void *plat_info)

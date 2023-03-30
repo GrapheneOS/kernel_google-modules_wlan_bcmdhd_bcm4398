@@ -247,6 +247,8 @@ nan_event_to_str(u16 cmd)
 		break;
 	C2S(WL_NAN_EVENT_SCHED_CHANGE);
 		break;
+	C2S(WL_NAN_EVENT_SUSPENSION_IND);
+		break;
 	C2S(WL_NAN_EVENT_INVALID);
 		break;
 
@@ -344,6 +346,10 @@ static int wl_cfgnan_execute_ioctl(struct net_device *ndev,
 	struct bcm_cfg80211 *cfg, bcm_iov_batch_buf_t *nan_buf,
 	uint16 nan_buf_size, uint32 *status, uint8 *resp_buf,
 	uint16 resp_buf_len);
+
+static int wl_cfgnan_build_execute_ioctl(struct net_device *ndev, struct bcm_cfg80211 *cfg,
+	uint8 *input_data, uint8 size_of_iov, uint16 cmd_type, uint32 *status);
+
 int
 wl_cfgnan_generate_inst_id(struct bcm_cfg80211 *cfg, uint8 *p_inst_id)
 {
@@ -1342,6 +1348,7 @@ wl_cfgnan_config_eventmask(struct net_device *ndev, struct bcm_cfg80211 *cfg,
 		setbit(event_mask, NAN_EVENT_MAP(WL_NAN_EVENT_RNG_REQ_IND));
 		setbit(event_mask, NAN_EVENT_MAP(WL_NAN_EVENT_RNG_TERM_IND));
 		setbit(event_mask, NAN_EVENT_MAP(WL_NAN_EVENT_DISC_CACHE_TIMEOUT));
+		setbit(event_mask, NAN_EVENT_MAP(WL_NAN_EVENT_SUSPENSION_IND));
 		/* Disable below events by default */
 		clrbit(event_mask, NAN_EVENT_MAP(WL_NAN_EVENT_PEER_SCHED_UPD_NOTIF));
 		clrbit(event_mask, NAN_EVENT_MAP(WL_NAN_EVENT_RNG_RPT_IND));
@@ -2962,6 +2969,108 @@ fail:
 	if (nan_iov_data) {
 		MFREE(cfg->osh, nan_iov_data, sizeof(*nan_iov_data));
 	}
+	NAN_DBG_EXIT();
+	return ret;
+}
+
+static int
+wl_cfgnan_build_execute_ioctl(struct net_device *ndev, struct bcm_cfg80211 *cfg,
+	uint8 *input_data, uint8 size_of_iov, uint16 cmd_type, uint32 *status)
+{
+	bcm_iov_batch_buf_t *nan_buf = NULL;
+	s32 ret = BCME_OK;
+	uint16 nan_iov_start, nan_iov_end;
+	uint16 nan_buf_size = NAN_IOCTL_BUF_SIZE;
+	uint16 subcmd_len;
+	bcm_iov_batch_subcmd_t *sub_cmd = NULL;
+	wl_nan_iov_t *nan_iov_data = NULL;
+	uint8 resp_buf[NAN_IOCTL_BUF_SIZE];
+
+
+	nan_buf = MALLOCZ(cfg->osh, nan_buf_size);
+	if (!nan_buf) {
+		WL_ERR(("%s: memory allocation failed\n", __func__));
+		ret = BCME_NOMEM;
+		goto fail;
+	}
+
+	nan_iov_data = MALLOCZ(cfg->osh, sizeof(*nan_iov_data));
+	if (!nan_iov_data) {
+		WL_ERR(("%s: memory allocation failed\n", __func__));
+		ret = BCME_NOMEM;
+		goto fail;
+	}
+
+	nan_iov_data->nan_iov_len = nan_iov_start = NAN_IOCTL_BUF_SIZE;
+	nan_buf->version = htol16(WL_NAN_IOV_BATCH_VERSION);
+	nan_buf->count = 0;
+	nan_iov_data->nan_iov_buf = (uint8 *)(&nan_buf->cmds[0]);
+	nan_iov_data->nan_iov_len -= OFFSETOF(bcm_iov_batch_buf_t, cmds[0]);
+	sub_cmd = (bcm_iov_batch_subcmd_t*)(nan_iov_data->nan_iov_buf);
+
+	ret = wl_cfg_nan_check_cmd_len(nan_iov_data->nan_iov_len,
+		size_of_iov, &subcmd_len);
+	if (unlikely(ret)) {
+		WL_ERR(("nan_sub_cmd check failed\n"));
+		goto fail;
+	}
+
+	sub_cmd->id = htod16(cmd_type);
+	sub_cmd->len = sizeof(sub_cmd->u.options) + size_of_iov;
+	sub_cmd->u.options = htol32(BCM_XTLV_OPTION_ALIGN32);
+
+	/* Reduce the iov_len size by subcmd_len */
+	nan_iov_data->nan_iov_len -= subcmd_len;
+	nan_iov_end = nan_iov_data->nan_iov_len;
+	nan_buf_size = (nan_iov_start - nan_iov_end);
+
+	(void)memcpy_s(sub_cmd->data, nan_iov_data->nan_iov_len,
+		input_data, size_of_iov);
+
+	nan_buf->is_set = true;
+	nan_buf->count++;
+	bzero(resp_buf, sizeof(resp_buf));
+
+	ret = wl_cfgnan_execute_ioctl(ndev, cfg, nan_buf, nan_buf_size, status,
+			(void*)resp_buf, NAN_IOCTL_BUF_SIZE);
+	if (unlikely(ret) || unlikely(*status)) {
+		WL_ERR(("IOVAR, failed ret %d status %d \n", ret, *status));
+		goto fail;
+	}
+fail:
+	if (nan_buf) {
+		MFREE(cfg->osh, nan_buf, NAN_IOCTL_BUF_SIZE);
+	}
+	if (nan_iov_data) {
+		MFREE(cfg->osh, nan_iov_data, sizeof(*nan_iov_data));
+	}
+	NAN_DBG_EXIT();
+	return ret;
+}
+
+int
+wl_cfgnan_suspend_resume_request(struct net_device *ndev, struct bcm_cfg80211 *cfg,
+	uint8 suspend, wl_nan_instance_id_t svc_id, uint32 *status)
+{
+	s32 ret = BCME_OK;
+	wl_nan_suspend_resume_req_t suspend_req;
+	uint8 size_of_iov;
+
+	NAN_DBG_ENTER();
+
+	suspend_req.service_id = svc_id;
+	suspend_req.suspend = suspend;
+
+	size_of_iov = sizeof(wl_nan_suspend_resume_req_t);
+
+	ret = wl_cfgnan_build_execute_ioctl(ndev, cfg, (uint8 *)&suspend_req, size_of_iov,
+			WL_NAN_CMD_SD_SUSPEND_RESUME, status);
+	if (unlikely(ret) || unlikely(*status)) {
+		WL_ERR(("Suspension request suspend %d  svc_id %d failed ret %d status %d \n",
+				suspend, svc_id, ret, *status));
+		goto fail;
+	}
+fail:
 	NAN_DBG_EXIT();
 	return ret;
 }
@@ -5599,21 +5708,21 @@ wl_cfgnan_sd_params_handler(struct net_device *ndev,
 
 	/* Nan Service Based event suppression Flags */
 	if (cmd_data->recv_ind_flag) {
-		/* BIT0 - If set, host wont rec event "terminated" */
+		/* BIT0 - If set, host won't rec event "terminated" */
 		if (CHECK_BIT(cmd_data->recv_ind_flag, WL_NAN_EVENT_SUPPRESS_TERMINATE_BIT)) {
 			sd_params->flags |= WL_NAN_SVC_CTRL_SUPPRESS_EVT_TERMINATED;
 		}
 
-		/* BIT1 - If set, host wont receive match expiry evt */
+		/* BIT1 - If set, host won't receive match expiry evt */
 		/* TODO: Exp not yet supported */
 		if (CHECK_BIT(cmd_data->recv_ind_flag, WL_NAN_EVENT_SUPPRESS_MATCH_EXP_BIT)) {
 			WL_DBG(("Need to add match expiry event\n"));
 		}
-		/* BIT2 - If set, host wont rec event "receive"  */
+		/* BIT2 - If set, host won't rec event "receive"  */
 		if (CHECK_BIT(cmd_data->recv_ind_flag, WL_NAN_EVENT_SUPPRESS_RECEIVE_BIT)) {
 			sd_params->flags |= WL_NAN_SVC_CTRL_SUPPRESS_EVT_RECEIVE;
 		}
-		/* BIT3 - If set, host wont rec event "replied" */
+		/* BIT3 - If set, host won't rec event "replied" */
 		if (CHECK_BIT(cmd_data->recv_ind_flag, WL_NAN_EVENT_SUPPRESS_REPLIED_BIT)) {
 			sd_params->flags |= WL_NAN_SVC_CTRL_SUPPRESS_EVT_REPLIED;
 		}
@@ -5640,6 +5749,10 @@ wl_cfgnan_sd_params_handler(struct net_device *ndev,
 		ret = BCME_USAGE_ERROR;
 		WL_ERR(("wrong command id = %d \n", cmd_id));
 		goto fail;
+	}
+
+	if (cmd_data->svc_suspendable) {
+		sd_params->flags |= WL_NAN_SVC_CFG_SUSPENDABLE;
 	}
 
 	if ((cmd_data->svc_hash.dlen == WL_NAN_SVC_HASH_LEN) &&
@@ -6569,7 +6682,7 @@ wl_cfgnan_transmit_handler(struct net_device *ndev,
 	sd_xmit->token = cmd_data->token;
 
 	if (cmd_data->recv_ind_flag) {
-		/* BIT0 - If set, host wont rec event "txs"  */
+		/* BIT0 - If set, host won't rec event "txs"  */
 		if (CHECK_BIT(cmd_data->recv_ind_flag,
 				WL_NAN_EVENT_SUPPRESS_FOLLOWUP_RECEIVE_BIT)) {
 			sd_xmit->flags = WL_NAN_FUP_SUPR_EVT_TXS;
@@ -6757,6 +6870,10 @@ wl_cfgnan_get_capability(struct net_device *ndev,
 #endif /* WL_NAN_INSTANT_MODE */
 	if (fw_cap->flags1 & WL_NAN_FW_CAP_FLAG1_NDPE) {
 		capabilities->ndpe_attr_supported = true;
+	}
+	if (fw_cap->flags1 & WL_NAN_FW_CAP_FLAG1_SUSPENSION) {
+		capabilities->is_suspension_supported = true;
+		cfg->nancfg->is_suspension_supported = true;
 	}
 
 fail:
@@ -7404,6 +7521,16 @@ wl_cfgnan_data_path_request_handler(struct net_device *ndev,
 		datareq->flags |= WL_NAN_DP_FLAG_SVC_INFO;
 	}
 
+	if (cmd_data->service_instance_id) {
+		ret = bcm_pack_xtlv_entry(&pxtlv, &nan_buf_size,
+				WL_NAN_XTLV_SD_INSTANCE_ID, sizeof(wl_nan_instance_id_t),
+				(uint8*)&cmd_data->service_instance_id, BCM_XTLV_OPTION_ALIGN32);
+		if (unlikely(ret)) {
+			WL_ERR(("%s: fail to pack on service_instance_id \n", __FUNCTION__));
+			goto fail;
+		}
+	}
+
 	/* Security elements */
 
 	if (cmd_data->csid) {
@@ -7715,6 +7842,16 @@ wl_cfgnan_data_path_response_handler(struct net_device *ndev,
 			}
 		}
 		dataresp->flags |= WL_NAN_DP_FLAG_SVC_INFO;
+	}
+
+	if (cmd_data->service_instance_id) {
+		ret = bcm_pack_xtlv_entry(&pxtlv, &nan_buf_size,
+				WL_NAN_XTLV_SD_INSTANCE_ID, sizeof(wl_nan_instance_id_t),
+				(uint8*)&cmd_data->service_instance_id, BCM_XTLV_OPTION_ALIGN32);
+		if (unlikely(ret)) {
+			WL_ERR(("%s: fail to pack on service_instance_id \n", __FUNCTION__));
+			goto fail;
+		}
 	}
 
 	/* Security elements */
@@ -9106,6 +9243,24 @@ wl_cfgnan_notify_nan_status(struct bcm_cfg80211 *cfg,
 		break;
 	}
 
+	case WL_NAN_EVENT_SUSPENSION_IND: {
+		bcm_xtlv_t *xtlv = (bcm_xtlv_t *)event_data;
+		wl_nan_ev_suspension_t *suspension_ind = (wl_nan_ev_suspension_t *)xtlv->data;
+
+		nan_event_data->status = FALSE;
+		if (suspension_ind->status == WL_NAN_STATUS_SUSPENDED) {
+			nan_event_data->status = TRUE;
+		}
+		WL_DBG(("Suspension event status %d \n", nan_event_data->status));
+
+		if (ret != BCME_OK) {
+			WL_ERR(("Failed to copy nan_reason\n"));
+			goto exit;
+		}
+		hal_event_id = GOOGLE_NAN_EVENT_SUSPENSION_STATUS;
+		break;
+	}
+
 	case WL_NAN_EVENT_RECEIVE: {
 		nan_opts_len = data_len;
 		hal_event_id = GOOGLE_NAN_EVENT_FOLLOWUP;
@@ -9334,7 +9489,7 @@ wl_cfgnan_notify_nan_status(struct bcm_cfg80211 *cfg,
 			 * like receiving term after a fail txs for range resp
 			 * where ranging instance is already cleared
 			 */
-			WL_DBG(("Term Indication recieved for a peer without rng inst\n"));
+			WL_DBG(("Term Indication received for a peer without rng inst\n"));
 		}
 		break;
 	}

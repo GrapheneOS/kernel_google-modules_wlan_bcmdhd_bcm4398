@@ -1156,7 +1156,7 @@ exit:
 }
 
 #if defined(EWP_BCM_TRACE) || defined(EWP_RTT_LOGGING) || \
-	defined(EWP_ECNTRS_LOGGING) || defined(EWP_EVENTTS_LOG)
+	defined(EWP_ECNTRS_LOGGING) || defined(EWP_EVENTTS_LOG) || defined(EWP_CX_TIMELINE)
 static int
 dhd_dbg_send_evtlog_to_ring(prcd_event_log_hdr_t *plog_hdr,
 	dhd_dbg_ring_entry_t *msg_hdr, dhd_dbg_ring_t *ring,
@@ -1188,7 +1188,7 @@ dhd_dbg_send_evtlog_to_ring(prcd_event_log_hdr_t *plog_hdr,
 	dhd_dbg_ring_push(ring, msg_hdr, logbuf);
 	return BCME_OK;
 }
-#endif /* EWP_BCM_TRACE || EWP_RTT_LOGGING || EWP_ECNTRS_LOGGING */
+#endif /* EWP_BCM_TRACE || EWP_RTT_LOGGING || EWP_ECNTRS_LOGGING || EWP_CX_TIMELINE */
 
 static void
 dhd_dbg_logtrace_process_payload(dhd_pub_t *dhdp, char *data, uint datalen, dll_t *list_head)
@@ -1241,6 +1241,7 @@ dhd_dbg_logtrace_process_payload(dhd_pub_t *dhdp, char *data, uint datalen, dll_
 			(prcd_log_hdr.tag != EVENT_LOG_TAG_PROXD_SAMPLE_COLLECT) &&
 			(prcd_log_hdr.tag != EVENT_LOG_TAG_ROAM_ENHANCED_LOG) &&
 			(prcd_log_hdr.tag != EVENT_LOG_TAG_BCM_TRACE) &&
+			!prcd_log_hdr.binary_payload &&
 			(prcd_log_hdr.count > MAX_NO_OF_ARG)) {
 			break;
 		}
@@ -1396,6 +1397,7 @@ dhd_dbg_msgtrace_log_parser(dhd_pub_t *dhdp, void *event_data,
 	if (logset >= event_log_max_sets) {
 		DHD_ERROR(("%s logset: %d max: %d out of range queried: %d\n",
 			__FUNCTION__, logset, event_log_max_sets, event_log_max_sets_queried));
+#ifdef DHD_LOGSET_BEYOND_MEMDUMP
 #ifdef DHD_FW_COREDUMP
 		if (event_log_max_sets_queried && !dhd_memdump_is_scheduled(dhdp)) {
 			DHD_ERROR(("%s: collect socram for DUMP_TYPE_LOGSET_BEYOND_RANGE\n",
@@ -1404,6 +1406,9 @@ dhd_dbg_msgtrace_log_parser(dhd_pub_t *dhdp, void *event_data,
 			dhd_bus_mem_dump(dhdp);
 		}
 #endif /* DHD_FW_COREDUMP */
+#else
+		goto exit;
+#endif /* DHD_LOGSET_BEYOND_MEMDUMP */
 	}
 
 	block = ltoh16(*((uint16 *)(data + 2)));
@@ -1424,7 +1429,7 @@ dhd_dbg_msgtrace_log_parser(dhd_pub_t *dhdp, void *event_data,
 
 #if defined(DHD_LOG_DUMP) && \
 	(defined(EWP_ECNTRS_LOGGING) || defined(EWP_RTT_LOGGING) ||\
-	 defined(EWP_BCM_TRACE) || defined(EWP_EVENTTS_LOG))
+	 defined(EWP_BCM_TRACE) || defined(EWP_EVENTTS_LOG) || defined(EWP_CX_TIMELINE))
 		/* most of the event log which needs to be pushed to the
 		 * debug rings are binary payload, except TSLOG
 		 */
@@ -1464,6 +1469,13 @@ dhd_dbg_msgtrace_log_parser(dhd_pub_t *dhdp, void *event_data,
 			}
 #endif /* EWP_BCM_TRACE */
 
+#ifdef EWP_CX_TIMELINE
+			if (logset == EVENT_LOG_SET_COEX_SHADOW_TIMELINE) {
+				dbgring = dhdp->cx_timeline_dbg_ring;
+				push_evtlog = TRUE;
+			}
+#endif /* EWP_CX_TIMELINE */
+
 			if (dbgring && push_evtlog) {
 				if (dhd_dbg_send_evtlog_to_ring(plog_hdr, &msg_hdr, dbgring,
 					EVENT_LOG_MAX_BLOCK_SIZE, logbuf) != BCME_OK) {
@@ -1471,7 +1483,9 @@ dhd_dbg_msgtrace_log_parser(dhd_pub_t *dhdp, void *event_data,
 				}
 			}
 		}
-#endif /* DHD_LOG_DUMP && (EWP_ECNTRS_LOGGING || EWP_RTT_LOGGING || EWP_BCM_TRACE) */
+#endif /* DHD_LOG_DUMP &&
+	* (EWP_ECNTRS_LOGGING || EWP_RTT_LOGGING || EWP_BCM_TRACE || EWP_CX_TIMELINE)
+	*/
 
 		if (plog_hdr->tag == EVENT_LOG_TAG_ROAM_ENHANCED_LOG) {
 			print_roam_enhanced_log(plog_hdr);
@@ -1486,8 +1500,7 @@ dhd_dbg_msgtrace_log_parser(dhd_pub_t *dhdp, void *event_data,
 
 #ifdef COEX_CPU
 		if (logset == EVENT_LOG_SET_COEX_SHADOW_INFO ||
-			logset == EVENT_LOG_SET_COEX_SHADOW_ERR ||
-			logset == EVENT_LOG_SET_COEX_SHADOW_PRSRV) {
+			logset == EVENT_LOG_SET_COEX_SHADOW_ERR) {
 			dhd_dbg_verboselog_coex_handler(dhdp, plog_hdr, raw_event_ptr,
 				logset, block, (uint32 *)data);
 			msg_processed = TRUE;

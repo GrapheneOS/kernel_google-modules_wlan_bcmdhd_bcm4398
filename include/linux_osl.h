@@ -827,10 +827,12 @@ extern void bzero(void *b, size_t len);
 #endif /* defined(NICBUILD) */
 
 typedef struct osl_pcie_window {
-	void *bp_access_lock;
-	unsigned long window_offset;
-	unsigned long bp_addr;
-	volatile void *bar_addr;
+	osl_t		*osh;
+	void		*bp_access_lock_r;
+	void		*bp_access_lock_w;
+	unsigned long	window_offset;
+	unsigned long	bp_addr;
+	volatile void	*bar_addr;
 } osl_pcie_window_t;
 
 extern osl_pcie_window_t osl_reg_access_pcie_window;
@@ -842,8 +844,14 @@ extern osl_pcie_window_t osl_reg_access_pcie_window;
  * @param[in]  window_offset            Offset of the window to be managed.
  * @param[in]  bar_addr                 ioremap address of this window.
  */
-void osl_reg_access_pcie_window_init(osl_t *osh, void *bp_access_lock, unsigned long window_offset,
+void osl_reg_access_pcie_window_init(osl_t *osh, unsigned long window_offset,
 	volatile void *bar_addr);
+
+/**
+ * De-Initialize osl_reg_access_pcie_window.
+ * @param[in]  osh                      OS handle.
+ */
+void osl_reg_access_pcie_window_deinit(osl_t *osh);
 
 /**
  * Check that the osl_reg_access_pcie_window is configured to access the reg_addr and return the
@@ -859,21 +867,20 @@ volatile void *osl_update_pcie_win(osl_t *osh, volatile void *reg_addr);
 #define BAR0_WINDOW_ADDRESS_MASK	~BAR0_WINDOW_OFFSET_MASK
 
 #define WIN_CHECK_R_REG(osh, r) ({ \
-	unsigned long _lock_flags_r_ = osl_spin_lock(osl_reg_access_pcie_window.bp_access_lock); \
+	unsigned long _lock_flags_r_ = osl_spin_lock(osl_reg_access_pcie_window.bp_access_lock_r); \
 	volatile void *_bar_addr_r_ = osl_update_pcie_win(osh, (volatile void *)r); \
 	typeof(*r) _retval_; \
 	_retval_ = (typeof(*r))NO_WIN_CHECK_R_REG(osh, r, _bar_addr_r_); \
-	osl_spin_unlock(osl_reg_access_pcie_window.bp_access_lock, _lock_flags_r_); \
+	osl_spin_unlock(osl_reg_access_pcie_window.bp_access_lock_r, _lock_flags_r_); \
 	_retval_; \
 })
 
 #define WIN_CHECK_W_REG(osh, r, v) ({ \
-	unsigned long _lock_flags_w_ = osl_spin_lock(osl_reg_access_pcie_window.bp_access_lock); \
+	unsigned long _lock_flags_w_ = osl_spin_lock(osl_reg_access_pcie_window.bp_access_lock_w); \
 	volatile void *_bar_addr_w_ = osl_update_pcie_win(osh, (volatile void *)r); \
 	NO_WIN_CHECK_W_REG(osh, r, _bar_addr_w_, v); \
-	osl_spin_unlock(osl_reg_access_pcie_window.bp_access_lock, _lock_flags_w_); \
+	osl_spin_unlock(osl_reg_access_pcie_window.bp_access_lock_w, _lock_flags_w_); \
 })
-
 #endif /* defined(NIC_REG_ACCESS_LEGACY) || defined(NIC_REG_ACCESS_LEGACY_DBG) */
 
 #ifdef NIC_REG_ACCESS_LEGACY

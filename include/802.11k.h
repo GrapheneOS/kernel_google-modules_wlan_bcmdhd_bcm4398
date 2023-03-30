@@ -833,6 +833,11 @@ typedef struct dot11_rmreq_pause_time dot11_rmreq_pause_time_t;
 #define DOT11_NGBR_BSS_TERM_DUR_SE_ID	4
 #define DOT11_NGBR_BEARING_SE_ID	5
 #define DOT11_NGBR_WIDE_BW_CHAN_SE_ID	6 /* proposed */
+/* Last subelement in Neighbor Report is SSID Subelemt 197 80211ax-2021 */
+/* From Draft P802.11be_D2.2.pdf */
+#define DOT11_NGBR_EHT_CAP_SE_ID		198
+#define DOT11_NGBR_EHT_OP_SE_ID			199
+#define DOT11_NGBR_BASIC_MULTI_LINK_SE_ID	200
 
 /** Neighbor Report, BSS Transition Candidate Preference subelement */
 BWL_PRE_PACKED_STRUCT struct dot11_ngbr_bsstrans_pref_se {
@@ -855,6 +860,16 @@ BWL_PRE_PACKED_STRUCT struct dot11_ngbr_bss_term_dur_se {
 typedef struct dot11_ngbr_bss_term_dur_se dot11_ngbr_bss_term_dur_se_t;
 #define DOT11_NGBR_BSS_TERM_DUR_SE_LEN	10
 
+/* 11BE Draft version2.2 */
+/** Neighbor Report, MultiLink subelement */
+BWL_PRE_PACKED_STRUCT struct dot11_ngbr_multi_link_se {
+	uint8 sub_id;
+	uint8 len;
+	uint16	ml_ctrl;		/* Multi-Link Control */
+	uint8	cmn_info[];
+} BWL_POST_PACKED_STRUCT;
+typedef struct dot11_ngbr_multi_link_se dot11_ngbr_multi_link_se_t;
+
 /* Neighbor Report BSSID Information Field */
 #define DOT11_NGBR_BI_REACHABILTY_UNKN	0x0002
 #define DOT11_NGBR_BI_REACHABILTY	0x0003
@@ -871,6 +886,14 @@ typedef struct dot11_ngbr_bss_term_dur_se dot11_ngbr_bss_term_dur_se_t;
 #define DOT11_NGBR_BI_HT		0x0800
 #define DOT11_NGBR_BI_VHT		0x1000
 #define DOT11_NGBR_BI_FTM		0x2000
+#define DOT11_NGBR_BI_HE		0x4000
+#define DOT11_NGBR_BI_ERBSS		0x8000
+#define DOT11_NGBR_BI_COLOC		0x10000
+#define DOT11_NGBR_BI_UPR		0x20000
+#define DOT11_NGBR_BI_MEM_ESS		0x40000
+#define DOT11_NGBR_BI_OCT_SUP		0x80000
+#define DOT11_NGBR_BI_COLOC_6GHZ	0x100000
+#define DOT11_NGBR_BI_EHT		0x200000
 
 /** Neighbor Report element (11k & 11v) */
 BWL_PRE_PACKED_STRUCT struct dot11_neighbor_rep_ie {

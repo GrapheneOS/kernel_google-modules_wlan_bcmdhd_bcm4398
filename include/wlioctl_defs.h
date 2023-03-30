@@ -304,6 +304,7 @@ typedef uint32 ratespec_t;
 #define WL_SCAN_ACTIVE_6GHZ			0x08U /* Force active scan for 6GHZ channel */
 #define WL_SCAN_LPSC_DISABLE_2G			0x10U    /* Disable 2G scan on scan core */
 #define WL_SCAN_LPSC_DISABLE_5G_6G		0x20U    /* Disable 5G scan on scan core */
+#define WL_SCAN_LPSC_AVOID_TRUE_SLICE		0x40U    /* Avoid scans on true slice when set */
 
 /* Value to decide scan type based on scqs */
 #define WL_SC_RETRY_SCAN_MODE_NO_SCAN		0x0u	/* Do not reschedule scan */
@@ -1473,6 +1474,7 @@ typedef uint32 ratespec_t;
 #define WL_LATENCY_VAL		0x00000004
 #define WL_WBUS_VAL		0x00000008
 #define WL_DTPC_DBG_VAL		0x00000010
+#define WL_DYNBW_DBG_VAL	0x00000020
 
 /* number of bytes needed to define a proper bit mask for MAC event reporting */
 #define BCMIO_ROUNDUP(x, y)	((((x) + ((y) - 1)) / (y)) * (y))
@@ -1493,6 +1495,8 @@ typedef uint32 ratespec_t;
 #define WL_JOIN_PREF_RSSI_PER_BAND	7u	/* RSSI boost value per band */
 #define WL_JOIN_PREF_SKIP_PSC		8u	/* Used to set flag to filter PSC channel scan */
 #define WL_JOIN_PREF_6G_DISABLE		9u	/* Used to disable join/roam 6G BSS target */
+#define WL_JOIN_PREF_ML_LINK_CAP_BOOST	10u	/* Used to configure boost for MLO targets */
+
 
 /* Join preference 6G disable Flag definition */
 #define WL_JP_6G_DISABLE_ROAM	(1u << 0u)	/* Used to set flag to disable join/roam to
@@ -1589,6 +1593,7 @@ typedef uint32 ratespec_t;
 #define WL_BTC_FLAG_ECI                  (1 << 6)
 #define WL_BTC_FLAG_LIGHT                (1 << 7)
 #define WL_BTC_FLAG_PARALLEL             (1 << 8)
+#define WL_BTC_FLAG_MAC_SUSP_GRANT_DENY  (1 << 9)
 
 /* maximum channels returned by the get valid channels iovar */
 #define WL_NUMCHANNELS		64
@@ -2302,7 +2307,8 @@ typedef uint32 ratespec_t;
 #define BCM_DCS_UNKNOWN		0xFF
 
 #define WL_CHAN_CC_INDOOR_EXT	(1u << 0u)	/* policy to extend sta indoor chan to peer role */
-#define WL_CHAN_CC_POLICY_MASK	0x1u		/* supported chan concurrency policy mask */
+#define WL_CHAN_CC_DFS_EXT	(1u << 1u)	/* policy to extend sta DFS chan to peer role */
+#define WL_CHAN_CC_POLICY_MASK	0x3u		/* supported chan concurrency policy mask */
 
 #ifdef EXT_STA
 #define IHV_OID_BCM 0x00181000	/* based on BRCM_OUI value */
@@ -3287,8 +3293,10 @@ enum wlc_capext_feature_bitpos {
 	WLC_CAPEXT_FEATURE_BITPOS_OCT			= 122,
 	WLC_CAPEXT_FEATURE_BITPOS_MBO_MIN		= 123,
 	WLC_CAPEXT_FEATURE_BITPOS_OCV			= 124,
+
 	WLC_CAPEXT_FEATURE_BITPOS_OCV_AP		= 125,
 	WLC_CAPEXT_FEATURE_BITPOS_WIFI_BT5G		= 126,
+	WLC_CAPEXT_FEATURE_BITPOS_SAE_EXT		= 127,
 
 	WLC_CAPEXT_FEATURE_BITPOS_MAX
 };

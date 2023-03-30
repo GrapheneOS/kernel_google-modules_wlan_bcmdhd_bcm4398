@@ -1806,6 +1806,10 @@ dhdpcie_pci_stop(struct pci_dev *pdev)
 		dhdpcie_bus_release(bus);
 	}
 
+#ifdef BOARD_STB
+	/* For STB, it is causing kernel panic during reboot when ep is accessed after devreset */
+	DHD_PRINT(("%s: Skip EP disable after devreset\n", __FUNCTION__));
+#else
 	/*
 	 * For module type driver,
 	 * it needs to back up configuration space before rmmod
@@ -1816,6 +1820,8 @@ dhdpcie_pci_stop(struct pci_dev *pdev)
 
 	if (pci_is_enabled(pdev))
 		pci_disable_device(pdev);
+#endif /* BOARD_STB */
+
 #ifdef BCMPCIE_OOB_HOST_WAKE
 	/* pcie os info detach */
 	MFREE(osh, pch->os_cxt, sizeof(dhdpcie_os_info_t));
@@ -2344,6 +2350,8 @@ int dhdpcie_init(struct pci_dev *pdev)
 			DHD_ERROR(("%s:dhdpcie_bus_attach() failed\n", __FUNCTION__));
 			break;
 		}
+
+		dhd_plat_get_rc_port_dev_details(bus->dhd->plat_info, pdev);
 
 		dhdpcie_info->bus = bus;
 		bus->bar1_size = dhdpcie_info->bar1_size;

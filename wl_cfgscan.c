@@ -2482,9 +2482,11 @@ wl_set_legacy_scan_states(struct bcm_cfg80211 *cfg,
 #endif /* WL11U */
 }
 
+#define SCAN_AVOID_TRESHOLD_FOR_ASSOC 10u
 static bool
 is_scan_allowed(struct bcm_cfg80211 *cfg, struct net_device *ndev)
 {
+	static int scan_avoid_cnt = 0;
 #ifdef WL_CFG80211_VSDB_PRIORITIZE_SCAN_REQUEST
 	struct net_device *remain_on_channel_ndev = NULL;
 #endif
@@ -2509,7 +2511,18 @@ is_scan_allowed(struct bcm_cfg80211 *cfg, struct net_device *ndev)
 
 	if (wl_get_drv_status(cfg, CONNECTING, ndev)) {
 		WL_ERR(("Association is in progress, skip new scan\n"));
+		if (scan_avoid_cnt++ >= SCAN_AVOID_TRESHOLD_FOR_ASSOC) {
+			scan_avoid_cnt = 0;
+			/* issue disassoc and force clear connecting status to
+			 * recover and sync state.
+			 */
+			wl_cfg80211_disassoc(ndev, WLAN_REASON_UNSPECIFIED);
+			wl_clr_drv_status(cfg, CONNECTING, ndev);
+		}
 		return FALSE;
+	} else {
+		/* clear counter */
+		scan_avoid_cnt = 0;
 	}
 
 	if (wl_get_drv_status(cfg, SCAN_ABORTING, ndev)) {

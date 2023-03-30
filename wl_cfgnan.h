@@ -460,6 +460,7 @@ typedef struct nan_discover_cmd_data {
 	bool response;
 	uint8 service_responder_policy;
 	bool svc_update;
+	uint8	svc_suspendable;
 } nan_discover_cmd_data_t;
 
 typedef struct nan_datapath_cmd_data {
@@ -546,6 +547,7 @@ typedef struct nan_config_cmd_data {
 	uint32 instant_mode_en;
 	chanspec_t instant_chspec;
 	uint8 chre_req;
+	wl_nan_instance_id_t svc_id;
 } nan_config_cmd_data_t;
 
 typedef struct nan_event_hdr {
@@ -622,7 +624,18 @@ typedef enum {
 	/* If followup message internal queue is full */
 	NAN_STATUS_FOLLOWUP_QUEUE_FULL = 11,
 	/* Unsupported concurrency session enabled, NAN disabled notified */
-	NAN_STATUS_UNSUPPORTED_CONCURRENCY_NAN_DISABLED = 12
+	NAN_STATUS_UNSUPPORTED_CONCURRENCY_NAN_DISABLED = 12,
+	/* if the pairing id is invalid */
+	NAN_STATUS_INVALID_PAIRING_ID = 13,
+	/* if the bootstrapping id is invalid */
+	NAN_STATUS_INVALID_BOOTSTRAPPING_ID = 14,
+	/* If same request is received again */
+	NAN_STATUS_REDUNDANT_REQUEST = 15,
+	/* If current request is not supported */
+	NAN_STATUS_NOT_SUPPORTED =  16,
+	/* If no Wifi Aware connection is active */
+	NAN_STATUS_NO_CONNECTION = 17
+
 } nan_status_type_t;
 
 typedef struct {
@@ -658,6 +671,7 @@ typedef struct nan_hal_capabilities {
 	uint32 max_subscribe_address;
 	uint32 ndpe_attr_supported;
 	bool is_instant_mode_supported;
+	bool is_suspension_supported;
 } nan_hal_capabilities_t;
 
 typedef struct _nan_hal_resp {
@@ -776,6 +790,7 @@ typedef struct wl_nancfg
 	uint32 nan_ctrl2_flag1;
 	uint32 nan_ctrl2_flag2;
 	nan_hal_capabilities_t capabilities;
+	uint8  is_suspension_supported;
 } wl_nancfg_t;
 
 #define NAN_RTT_ENABLED(cfg) (wl_cfgnan_is_enabled(cfg) && \
@@ -842,8 +857,9 @@ extern void wl_cfgnan_inst_chan_support(struct bcm_cfg80211 *cfg,
 	wl_chanspec_list_v1_t *chan_list, uint32 band_mask,
 	uint8 *nan_2g, uint8 *nan_pri_5g, uint8* nan_sec_5g);
 #endif /* WL_NAN_INSTANT_MODE */
-int
-wl_cfgnan_check_for_valid_5gchan(struct net_device *ndev, uint8 chan);
+int wl_cfgnan_check_for_valid_5gchan(struct net_device *ndev, uint8 chan);
+int wl_cfgnan_suspend_resume_request(struct net_device *ndev,
+	struct bcm_cfg80211 *cfg, uint8 suspend, wl_nan_instance_id_t svc_id, uint32 *status);
 
 #ifdef RTT_SUPPORT
 int wl_cfgnan_trigger_ranging(struct net_device *ndev,
@@ -1020,7 +1036,8 @@ typedef enum {
 	NAN_ATTRIBUTE_INSTANT_MODE_ENABLE		= 230,
 	NAN_ATTRIBUTE_INSTANT_COMM_CHAN			= 231,
 	NAN_ATTRIBUTE_CHRE_REQUEST			= 232,
-	NAN_ATTRIBUTE_MAX				= 233
+	NAN_ATTRIBUTE_SVC_CFG_SUSPENDABLE		= 233,
+	NAN_ATTRIBUTE_MAX				= 234
 } NAN_ATTRIBUTE;
 
 enum geofence_suspend_reason {

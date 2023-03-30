@@ -5889,6 +5889,7 @@ int dhd_ioctl_process(dhd_pub_t *pub, int ifidx, dhd_ioctl_t *ioc, void *data_bu
 #ifdef REPORT_FATAL_TIMEOUTS
 	bool set_ssid_rcvd;
 	bool set_ssid_err_rcvd;
+	bool psk_sup_rcvd;
 #endif  /* REPORT_FATAL_TIMEOUTS */
 
 	net = dhd_idx2net(pub, ifidx);
@@ -6040,22 +6041,28 @@ int dhd_ioctl_process(dhd_pub_t *pub, int ifidx, dhd_ioctl_t *ioc, void *data_bu
 		if (ioc->cmd == WLC_SET_SSID) {
 			set_ssid_rcvd = OSL_ATOMIC_READ(pub->osh, &pub->set_ssid_rcvd);
 			set_ssid_err_rcvd = OSL_ATOMIC_READ(pub->osh, &pub->set_ssid_err_rcvd);
+			psk_sup_rcvd = OSL_ATOMIC_READ(pub->osh, &pub->psk_sup_rcvd);
 			/* For open join, donot start join timer if the WLC_E_SET_SSID is
 			 * received even before the join timer starts.
 			 *
 			 * Similarly for secure join if an error is reported for WLC_E_SET_SSID
 			 * donot start join timer, since the secure join has failed
+			 *
+			 * Also if WLC_E_PSK_SUP is reported before we start join timer,
+			 * donot start join timer.
 			 */
 			if ((!pub->secure_join && !set_ssid_rcvd) ||
-					(pub->secure_join && !set_ssid_err_rcvd)) {
+				(pub->secure_join && (!set_ssid_err_rcvd && !psk_sup_rcvd))) {
 				dhd_start_join_timer(pub);
 			} else {
 				DHD_ERROR(("%s: didnot start join timer."
-					"set_ssid_rcvd: %d set_ssid_err_rcvd: %d secure_join: %d\n",
+					"set_ssid_rcvd: %d set_ssid_err_rcvd: %d "
+					"psk_sup_rcvd: %d secure_join: %d\n",
 					__FUNCTION__, set_ssid_rcvd,
-					set_ssid_err_rcvd, pub->secure_join));
+					set_ssid_err_rcvd, pub->psk_sup_rcvd, pub->secure_join));
 				OSL_ATOMIC_SET(pub->osh, &pub->set_ssid_rcvd, FALSE);
 				OSL_ATOMIC_SET(pub->osh, &pub->set_ssid_err_rcvd, FALSE);
+				OSL_ATOMIC_SET(pub->osh, &pub->psk_sup_rcvd, FALSE);
 			}
 		}
 
@@ -6431,6 +6438,43 @@ dhd_force_collect_socram_during_wifi_onoff(dhd_pub_t *dhdp)
 #endif /* OEM_ANDROID */
 }
 
+static void
+dhd_free_event_data_fmts_buf(dhd_info_t *dhd)
+{
+	if (dhd->event_data.wlan_fmts.fmts) {
+		MFREE(dhd->pub.osh, dhd->event_data.wlan_fmts.fmts,
+			dhd->event_data.wlan_fmts.fmts_size);
+	}
+	if (dhd->event_data.wlan_fmts.raw_fmts) {
+		MFREE(dhd->pub.osh, dhd->event_data.wlan_fmts.raw_fmts,
+			dhd->event_data.wlan_fmts.raw_fmts_size);
+	}
+	if (dhd->event_data.ram.raw_sstr) {
+		MFREE(dhd->pub.osh, dhd->event_data.ram.raw_sstr,
+			dhd->event_data.ram.raw_sstr_size);
+	}
+	if (dhd->event_data.rom.raw_sstr) {
+		MFREE(dhd->pub.osh, dhd->event_data.rom.raw_sstr,
+			dhd->event_data.rom.raw_sstr_size);
+	}
+
+#ifdef COEX_CPU
+	if (dhd->event_data.coex_fmts.fmts) {
+		MFREE(dhd->pub.osh, dhd->event_data.coex_fmts.fmts,
+			dhd->event_data.coex_fmts.fmts_size);
+	}
+	if (dhd->event_data.coex_fmts.raw_fmts) {
+		MFREE(dhd->pub.osh, dhd->event_data.coex_fmts.raw_fmts,
+			dhd->event_data.coex_fmts.raw_fmts_size);
+	}
+	if (dhd->event_data.coex.raw_sstr) {
+		MFREE(dhd->pub.osh, dhd->event_data.coex.raw_sstr,
+			dhd->event_data.coex.raw_sstr_size);
+	}
+#endif /* COEX_CPU */
+
+}
+
 int
 dhd_stop(struct net_device *net)
 {
@@ -6621,38 +6665,7 @@ dhd_stop(struct net_device *net)
 		/* Release the skbs from queue for WLC_E_TRACE event */
 		dhd_event_logtrace_flush_queue(&dhd->pub);
 		if (dhd->dhd_state & DHD_ATTACH_LOGTRACE_INIT) {
-			if (dhd->event_data.wlan_fmts.fmts) {
-				MFREE(dhd->pub.osh, dhd->event_data.wlan_fmts.fmts,
-					dhd->event_data.wlan_fmts.fmts_size);
-			}
-			if (dhd->event_data.wlan_fmts.raw_fmts) {
-				MFREE(dhd->pub.osh, dhd->event_data.wlan_fmts.raw_fmts,
-					dhd->event_data.wlan_fmts.raw_fmts_size);
-			}
-			if (dhd->event_data.ram.raw_sstr) {
-				MFREE(dhd->pub.osh, dhd->event_data.ram.raw_sstr,
-					dhd->event_data.ram.raw_sstr_size);
-			}
-			if (dhd->event_data.rom.raw_sstr) {
-				MFREE(dhd->pub.osh, dhd->event_data.rom.raw_sstr,
-					dhd->event_data.rom.raw_sstr_size);
-			}
-
-#ifdef COEX_CPU
-			if (dhd->event_data.coex_fmts.fmts) {
-				MFREE(dhd->pub.osh, dhd->event_data.coex_fmts.fmts,
-					dhd->event_data.coex_fmts.fmts_size);
-			}
-			if (dhd->event_data.coex_fmts.raw_fmts) {
-				MFREE(dhd->pub.osh, dhd->event_data.coex_fmts.raw_fmts,
-					dhd->event_data.coex_fmts.raw_fmts_size);
-			}
-			if (dhd->event_data.coex.raw_sstr) {
-				MFREE(dhd->pub.osh, dhd->event_data.coex.raw_sstr,
-					dhd->event_data.coex.raw_sstr_size);
-			}
-#endif /* COEX_CPU */
-
+			dhd_free_event_data_fmts_buf(dhd);
 			dhd->dhd_state &= ~DHD_ATTACH_LOGTRACE_INIT;
 		}
 	}
@@ -14966,6 +14979,21 @@ void dhd_detach(dhd_pub_t *dhdp)
 		DHD_LB_STATS_DEINIT(&dhd->pub);
 	}
 #endif /* DHD_LB */
+#ifdef SHOW_LOGTRACE
+	/* Release the skbs from queue for WLC_E_TRACE event */
+	dhd_event_logtrace_flush_queue(dhdp);
+
+	/* Wait till event logtrace context finishes */
+	dhd_cancel_logtrace_process_sync(dhd);
+
+	/* Remove ring proc entries */
+	dhd_dbg_ring_proc_destroy(&dhd->pub);
+
+	if (dhd->dhd_state & DHD_ATTACH_LOGTRACE_INIT) {
+		dhd_free_event_data_fmts_buf(dhd);
+		dhd->dhd_state &= ~DHD_ATTACH_LOGTRACE_INIT;
+	}
+#endif /* SHOW_LOGTRACE */
 
 #if defined(DNGL_AXI_ERROR_LOGGING) && defined(DHD_USE_WQ_FOR_DNGL_AXI_ERROR)
 	dhd_cancel_work_sync(&dhd->axi_error_dispatcher_work);
@@ -15044,52 +15072,6 @@ void dhd_detach(dhd_pub_t *dhdp)
 		MFREE(dhd->pub.osh, dhd->pub.hang_info, VENDOR_SEND_HANG_EXT_INFO_LEN);
 	}
 #endif /* WL_CFGVENDOR_SEND_HANG_EVENT */
-#ifdef SHOW_LOGTRACE
-	/* Release the skbs from queue for WLC_E_TRACE event */
-	dhd_event_logtrace_flush_queue(dhdp);
-
-	/* Wait till event logtrace context finishes */
-	dhd_cancel_logtrace_process_sync(dhd);
-
-	/* Remove ring proc entries */
-	dhd_dbg_ring_proc_destroy(&dhd->pub);
-
-	if (dhd->dhd_state & DHD_ATTACH_LOGTRACE_INIT) {
-		if (dhd->event_data.wlan_fmts.fmts) {
-			MFREE(dhd->pub.osh, dhd->event_data.wlan_fmts.fmts,
-					dhd->event_data.wlan_fmts.fmts_size);
-		}
-		if (dhd->event_data.wlan_fmts.raw_fmts) {
-			MFREE(dhd->pub.osh, dhd->event_data.wlan_fmts.raw_fmts,
-					dhd->event_data.wlan_fmts.raw_fmts_size);
-		}
-		if (dhd->event_data.ram.raw_sstr) {
-			MFREE(dhd->pub.osh, dhd->event_data.ram.raw_sstr,
-					dhd->event_data.ram.raw_sstr_size);
-		}
-		if (dhd->event_data.rom.raw_sstr) {
-			MFREE(dhd->pub.osh, dhd->event_data.rom.raw_sstr,
-					dhd->event_data.rom.raw_sstr_size);
-		}
-
-#ifdef COEX_CPU
-		if (dhd->event_data.coex_fmts.fmts) {
-			MFREE(dhd->pub.osh, dhd->event_data.coex_fmts.fmts,
-					dhd->event_data.coex_fmts.fmts_size);
-		}
-		if (dhd->event_data.coex_fmts.raw_fmts) {
-			MFREE(dhd->pub.osh, dhd->event_data.coex_fmts.raw_fmts,
-					dhd->event_data.coex_fmts.raw_fmts_size);
-		}
-		if (dhd->event_data.coex.raw_sstr) {
-			MFREE(dhd->pub.osh, dhd->event_data.coex.raw_sstr,
-					dhd->event_data.coex.raw_sstr_size);
-		}
-#endif /* COEX_CPU */
-
-		dhd->dhd_state &= ~DHD_ATTACH_LOGTRACE_INIT;
-	}
-#endif /* SHOW_LOGTRACE */
 #ifdef BTLOG
 	skb_queue_purge(&dhd->bt_log_queue);
 #endif	/* BTLOG */
@@ -20277,7 +20259,6 @@ dhd_mem_dump(void *handle, void *event_info, u8 event)
 							__FUNCTION__));
 						set_linkdwn_cto = TRUE;
 					}
-					goto exit;
 				}
 				dhdp->fis_triggered = TRUE;
 #ifdef DHD_SDTC_ETB_DUMP

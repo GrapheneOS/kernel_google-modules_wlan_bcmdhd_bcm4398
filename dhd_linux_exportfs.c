@@ -157,10 +157,11 @@ exit:
 ssize_t
 dhd_ring_eventts_proc_read(struct file *file, char __user *usrbuf, size_t usrsz, loff_t *loff)
 {
-	char tmpbuf[TRACE_LOG_BUF_MAX_SIZE] = {0};
+	char *tmpbuf = NULL;
 	int ret = 0;
 	int rlen = 0;
 	dhd_dbg_ring_t *ring = NULL;
+	int buflen = TRACE_LOG_BUF_MAX_SIZE;
 
 	ring = (dhd_dbg_ring_t *)((struct seq_file *)(file->private_data))->private;
 	if (ring == NULL) {
@@ -168,30 +169,47 @@ dhd_ring_eventts_proc_read(struct file *file, char __user *usrbuf, size_t usrsz,
 		return -EFAULT;
 	}
 
-	rlen = dhd_dbg_ring_pull_single(ring, tmpbuf, sizeof(tmpbuf), TRUE);
+	tmpbuf = MALLOCZ(g_dhd_pub->osh, buflen);
+	if (!tmpbuf) {
+		DHD_ERROR(("Failed to alloc tmpbuf\n"));
+		return -ENOMEM;
+	}
+
+	rlen = dhd_dbg_ring_pull_single(ring, tmpbuf, buflen, TRUE);
 	if (!rlen) {
 		/* rlen can also be zero when there is no data in the ring */
 		DHD_INFO(("%s: dhd_dbg_ring_pull_single, rlen=%d, tmpbuf size=%lu\n",
 			__FUNCTION__, rlen, sizeof(tmpbuf)));
-		return -EAGAIN;
+		ret = -EAGAIN;
+		goto fail;
 	}
 
 	DHD_INFO(("%s: dhd_dbg_ring_pull_single rlen=%d , usrsz=%lu\n", __FUNCTION__, rlen, usrsz));
 	if (rlen > usrsz) {
 		DHD_ERROR(("%s: usr buf insufficient! rlen=%d, usrsz=%ld \n",
 			__FUNCTION__, rlen, usrsz));
-		return -EFAULT;
+		ret = -EFAULT;
+		goto fail;
 	}
 
 	ret = copy_to_user(usrbuf, (void*)tmpbuf, rlen);
 	if (ret) {
 		DHD_ERROR(("%s: copy_to_usr fails! rlen=%d, usrsz=%ld \n",
 			__FUNCTION__, rlen, usrsz));
-		return -EFAULT;
+		ret = -EFAULT;
+		goto fail;
 	}
 
 	*loff += rlen;
-	return rlen;
+
+fail:
+	MFREE(g_dhd_pub->osh, tmpbuf, buflen);
+
+	if (ret) {
+		return ret;
+	} else {
+		return rlen;
+	}
 }
 #endif /* EWP_EVENTTS_LOG */
 

@@ -232,6 +232,13 @@ extern uint pkttotlen_no_sfhtoe_hdr(osl_t *osh, void *p, uint toe_hdr_len);
 #define pkttotlen_no_sfhtoe_hdr(osh, p, hdrlen)	pkttotlen(osh, p)
 #endif /* WLCSO */
 
+typedef struct bcm_sm_log_info bcm_sm_log_info_t;
+
+#define BCM_SM_LOG_FLAG_EVENT_PRESENT (1u << 0u)
+
+void *bcm_sm_logger_init(osl_t *osh, uint32 flags, uint32 num_entries, uint32 module_entry_sz);
+void *bcm_sm_log(bcm_sm_log_info_t *bsli, uint32 state, uint32 event, void *call_site);
+
 /* Get priority from a packet and pass it back in scb (or equiv) */
 #define	PKTPRIO_VDSCP	0x100u		/* DSCP prio found after VLAN tag */
 #define	PKTPRIO_VLAN	0x200u		/* VLAN prio found */
@@ -829,6 +836,18 @@ DECLARE_MAP_API(8, 2, 3, 3u, 0x00FFu) /* setbit8() and getbit8() */
 
 #define MACOUI "%02x:%02x:%02x"
 #define MACOUI2STR(ea) (ea)[0], (ea)[1], (ea)[2]
+
+#ifdef DONGLEBUILD
+#define PMKIDDBG		"%016llx%016llx"
+#define PMKID2STRDBG(pmkid)	(uint64)HTON64(*((const uint64*)&(pmkid)[0])), \
+				(uint64)HTON64(*((const uint64*)&(pmkid)[8]))
+#else
+#define PMKIDDBG		"%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x"
+#define PMKID2STRDBG(pmkid)	(pmkid)[ 0], (pmkid)[ 1], (pmkid)[ 2], (pmkid)[ 3], \
+				(pmkid)[ 4], (pmkid)[ 5], (pmkid)[ 6], (pmkid)[ 7], \
+				(pmkid)[ 8], (pmkid)[ 9], (pmkid)[10], (pmkid)[11], \
+				(pmkid)[12], (pmkid)[13], (pmkid)[14], (pmkid)[15]
+#endif /* DONGLEBUILD */
 
 /* bcm_format_flags() bit description structure */
 typedef struct bcm_bit_desc {
@@ -1492,8 +1511,6 @@ typedef struct {
 	uint32 n_bytes;              /**< nbytes in array val[] */
 	uint32 val[BCM_FLEX_ARRAY];  /**< out: values that were read out of registers or memory */
 } dump_dongle_out_t;
-
-extern uint32 sqrt_int(uint32 value);
 
 extern uint8 bcm_get_ceil_pow_2(uint val);
 
