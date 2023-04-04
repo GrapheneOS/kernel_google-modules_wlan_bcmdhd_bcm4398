@@ -1,7 +1,7 @@
 /*
  * pcicfg.h: PCI configuration constants and structures.
  *
- * Copyright (C) 2022, Broadcom.
+ * Copyright (C) 2023, Broadcom.
  *
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you
@@ -496,6 +496,8 @@ typedef struct _pcie_enhanced_caphdr {
 #define	PCI_INT_STATUS		0x90	/* PCI and other cores interrupts */
 #define	PCI_INT_MASK		0x94	/* mask of PCI and other cores interrupts */
 #define PCI_TO_SB_MB		0x98	/* signal backplane interrupts */
+#define PCI_CFG_INDBP_ADDR	0x98u	/* config space indirect access - address */
+#define PCI_CFG_INDBP_DATA	0x9cu	/* config space indirect access - data */
 #define PCI_BACKPLANE_ADDR	0xa0	/* address an arbitrary location on the system backplane */
 #define PCI_BACKPLANE_DATA	0xa4	/* data at the location specified by above address */
 #define	PCI_CLK_CTL_ST		0xa8	/* pci config space clock control/status (>=rev14) */
@@ -518,6 +520,9 @@ typedef struct _pcie_enhanced_caphdr {
 #define	PCI_CFG_PTM_CAP		0x204
 #define	PCI_CFG_PTM_CTRL	0x208
 #define PCI_CFG_PTM_ENABLED (1u << 0)
+#define PCI_CFG_SSCTRL_BPACCESSEN (1u << 6)
+#define PCI_CFG_BAR0_RESET_VAL 0x4u
+#define PCI_CFG_BAR1_RESET_VAL 0x4u
 
 /* Private Registers */
 #define	PCI_STAT_CTRL		0xa80

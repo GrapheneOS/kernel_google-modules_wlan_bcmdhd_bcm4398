@@ -1,7 +1,7 @@
 /*
  * Common header file for all error codes.
  *
- * Copyright (C) 2022, Broadcom.
+ * Copyright (C) 2023, Broadcom.
  *
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you
@@ -51,6 +51,9 @@ typedef int bcmerror_t;
  * when ever a new error code is added to this list
  * please update errorstring table with the related error string and
  * update osl files with os specific errorcode map
+ *
+ * Please refer to https://wlan-rb.lvn.broadcom.net/r/260854/ for introducing a
+ * new BCME_* status
 */
 #define BCME_OK				0	/* Success */
 #define BCME_ERROR			-1	/* Error generic */
@@ -134,8 +137,9 @@ typedef int bcmerror_t;
 #define BCME_NOP			-78	/* No action taken i.e. NOP */
 #define BCME_6GCH_EPERM			-79	/* 6G channel is not permitted */
 #define BCME_6G_NO_TPE			-80	/* TPE for a 6G channel does not exist */
+#define BCME_PLL_RCCAL_FAIL		-81	/* RCCAL failed: SCAN_LPF / PLL */
 
-#define BCME_LAST			BCME_6G_NO_TPE /* add new one above and update this */
+#define BCME_LAST			BCME_PLL_RCCAL_FAIL /* add new one above and update this */
 
 /* This error code is *internal* to the driver, and is not propogated to users. It should
  * only be used by IOCTL patch handlers as an indication that it did not handle the IOCTL.
@@ -230,11 +234,13 @@ typedef int bcmerror_t;
 	"No action taken i.e. NOP",	\
 	"6G Not permitted", \
 	"tpe for 6g channel(s) does not exist", \
+	"PLL RC Cal failed",		\
 }
 
 /* FTM error codes [-1024, -2047] */
 enum {
-	WL_FTM_E_LAST			= -1090,
+	WL_FTM_E_LAST			= -1091,
+	WL_FTM_E_FORCE_DELETED		= -1091,
 	WL_FTM_E_ONE_WAY_RTT		= -1090,
 	WL_FTM_E_PRIMARY_CLONE_START	= -1089,
 	WL_FTM_E_DEFER_ACK_LOST		= -1088,
@@ -869,44 +875,44 @@ typedef enum wl_mscs_status {
 	WL_MSCS_E_IN_PROGRESS		= -10241
 } wl_mscs_status_e;
 
-/* bcmsm error code [-11264 ... -12287] */
-typedef enum {
-	BCMSM_IN_RTC			= -11264,	/**< In Run to completion loop */
-	BCMSM_TRANS_NOT_FOUND		= -11265,	/**< Transition was not found */
-	BCMSM_TRANS_GUARD_FAILED	= -11266,	/**< guard for a transition failed */
-	BCMSM_TRANS_EFFECT_FAILED	= -11267,	/**< transition effect returned err */
-	BCMSM_TRANS_ERROR		= -11268,	/**< Error while taking transition */
-	BCMSM_STATE_ENTRY_FAILED	= -11269,	/**< Entry to state failed */
-	BCMSM_STATE_EXIT_FAILED		= -11270,	/**< Failure while executing a state */
-	BCMSM_STATE_ID_EXISTS		= -11271,	/**< Same ID exists */
-	BCMSM_STATE_CONFIG_ERROR	= -11272,	/**< SM configuration has error */
-	BCMSM_Q_FULL			= -11273,	/**< Event queue is full */
-	BCMSM_Q_EMPTY			= -11274,	/**< Event queue is empty */
-	BCMSM_Q_NO_DEQUEUE		= -11275,	/**< Dequeue attempted was unsuccessful */
-	BCMSM_CHOICE_STATE_NO_TRANS	= -11276,	/**< Choice has no valid out transition */
-	BCMSM_EVENT_ALLOC_FAILED	= -11277,	/**< Event allocation failed */
-	BCMSM_EVENT_EXPIRED		= -11278,	/**< Event expired */
-	BCMSM_EVENT_NOT_POSTED		= -11279,	/**< Event was not posted */
-	BCMSM_HALTED			= -11280,	/**< State machine is in final state */
-	BCMSM_TMR_NOT_STOPPED		= -11281,	/**< Error in stopping a timer */
-	BCMSM_TMR_NOT_STARTED		= -11282,	/**< Error in starting a timer */
-	BCMSM_TMR_NOT_FOUND		= -11283,	/**< No timer available to be scheduled */
-	BCMSM_TMR_ERROR			= -11284,	/**< Error in starting a timer */
-
-	BCMSM_MAX			= -12287
-} bcmsm_status_t;
-
 /*
-* 6G scan error code [-12288 .. -13311] (1K)
+* 6G scan error code [-11264 .. -12287] (1K)
 */
 enum {
 	/* TPE cache does not exit for the given 6G channel */
-	BCME_6G_SCAN_NO_TPE_CACHE	= -12288,
+	BCME_6G_SCAN_NO_TPE_CACHE	= -11264,
 	/* TPE cache in the FW has expired */
-	BCME_6G_SCAN_TPE_CACHE_EXPIRED	= -12289,
+	BCME_6G_SCAN_TPE_CACHE_EXPIRED	= -11265,
 	/* Wild card directed scan requested */
-	BCME_6G_SCAN_DIRECTED_WILDCARD	= -12290,
+	BCME_6G_SCAN_DIRECTED_WILDCARD	= -11266,
 	/* TPE cache in the FW is invalid */
-	BCME_6G_SCAN_TPE_CACHE_INVALID  = -12291
+	BCME_6G_SCAN_TPE_CACHE_INVALID  = -11267
 };
+
+/* bcmsm error code [-12288 .. -13311] (1K) */
+typedef enum {
+	BCMSM_IN_RTC			= -12288,	/**< In Run to completion loop */
+	BCMSM_TRANS_NOT_FOUND		= -12289,	/**< Transition was not found */
+	BCMSM_TRANS_GUARD_FAILED	= -12290,	/**< guard for a transition failed */
+	BCMSM_TRANS_EFFECT_FAILED	= -12291,	/**< transition effect returned err */
+	BCMSM_TRANS_ERROR		= -12292,	/**< Error while taking transition */
+	BCMSM_STATE_ENTRY_FAILED	= -12293,	/**< Entry to state failed */
+	BCMSM_STATE_EXIT_FAILED		= -12294,	/**< Failure while executing a state */
+	BCMSM_STATE_ID_EXISTS		= -12295,	/**< Same ID exists */
+	BCMSM_STATE_CONFIG_ERROR	= -12296,	/**< SM configuration has error */
+	BCMSM_Q_FULL			= -12297,	/**< Event queue is full */
+	BCMSM_Q_EMPTY			= -12298,	/**< Event queue is empty */
+	BCMSM_Q_NO_DEQUEUE		= -12299,	/**< Dequeue attempted was unsuccessful */
+	BCMSM_CHOICE_STATE_NO_TRANS	= -12300,	/**< Choice has no valid out transition */
+	BCMSM_EVENT_ALLOC_FAILED	= -12301,	/**< Event allocation failed */
+	BCMSM_EVENT_EXPIRED		= -12302,	/**< Event expired */
+	BCMSM_EVENT_NOT_POSTED		= -12303,	/**< Event was not posted */
+	BCMSM_HALTED			= -12304,	/**< State machine is in final state */
+	BCMSM_TMR_NOT_STOPPED		= -12305,	/**< Error in stopping a timer */
+	BCMSM_TMR_NOT_STARTED		= -12306,	/**< Error in starting a timer */
+	BCMSM_TMR_NOT_FOUND		= -12307,	/**< No timer available to be scheduled */
+	BCMSM_TMR_ERROR			= -12308,	/**< Error in starting a timer */
+
+	BCMSM_MAX			= -13311
+} bcmsm_status_t;
 #endif	/* _bcmerror_h_ */

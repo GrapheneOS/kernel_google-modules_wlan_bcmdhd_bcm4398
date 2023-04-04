@@ -1,7 +1,7 @@
 /*
  * Neighbor Awareness Networking
  *
- * Copyright (C) 2022, Broadcom.
+ * Copyright (C) 2023, Broadcom.
  *
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you
@@ -772,6 +772,10 @@ typedef struct wl_nancfg
 	bool ranging_enable;
 	struct delayed_work nan_nmi_rand; /* WQ for periodic nmi randomization */
 	uint32 nmi_rand_intvl; /* nmi randomization interval */
+	uint32 nan_ctrl;
+	uint32 nan_ctrl2_flag1;
+	uint32 nan_ctrl2_flag2;
+	nan_hal_capabilities_t capabilities;
 } wl_nancfg_t;
 
 #define NAN_RTT_ENABLED(cfg) (wl_cfgnan_is_enabled(cfg) && \

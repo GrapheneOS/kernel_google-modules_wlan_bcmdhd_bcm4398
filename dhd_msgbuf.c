@@ -3,7 +3,7 @@
  * Provides type definitions and function prototypes used to link the
  * DHD OS, bus, and protocol modules.
  *
- * Copyright (C) 2022, Broadcom.
+ * Copyright (C) 2023, Broadcom.
  *
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you
@@ -10997,7 +10997,7 @@ int dhd_prot_ioctl(dhd_pub_t *dhd, int ifidx, wl_ioctl_t * ioc, void * buf, int 
 	DHD_TRACE(("%s: Enter\n", __FUNCTION__));
 
 #ifdef DHD_PCIE_REG_ACCESS
-#ifdef BOARD_HIKEY
+#if defined(BOARD_HIKEY) || defined (BOARD_STB)
 #ifndef PCIE_LNK_SPEED_GEN1
 #define PCIE_LNK_SPEED_GEN1		0x1
 #endif
@@ -11008,7 +11008,7 @@ int dhd_prot_ioctl(dhd_pub_t *dhd, int ifidx, wl_ioctl_t * ioc, void * buf, int 
 			BUG_ON(1);
 		}
 	}
-#endif /* BOARD_HIKEY */
+#endif /* BOARD_HIKEY || BOARD_STB */
 #endif /* DHD_PCIE_REG_ACCESS */
 
 	if (ioc->cmd == WLC_SET_PM) {
@@ -11666,7 +11666,6 @@ dhd_msgbuf_iovar_timeout_dump(dhd_pub_t *dhd)
 	dhd_prot_debug_info_print(dhd);
 }
 
-extern void dhd_validate_pcie_link_cbp_wlbp(dhd_bus_t *bus);
 /**
  * Waits for IOCTL completion message from the dongle, copies this into caller
  * provided parameter 'buf'.

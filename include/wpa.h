@@ -1,7 +1,7 @@
 /*
  * Fundamental types and constants relating to WPA
  *
- * Copyright (C) 2022, Broadcom.
+ * Copyright (C) 2023, Broadcom.
  *
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you
@@ -160,6 +160,8 @@ typedef BWL_PRE_PACKED_STRUCT struct
 			(akm) == RSN_AKM_SHA256_1X || \
 			(akm) == RSN_AKM_SHA256_PSK || \
 			(akm) == RSN_AKM_TPK || \
+			(akm) == RSN_AKM_SAE_EXT_PSK || \
+			(akm) == RSN_AKM_SAE_EXT_FBT || \
 			(akm) == RSN_AKM_SAE_PSK || \
 			(akm) == RSN_AKM_SAE_FBT || \
 			(akm) == RSN_AKM_FILS_SHA256 || \

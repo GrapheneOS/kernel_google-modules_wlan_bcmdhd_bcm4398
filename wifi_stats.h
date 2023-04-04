@@ -2,7 +2,7 @@
  * Common stats definitions for clients of dongle
  * ports
  *
- * Copyright (C) 2022, Broadcom.
+ * Copyright (C) 2023, Broadcom.
  *
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you
@@ -313,7 +313,7 @@ typedef struct {
 	uint32 capabilities;			/* peer WIFI_CAPABILITY_XXX */
 	bssload_info_t bssload;			/* STA count and CU */
 	uint32 num_rate;				/* number of rates */
-	wifi_rate_stat rate_stats[1];	/* per rate statistics, number of entries  = num_rate */
+	wifi_rate_stat_v1 rate_stats[1];	/* per rate statistics, num of entries = num_rate */
 } wifi_peer_info_v1;
 
 typedef struct {
@@ -350,113 +350,125 @@ typedef struct {
 	uint32 contention_num_samples;     /* num of data pkts used for contention statistics */
 } wifi_wmm_ac_stat;
 
-/* interface statistics */
+/* Various states for the link */
+typedef enum {
+	/* Chip does not support reporting the state of the link. */
+	WIFI_LINK_STATE_UNKNOWN = 0,
+	/* Link has not been in use since last report. It is placed in power save. All
+	* management, control and data frames for the MLO connection are carried over
+	* other links. In this state the link will not listen to beacons even in DTIM
+	* period and does not perform any GTK/IGTK/BIGTK updates but remains associated
+	*/
+	WIFI_LINK_STATE_NOT_IN_USE = 1,
+	/* Link is in use. In presence of traffic, it is set to be power active. When
+	* the traffic stops, the link will go into power save mode and will listen
+	* for beacons every DTIM period.
+	*/
+	WIFI_LINK_STATE_IN_USE = 2,
+} wifi_link_state;
+
+/* ML interface statistics */
 typedef struct {
-#ifdef LINKSTAT_EXT_SUPPORT
-	wifi_interface_handle_v1 iface;          /* wifi interface */
-	wifi_interface_info_v1 info;             /* current state of the interface */
-#else
-	wifi_interface_handle iface;          /* wifi interface */
-	wifi_interface_info info;             /* current state of the interface */
-#endif /* LINKSTAT_EXT_SUPPORT */
-	uint32 beacon_rx;                     /* access point beacon received count from
-					       * connected AP
-					       */
+	uint8 link_id;			/* Identifier for the link */
+	wifi_link_state state;		/* State for the link.*/
+	wifi_radio radio;		/* Radio on which link stats are sampled. */
+	u32 frequency;			/* Frequency on which link is operating. */
+	uint32 beacon_rx;		/* access point beacon received count from connected AP */
 	uint64 average_tsf_offset;	/* average beacon offset encountered (beacon_TSF - TBTT)
-					* The average_tsf_offset field is used so as to calculate
-					* the typical beacon contention time on the channel as well
-					* may be used to debug beacon synchronization and related
-					* power consumption issue
-					*/
+					 * The average_tsf_offset field is used so as to calculate
+					 * the typical beacon contention time on the channel as well
+					 * may be used to debug beacon synchronization and related
+					 * power consumption issue
+					 */
 	uint32 leaky_ap_detected;	/* indicate that this AP
-					* typically leaks packets beyond
-					* the driver guard time.
-					*/
+					 * typically leaks packets beyond
+					 * the driver guard time.
+					 */
 	uint32 leaky_ap_avg_num_frames_leaked;	/* average number of frame leaked by AP after
-					* frame with PM bit set was ACK'ed by AP
-					*/
-	uint32 leaky_ap_guard_time;		/* guard time currently in force
-					* (when implementing IEEE power management
-					* based on frame control PM bit), How long
-					* driver waits before shutting down the radio and after
-					* receiving an ACK for a data frame with PM bit set)
-					*/
-	uint32 mgmt_rx;                       /* access point mgmt frames received count from
-				       * connected AP (including Beacon)
-				       */
-	uint32 mgmt_action_rx;                /* action frames received count */
-	uint32 mgmt_action_tx;                /* action frames transmit count */
-	wifi_rssi rssi_mgmt;                  /* access Point Beacon and Management frames RSSI
-					       * (averaged)
-					       */
-	wifi_rssi rssi_data;                  /* access Point Data Frames RSSI (averaged) from
-					       * connected AP
-					       */
-	wifi_rssi rssi_ack;                   /* access Point ACK RSSI (averaged) from
-					       * connected AP
-					       */
-	wifi_wmm_ac_stat ac[WIFI_AC_MAX];     /* per ac data packet statistics */
-	uint32 num_peers;                        /* number of peers */
-#ifdef LINKSTAT_EXT_SUPPORT
-	wifi_peer_info_v1 peer_info[1];        /* per peer statistics */
-#else
-	wifi_peer_info peer_info[1];           /* per peer statistics */
-#endif /* LINKSTAT_EXT_SUPPORT */
-} wifi_iface_stat;
+					 * frame with PM bit set was ACK'ed by AP
+					 */
+	uint32 leaky_ap_guard_time;	/* guard time currently in force
+					 * (when implementing IEEE power management
+					 * based on frame control PM bit), How long
+					 * driver waits before shutting down the radio and after
+					 * receiving an ACK for a data frame with PM bit set)
+					 */
+	uint32 mgmt_rx;			/* access point mgmt frames received count from
+					 * connected AP (including Beacon)
+					 */
+	uint32 mgmt_action_rx;		/* action frames received count */
+	uint32 mgmt_action_tx;		/* action frames transmit count */
+	wifi_rssi rssi_mgmt;		/* access Point Beacon and Management frames RSSI
+					 * (averaged)
+					 */
+	wifi_rssi rssi_data;		/* access Point Data Frames RSSI (averaged) from
+								 * connected AP
+					 */
+	wifi_rssi rssi_ack;		/* access Point ACK RSSI (averaged) from connected AP */
+	wifi_wmm_ac_stat ac[WIFI_AC_MAX];	/* per ac data packet statistics */
+	uint8 time_slicing_duty_cycle_percent;	/* If this link is being served using */
+	uint32 num_peers;		/* number of peers */
+	wifi_peer_info_v1 peer_info[1];	/* per peer statistics */
+} wifi_link_stat;
+
+typedef struct {
+	wifi_interface_handle_v1 iface;	/* wifi interface */
+	wifi_interface_info_v1 info;	/* current state of the interface */
+	int num_links;			/* Number of links */
+	wifi_link_stat links[];		/* Stats per link */
+} wifi_iface_ml_stat;
 
 #ifdef CONFIG_COMPAT
-/* interface statistics */
+/* ML interface statistics */
 typedef struct {
-	compat_uptr_t iface;          /* wifi interface */
-#ifdef LINKSTAT_EXT_SUPPORT
-	wifi_interface_info_v1 info;             /* current state of the interface */
-#else
-	wifi_interface_info info;             /* current state of the interface */
-#endif /* LINKSTAT_EXT_SUPPORT */
-	uint32 beacon_rx;                     /* access point beacon received count from
-					       * connected AP
-					       */
+	uint8 link_id;			/* Identifier for the link */
+	wifi_radio radio;		/* Radio on which link stats are sampled. */
+	u32 frequency;			/* Frequency on which link is operating. */
+	uint32 beacon_rx;		/* access point beacon received count from connected AP */
 	uint64 average_tsf_offset;	/* average beacon offset encountered (beacon_TSF - TBTT)
-					* The average_tsf_offset field is used so as to calculate
-					* the typical beacon contention time on the channel as well
-					* may be used to debug beacon synchronization and related
-					* power consumption issue
-					*/
+					 * The average_tsf_offset field is used so as to calculate
+					 * the typical beacon contention time on the channel as well
+					 * may be used to debug beacon synchronization and related
+					 * power consumption issue
+					 */
 	uint32 leaky_ap_detected;	/* indicate that this AP
-					* typically leaks packets beyond
-					* the driver guard time.
-					*/
+					 * typically leaks packets beyond
+					 * the driver guard time.
+					 */
 	uint32 leaky_ap_avg_num_frames_leaked;	/* average number of frame leaked by AP after
-					* frame with PM bit set was ACK'ed by AP
-					*/
-	uint32 leaky_ap_guard_time;		/* guard time currently in force
-					* (when implementing IEEE power management
-					* based on frame control PM bit), How long
-					* driver waits before shutting down the radio and after
-					* receiving an ACK for a data frame with PM bit set)
-					*/
-	uint32 mgmt_rx;                       /* access point mgmt frames received count from
-				       * connected AP (including Beacon)
-				       */
-	uint32 mgmt_action_rx;                /* action frames received count */
-	uint32 mgmt_action_tx;                /* action frames transmit count */
-	wifi_rssi rssi_mgmt;                  /* access Point Beacon and Management frames RSSI
-					       * (averaged)
-					       */
-	wifi_rssi rssi_data;                  /* access Point Data Frames RSSI (averaged) from
-					       * connected AP
-					       */
-	wifi_rssi rssi_ack;                   /* access Point ACK RSSI (averaged) from
-					       * connected AP
-					       */
-	wifi_wmm_ac_stat ac[WIFI_AC_MAX];     /* per ac data packet statistics */
-	uint32 num_peers;                        /* number of peers */
-#ifdef LINKSTAT_EXT_SUPPORT
-	wifi_peer_info_v1 peer_info[1];        /* per peer statistics */
-#else
-	wifi_peer_info peer_info[1];           /* per peer statistics */
-#endif /* LINKSTAT_EXT_SUPPORT */
-} compat_wifi_iface_stat;
+					 * frame with PM bit set was ACK'ed by AP
+					 */
+	uint32 leaky_ap_guard_time;	/* guard time currently in force
+					 * (when implementing IEEE power management
+					 * based on frame control PM bit), How long
+					 * driver waits before shutting down the radio and after
+					 * receiving an ACK for a data frame with PM bit set)
+					 */
+	uint32 mgmt_rx;			/* access point mgmt frames received count from
+					 * connected AP (including Beacon)
+					 */
+	uint32 mgmt_action_rx;		/* action frames received count */
+	uint32 mgmt_action_tx;		/* action frames transmit count */
+	wifi_rssi rssi_mgmt;		/* access Point Beacon and Management frames RSSI
+					 * (averaged)
+					 */
+	wifi_rssi rssi_data;		/* access Point Data Frames RSSI (averaged) from
+								 * connected AP
+					 */
+	wifi_rssi rssi_ack;		/* access Point ACK RSSI (averaged) from connected AP */
+	wifi_wmm_ac_stat ac[WIFI_AC_MAX];	/* per ac data packet statistics */
+	uint8 time_slicing_duty_cycle_percent;	/* If this link is being served using */
+	uint32 num_peers;		/* number of peers */
+	wifi_peer_info_v1 peer_info[1];	/* per peer statistics */
+} compat_wifi_link_stat;
+
+typedef struct {
+	wifi_interface_handle_v1 iface;	/* wifi interface */
+	wifi_interface_info_v1 info;	/* current state of the interface */
+	int num_links;			/* Number of links */
+	wifi_link_stat links[];		/* Stats per link */
+} compat_wifi_iface_ml_stat;
+
 #endif /* CONFIG_COMPAT */
 
 #endif /* USE_WIFI_STATS_H */

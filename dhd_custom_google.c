@@ -1,7 +1,7 @@
 /*
  * Customer HW 2 dependant file
  *
- * Copyright (C) 2022, Broadcom.
+ * Copyright (C) 2023, Broadcom.
  *
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you
@@ -150,19 +150,26 @@ sku_info_t sku_table[] = {
 	{ {"GB62Z"}, {"MMW"} },
 	{ {"GE2AE"}, {"MMW"} },
 	{ {"GQML3"}, {"MMW"} },
+	{ {"GKWS6"}, {"MMW"} },
+	{ {"G1MNW"}, {"MMW"} },
 	{ {"GB7N6"}, {"ROW"} },
 	{ {"GLU0G"}, {"ROW"} },
 	{ {"GNA8F"}, {"ROW"} },
 	{ {"GX7AS"}, {"ROW"} },
 	{ {"GP4BC"}, {"ROW"} },
 	{ {"GVU6C"}, {"ROW"} },
+	{ {"GPJ41"}, {"ROW"} },
+	{ {"GC3VE"}, {"ROW"} },
 	{ {"GR1YH"}, {"JPN"} },
 	{ {"GF5KQ"}, {"JPN"} },
 	{ {"GPQ72"}, {"JPN"} },
 	{ {"GB17L"}, {"JPN"} },
 	{ {"GFE4J"}, {"JPN"} },
 	{ {"G03Z5"}, {"JPN"} },
-	{ {"G1AZG"}, {"EU"} }
+	{ {"GE9DP"}, {"JPN"} },
+	{ {"GZPF0"}, {"JPN"} },
+	{ {"G1AZG"}, {"EU"} },
+	{ {"G9BQD"}, {"NA"} }
 };
 
 static int

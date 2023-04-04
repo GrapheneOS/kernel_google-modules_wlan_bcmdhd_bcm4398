@@ -4,7 +4,7 @@
  *
  * Definitions subject to change without notice.
  *
- * Copyright (C) 2022, Broadcom.
+ * Copyright (C) 2023, Broadcom.
  *
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you
@@ -302,6 +302,8 @@ typedef uint32 ratespec_t;
 #define WL_SCAN_INC_RNR				0x02U /* Include RNR channels for scan */
 #define WL_SCAN_SKIP_FILS_DISCOVERY_PERIOD	0x04U /* Skip FILS Discovery Period for 6G chans */
 #define WL_SCAN_ACTIVE_6GHZ			0x08U /* Force active scan for 6GHZ channel */
+#define WL_SCAN_LPSC_DISABLE_2G			0x10U    /* Disable 2G scan on scan core */
+#define WL_SCAN_LPSC_DISABLE_5G_6G		0x20U    /* Disable 5G scan on scan core */
 
 /* Value to decide scan type based on scqs */
 #define WL_SC_RETRY_SCAN_MODE_NO_SCAN		0x0u	/* Do not reschedule scan */
@@ -3126,6 +3128,7 @@ enum wlc_capext_ap_subfeature_bitpos {
 	WLC_CAPEXT_AP_BITPOS_NONAX		= 0,
 	WLC_CAPEXT_AP_BITPOS_AX_5G_ONLY		= 1,
 	WLC_CAPEXT_AP_BITPOS_SAE		= 2,
+	WLC_CAPEXT_AP_BITPOS_BCNPROT_AP		= 3,
 	WLC_CAPEXT_AP_BITPOS_MAX
 };
 

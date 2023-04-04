@@ -4,7 +4,7 @@
  * This file describes the payloads of PHY related event log entries that are data buffers
  * rather than formatted string entries.
  *
- * Copyright (C) 2022, Broadcom.
+ * Copyright (C) 2023, Broadcom.
  *
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you
@@ -2293,9 +2293,10 @@ typedef struct phy_periodic_log_cmn_v12 {
 	uint16	tempinvalid_count;	/* Count no. of invalid temp. measurements */
 	uint16	log_event_id;		/* logging event id */
 
+	uint16	counter_noise_interrupt_cleared;	/* interrupt cleared on channel change */
+	uint16	counter_noise_cal_cancelled;		/* trigger cancelled on channel change */
+
 	/* Misc general purpose debug counters (will be used for future debugging) */
-	uint16	debug_01;
-	uint16	debug_02;
 	uint16	debug_03;
 	uint16	debug_04;
 	uint16	debug_05;
@@ -3183,15 +3184,15 @@ typedef struct phy_periodic_scca_stats_v1 {
 	uint32 core1_smask_val_bk;	/* bt fem control related */
 	int32 asym_intf_ed_thresh;
 
-	int16 crsminpoweru0;			/* crsmin thresh */
-	int16 crsminpoweroffset0;		/* ac_offset core0 */
-	int16 crsminpoweroffset1;		/* ac_offset core1 */
-	int16 Core0InitGainCodeB;		/* rx mitigation: eLNA bypass setting */
-	int16 Core1InitGainCodeB;		/* rx mitigation: eLNA bypass setting */
-	int16 ed_crsEn;				/* phyreg(ed_crsEn) */
-	int16 nvcfg0;				/* LLR deweighting coefficient */
-	int16 SlnaRxMaskCtrl0;
-	int16 SlnaRxMaskCtrl1;
+	uint16 crsminpoweru0;			/* crsmin thresh */
+	uint16 crsminpoweroffset0;		/* ac_offset core0 */
+	uint16 crsminpoweroffset1;		/* ac_offset core1 */
+	uint16 Core0InitGainCodeB;		/* rx mitigation: eLNA bypass setting */
+	uint16 Core1InitGainCodeB;		/* rx mitigation: eLNA bypass setting */
+	uint16 ed_crsEn;				/* phyreg(ed_crsEn) */
+	uint16 nvcfg0;				/* LLR deweighting coefficient */
+	uint16 SlnaRxMaskCtrl0;
+	uint16 SlnaRxMaskCtrl1;
 	uint16 save_SlnaRxMaskCtrl0;
 	uint16 save_SlnaRxMaskCtrl1;
 	uint16 asym_intf_ncal_req_chspec;	/* channel request noisecal */
@@ -3219,8 +3220,8 @@ typedef struct phy_periodic_scca_stats_v1 {
 	int8 noisecalc_cmplx_pwr_dbm[2];
 	uint8 gain_applied;		/* from phy_ac_rxgcrs_set_init_clip_gain() */
 
-	int8 asym_intf_tx_smartcca_cm;
-	int8 asym_intf_rx_noise_mit_cm;
+	uint8 asym_intf_tx_smartcca_cm;
+	uint8 asym_intf_rx_noise_mit_cm;
 	int8 asym_intf_avg_noise[2];
 	int8 asym_intf_latest_noise[2];
 	/* used to calculate noise_delta for rx mitigation on/off */
@@ -3242,15 +3243,15 @@ typedef struct phy_periodic_scca_stats_v2 {
 	uint32 core1_smask_val_bk;	/* bt fem control related */
 	int32 asym_intf_ed_thresh;
 
-	int16 crsminpoweru0;			/* crsmin thresh */
-	int16 crsminpoweroffset0;		/* ac_offset core0 */
-	int16 crsminpoweroffset1;		/* ac_offset core1 */
-	int16 Core0InitGainCodeB;		/* rx mitigation: eLNA bypass setting */
-	int16 Core1InitGainCodeB;		/* rx mitigation: eLNA bypass setting */
-	int16 ed_crsEn;				/* phyreg(ed_crsEn) */
-	int16 nvcfg0;				/* LLR deweighting coefficient */
-	int16 SlnaRxMaskCtrl0;
-	int16 SlnaRxMaskCtrl1;
+	uint16 crsminpoweru0;			/* crsmin thresh */
+	uint16 crsminpoweroffset0;		/* ac_offset core0 */
+	uint16 crsminpoweroffset1;		/* ac_offset core1 */
+	uint16 Core0InitGainCodeB;		/* rx mitigation: eLNA bypass setting */
+	uint16 Core1InitGainCodeB;		/* rx mitigation: eLNA bypass setting */
+	uint16 ed_crsEn;			/* phyreg(ed_crsEn) */
+	uint16 nvcfg0;				/* LLR deweighting coefficient */
+	uint16 SlnaRxMaskCtrl0;
+	uint16 SlnaRxMaskCtrl1;
 	uint16 save_SlnaRxMaskCtrl0;
 	uint16 save_SlnaRxMaskCtrl1;
 	uint16 asym_intf_ncal_req_chspec;	/* channel request noisecal */
@@ -3278,8 +3279,8 @@ typedef struct phy_periodic_scca_stats_v2 {
 	int8 noisecalc_cmplx_pwr_dbm[2];
 	uint8 gain_applied;		/* from phy_ac_rxgcrs_set_init_clip_gain() */
 
-	int8 asym_intf_tx_smartcca_cm;
-	int8 asym_intf_rx_noise_mit_cm;
+	uint8 asym_intf_tx_smartcca_cm;
+	uint8 asym_intf_rx_noise_mit_cm;
 	int8 asym_intf_avg_noise[2];
 	int8 asym_intf_latest_noise[2];
 	/* used to calculate noise_delta for rx mitigation on/off */
@@ -3301,16 +3302,16 @@ typedef struct phy_periodic_scca_stats_v3 {
 	uint32	asym_intf_host_req_mit_turnon_time;
 	int32	asym_intf_ed_thresh;
 
-	int16	crsminpoweru0;			/* crsmin thresh */
-	int16	crsminpoweroffset0;		/* ac_offset core0 */
-	int16	crsminpoweroffset1;		/* ac_offset core1 */
-	int16	ed_crsEn;			/* phyreg(ed_crsEn) */
-	int16	nvcfg0;				/* LLR deweighting coefficient */
-	int16	SlnaRxMaskCtrl0;
-	int16	SlnaRxMaskCtrl1;
-	int16	CRSMiscellaneousParam;
-	int16	AntDivConfig2059;
-	int16	HPFBWovrdigictrl;
+	uint16	crsminpoweru0;			/* crsmin thresh */
+	uint16	crsminpoweroffset0;		/* ac_offset core0 */
+	uint16	crsminpoweroffset1;		/* ac_offset core1 */
+	uint16	ed_crsEn;			/* phyreg(ed_crsEn) */
+	uint16	nvcfg0;				/* LLR deweighting coefficient */
+	uint16	SlnaRxMaskCtrl0;
+	uint16	SlnaRxMaskCtrl1;
+	uint16	CRSMiscellaneousParam;
+	uint16	AntDivConfig2059;
+	uint16	HPFBWovrdigictrl;
 	uint16	save_SlnaRxMaskCtrl0;
 	uint16	save_SlnaRxMaskCtrl1;
 	uint16	asym_intf_ncal_req_chspec;	/* channel request noisecal */
@@ -3335,8 +3336,8 @@ typedef struct phy_periodic_scca_stats_v3 {
 	int8	noisecalc_cmplx_pwr_dbm[2];
 	int8	asym_intf_ant_noise[2];
 
-	int8	asym_intf_tx_smartcca_cm;
-	int8	asym_intf_rx_noise_mit_cm;
+	uint8	asym_intf_tx_smartcca_cm;
+	uint8	asym_intf_rx_noise_mit_cm;
 	int8	asym_intf_avg_noise[2];
 	int8	asym_intf_latest_noise[2];
 	/* used to calculate noise_delta for rx mitigation on/off */
@@ -3356,16 +3357,16 @@ typedef struct phy_periodic_scca_stats_v255 {
 	uint32 asym_intf_host_req_mit_turnon_time;
 	int32 asym_intf_ed_thresh;
 
-	int16 crsminpoweru0;			/* crsmin thresh */
-	int16 crsminpoweroffset0;		/* ac_offset core0 */
-	int16 crsminpoweroffset1;		/* ac_offset core1 */
-	int16 ed_crsEn;				/* phyreg(ed_crsEn) */
-	int16 nvcfg0;				/* LLR deweighting coefficient */
-	int16 SlnaRxMaskCtrl0;
-	int16 SlnaRxMaskCtrl1;
-	int16	CRSMiscellaneousParam;
-	int16	AntDivConfig2059;
-	int16	HPFBWovrdigictrl;
+	uint16 crsminpoweru0;                   // crsmin thresh
+	uint16 crsminpoweroffset0;              // ac_offset core0
+	uint16 crsminpoweroffset1;              // ac_offset core1
+	uint16 ed_crsEn;                        // phyreg(ed_crsEn)
+	uint16 nvcfg0;                          // LLR deweighting coefficient
+	uint16 SlnaRxMaskCtrl0;
+	uint16 SlnaRxMaskCtrl1;
+	uint16 CRSMiscellaneousParam;
+	uint16 AntDivConfig2059;
+	uint16 HPFBWovrdigictrl;
 	uint16 save_SlnaRxMaskCtrl0;
 	uint16 save_SlnaRxMaskCtrl1;
 	uint16 asym_intf_ncal_req_chspec;	/* channel request noisecal */
@@ -3388,10 +3389,10 @@ typedef struct phy_periodic_scca_stats_v255 {
 
 	/* noise at antenna from phy_ac_noise_calc() */
 	int8 noisecalc_cmplx_pwr_dbm[2];
-	int8	asym_intf_ant_noise[2];
+	int8 asym_intf_ant_noise[2];
 
-	int8 asym_intf_tx_smartcca_cm;
-	int8 asym_intf_rx_noise_mit_cm;
+	uint8 asym_intf_tx_smartcca_cm;
+	uint8 asym_intf_rx_noise_mit_cm;
 	int8 asym_intf_avg_noise[2];
 	int8 asym_intf_latest_noise[2];
 	/* used to calculate noise_delta for rx mitigation on/off */

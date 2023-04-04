@@ -3,7 +3,7 @@
  *
  * Dependencies: bcmeth.h
  *
- * Copyright (C) 2022, Broadcom.
+ * Copyright (C) 2023, Broadcom.
  *
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you
@@ -340,6 +340,7 @@ void wl_event_to_network_order(wl_event_msg_t * evt);
 
 /* tlv ids for roam event */
 #define WLC_ROAM_NO_NETWORKS_TLV_ID 1
+#define WLC_ROAM_SIB_ROAM_PHASE_TLV_ID	2u	/* roam phases completed in SIB roam */
 
 /* No Networks reasons */
 #define WLC_E_REASON_NO_NETWORKS		0x0u /* value 0 means no networks found */
@@ -347,6 +348,14 @@ void wl_event_to_network_order(wl_event_msg_t * evt);
 
 /* bit mask field indicating fail reason */
 typedef uint32 wlc_roam_fail_reason_t;
+
+/* data structure in xtlv[] for id  WLC_ROAM_SIB_ROAM_PHASE_TLV_ID
+ * in wl_roam_event_t
+ */
+typedef struct sib_roam_phase {
+	uint8 num_roam_phase;	/* num of roam phases completed in SIB roam */
+	uint8 pad[3];
+} sib_roam_phase_t;
 
 typedef struct wlc_roam_event_header {
 	uint16 version;		/* version */

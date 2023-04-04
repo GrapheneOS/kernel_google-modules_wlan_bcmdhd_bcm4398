@@ -7,7 +7,7 @@
  * WFA related work should be placed in 802.11wfa.h.
  * Broadcom specific work should be placed in 802.11brcm.h.
  *
- * Copyright (C) 2022, Broadcom.
+ * Copyright (C) 2023, Broadcom.
  *
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you
@@ -1601,6 +1601,9 @@ enum dot11_tag_ids {
 /* P802.11be D1.6 Table 9-128 Element IDs */
 #define EXT_MNG_QOS_CHAR_ID			113u	/* QoS Characteristics */
 #define DOT11_MNG_QOS_CHAR_ID			(DOT11_MNG_ID_EXT_ID + EXT_MNG_QOS_CHAR_ID)
+#define EXT_MNG_AKM_SUITE_SELECTOR_ID		114u	/* AKM Suite Selector */
+#define DOT11_MNG_AKM_SUITE_SELECTOR_ID		(DOT11_MNG_ID_EXT_ID + \
+						 EXT_MNG_AKM_SUITE_SELECTOR_ID)
 
 /* deprecated definitions, do not use, to be deleted later */
 #define FILS_HLP_CONTAINER_EXT_ID		FILS_EXTID_MNG_HLP_CONTAINER_ID
@@ -2447,6 +2450,16 @@ BWL_PRE_PACKED_STRUCT struct dot11_ext_req_ie {
 	uint8	id_exts[];	/* requested element ID extensions */
 } BWL_POST_PACKED_STRUCT;
 typedef struct dot11_ext_req_ie dot11_ext_req_ie_t;
+
+/* AKM Suite Selector IE */
+BWL_PRE_PACKED_STRUCT struct dot11_akm_suite_selector_ie {
+	uint8 id;			/* DOT11_MNG_ID_EXT_ID */
+	uint8 len;
+	uint8 id_ext;			/* EXT_MNG_AKM_SUITE_SELECTOR_ID */
+	uint8 oui[DOT11_OUI_LEN];	/* WPA2_OUI */
+	uint8 type;			/* AKM type from P802.11-REVme/D2.1 table 9-188 */
+} BWL_POST_PACKED_STRUCT;
+typedef struct dot11_akm_suite_selector_ie dot11_akm_suite_selector_ie_t;
 
 /* This marks the end of a packed structure section. */
 #include <packed_section_end.h>

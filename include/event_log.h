@@ -1,7 +1,7 @@
 /*
  * EVENT_LOG system definitions
  *
- * Copyright (C) 2022, Broadcom.
+ * Copyright (C) 2023, Broadcom.
  *
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you
@@ -221,8 +221,7 @@ typedef struct event_log_set {
 	uint32 blockcount;		/* Number of blocks */
 	uint16 logtrace_count;		/* Last count for logtrace */
 	uint16 blockfill_count;		/* Fill count for logtrace */
-	bool is_shdw_set;		/* true if log set is a shadow set */
-	uint8 pad[3];			/* explicit padding */
+	uint32 reserved;		/* Reserved */
 	uint32 cyclecount;		/* Cycles at last timestamp event */
 	event_log_set_destination_t destination;
 	uint16 size;			/* same size for all buffers in one  set */
@@ -739,7 +738,7 @@ extern uint32 event_log_get_maxsets(void);
 event_log_block_t * event_log_block_get_cur(int set);
 
 /* API to notify event log framework that cur_block of the specific set is filled */
-void event_log_shadow_set_post(int set);
+void event_log_shadow_set_post(int set, uint16 count);
 
 /* For all other non-logtrace consumers */
 extern int event_log_set_is_valid(int set);

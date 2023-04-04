@@ -3,7 +3,7 @@
  * of the BOOKER NCI (non coherent interconnect) based Broadcom chips.
  * Note: this file is used for both dongle and DHD builds.
  *
- * Copyright (C) 2022, Broadcom.
+ * Copyright (C) 2023, Broadcom.
  *
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you
@@ -395,8 +395,9 @@ BCMATTACHFN(nci_get_coreunit)(nci_cores_t *cores, uint32 numcores,
 
 	for (core_idx = 0u; core_idx < numcores; core_idx++) {
 		if ((cores[core_idx].coreid == core_id) &&
+			(!cores[core_idx].desc ||
 			(GET_COREOFFSET(cores[core_idx].desc->iface_desc_1) !=
-				GET_COREOFFSET(iface_desc_1))) {
+			GET_COREOFFSET(iface_desc_1)))) {
 			coreunit = cores[core_idx].coreunit + 1;
 		}
 	}

@@ -1,7 +1,7 @@
 /*
  * Cellular channel avoidance implementation
  *
- * Copyright (C) 2022, Broadcom.
+ * Copyright (C) 2023, Broadcom.
  *
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you
@@ -1204,7 +1204,7 @@ exit:
 
 static wl_cellavoid_chan_info_t *
 wl_cellavoid_find_chinfo_fromchspec(wl_cellavoid_info_t *cellavoid_info,
-	chanspec_t chanspec)
+	chanspec_t chanspec, struct net_device *ndev)
 {
 	wl_cellavoid_chan_info_t *chan_info, *next;
 	wl_cellavoid_chan_info_t *ret = NULL;
@@ -1231,8 +1231,15 @@ wl_cellavoid_find_chinfo_fromchspec(wl_cellavoid_info_t *cellavoid_info,
 	}
 
 	/* If it's not found and mandatory flag is set return null */
-	if (cellavoid_info->mandatory_flag & WL_CELL_AVOID_SOFTAP) {
-		WL_INFORM_MEM(("No chanspec in avail list and mandatory flag set\n"));
+	if (ndev && IS_AP_IFACE(ndev->ieee80211_ptr) &&
+		(cellavoid_info->mandatory_flag & WL_CELL_AVOID_SOFTAP)) {
+		WL_INFORM_MEM(("No chanspec in avail list and mandatory flag set for softap\n"));
+		goto exit;
+	}
+
+	if (ndev && IS_P2P_GO(ndev->ieee80211_ptr) &&
+		(cellavoid_info->mandatory_flag & WL_CELL_AVOID_WIFI_DIRECT)) {
+		WL_INFORM_MEM(("No chanspec in avail list and mandatory flag set for p2p_go\n"));
 		goto exit;
 	}
 
@@ -1325,13 +1332,13 @@ wl_cellavoid_find_chspec_fromband(void *cai, int band)
 }
 
 chanspec_t
-wl_cellavoid_find_widechspec_fromchspec(void *cai, chanspec_t chanspec)
+wl_cellavoid_find_widechspec_fromchspec(void *cai, chanspec_t chanspec, struct net_device *ndev)
 {
 	wl_cellavoid_chan_info_t* chan_info;
 	chanspec_t wide_chanspec;
 	wl_cellavoid_info_t *cellavoid_info = cai;
 
-	chan_info = wl_cellavoid_find_chinfo_fromchspec(cellavoid_info, chanspec);
+	chan_info = wl_cellavoid_find_chinfo_fromchspec(cellavoid_info, chanspec, ndev);
 	if (chan_info == NULL) {
 		wide_chanspec = INVCHANSPEC;
 	} else {
@@ -1371,7 +1378,7 @@ wl_cellavoid_find_ap_chan_info(struct bcm_cfg80211 *cfg, chanspec_t ap_chspec,
 			/* SCC in this core */
 			WL_INFORM_MEM(("STA in the same core, band %d\n", sta_band));
 			chan_info = wl_cellavoid_find_chinfo_fromchspec(cfg->cellavoid_info,
-					sta_chspec);
+					sta_chspec, bcmcfg_to_prmry_ndev(cfg));
 		} else {
 			/* No STA in this core */
 			WL_INFORM_MEM(("No STA in the same core, band %d\n", ap_band));
@@ -1390,7 +1397,7 @@ wl_cellavoid_find_ap_chan_info(struct bcm_cfg80211 *cfg, chanspec_t ap_chspec,
 			WL_INFORM_MEM(("STA in the another core. band %d\n", csa_target_band));
 			if (!wl_is_chanspec_restricted(cfg, sta_chspec)) {
 				chan_info = wl_cellavoid_find_chinfo_fromchspec(cfg->cellavoid_info,
-					sta_chspec);
+					sta_chspec, bcmcfg_to_prmry_ndev(cfg));
 			}
 		} else {
 			/* No STA in another core */

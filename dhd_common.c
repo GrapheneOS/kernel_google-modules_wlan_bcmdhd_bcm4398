@@ -1,7 +1,7 @@
 /*
  * Broadcom Dongle Host Driver (DHD), common DHD core.
  *
- * Copyright (C) 2022, Broadcom.
+ * Copyright (C) 2023, Broadcom.
  *
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you
@@ -149,9 +149,9 @@ int log_print_threshold = 0;
  */
 #ifdef DHD_DEBUGABILITY_LOG_DUMP_RING
 int dhd_msg_level = DHD_ERROR_VAL | DHD_EVENT_VAL
-#ifdef BOARD_HIKEY
+#if defined(BOARD_HIKEY) || defined (BOARD_STB)
 		| DHD_FWLOG_VAL
-#endif /* BOARD_HIKEY */
+#endif /* BOARD_HIKEY || BOARD_STB */
 #ifndef DHD_REDUCE_PM_LOG
 		| DHD_RPM_VAL
 #endif /* REDUCE_PM_LOG */
@@ -163,7 +163,7 @@ int dhd_log_level = DHD_ERROR_VAL | DHD_EVENT_VAL
 /* For CUSTOMER_HW4/Hikey do not enable DHD_ERROR_MEM_VAL by default */
 int dhd_msg_level = DHD_ERROR_VAL | DHD_FWLOG_VAL | DHD_EVENT_VAL
 	/* For CUSTOMER_HW4 do not enable DHD_IOVAR_MEM_VAL by default */
-#if !defined(CUSTOMER_HW4) && !defined(DHD_EFI) && !defined(BOARD_HIKEY)
+#if !defined(CUSTOMER_HW4) && !defined(DHD_EFI) && !defined(BOARD_HIKEY) && !defined(BOARD_STB)
 	| DHD_IOVAR_MEM_VAL
 #endif /* !CUSTOMER_HW4 && !DHD_EFI */
 #ifndef OEM_ANDROID
@@ -174,7 +174,7 @@ int dhd_msg_level = DHD_ERROR_VAL | DHD_FWLOG_VAL | DHD_EVENT_VAL
 
 int dhd_log_level = DHD_ERROR_VAL | DHD_FWLOG_VAL | DHD_EVENT_VAL
 	/* For CUSTOMER_HW4 do not enable DHD_IOVAR_MEM_VAL by default */
-#if !defined(CUSTOMER_HW4) && !defined(DHD_EFI) && !defined(BOARD_HIKEY)
+#if !defined(CUSTOMER_HW4) && !defined(DHD_EFI) && !defined(BOARD_HIKEY) && !defined(BOARD_STB)
 	| DHD_IOVAR_MEM_VAL
 #endif /* !CUSTOMER_HW4 && !DHD_EFI */
 #ifndef OEM_ANDROID
@@ -1746,7 +1746,10 @@ dhd_coredump_t dhd_coredump_types[] = {
 	{DHD_COREDUMP_TYPE_SSSRDUMP_CORE2_AFTER, 0, NULL},
 	{DHD_COREDUMP_TYPE_SSSRDUMP_DIG_BEFORE, 0, NULL},
 	{DHD_COREDUMP_TYPE_SSSRDUMP_DIG_AFTER, 0, NULL},
-	{DHD_COREDUMP_TYPE_SOCRAMDUMP, 0, NULL}
+	{DHD_COREDUMP_TYPE_SOCRAMDUMP, 0, NULL},
+#ifdef DHD_SDTC_ETB_DUMP
+	{DHD_COREDUMP_TYPE_SDTC_ETB_DUMP, 0, NULL}
+#endif /* DHD_SDTC_ETB_DUMP */
 };
 
 static int dhd_append_sssr_tlv(uint8 *buf_dst, int type_idx, int buf_remain)
@@ -1793,6 +1796,10 @@ int dhd_collect_coredump(dhd_pub_t *dhdp, dhd_dump_t *dump)
 	int buf_len = dhdp->coredump_len;
 	uint8 *socram_mem = dump->buf;
 	int socram_len = dump->bufsize;
+#ifdef DHD_SDTC_ETB_DUMP
+	uint8 *sdtc_etb_mem = dhdp->sdtc_etb_mempool;
+	int sdtc_etb_len = dhdp->sdtc_etb_dump_len;
+#endif /* DHD_SDTC_ETB_DUMP */
 	int ret = 0, i = 0;
 	int total_size = 0;
 	uint32 *magic, *type, *length;
@@ -1860,6 +1867,35 @@ int dhd_collect_coredump(dhd_pub_t *dhdp, dhd_dump_t *dump)
 		buf_ptr += written_bytes;
 		total_size += written_bytes;
 	}
+
+#ifdef DHD_SDTC_ETB_DUMP
+	/* DHD_COREDUMP_TYPE_SDTC_ETB_DUMP */
+	if (sdtc_etb_mem == NULL || sdtc_etb_len == 0) {
+		DHD_ERROR(("Skip collecting SDTC ETB. len:%d\n", sdtc_etb_len));
+	} else {
+		type = (uint32*)buf_ptr;
+		*type = dhd_coredump_types[DHD_COREDUMP_TYPE_SDTC_ETB_DUMP].type;
+		length = (uint32*)(buf_ptr + sizeof(*type));
+		*length = sdtc_etb_len;
+
+		offset = sizeof(*type) + sizeof(*length);
+		total_size += offset;
+		ret = memcpy_s(buf_ptr + offset, buf_len - total_size,
+			sdtc_etb_mem, sdtc_etb_len);
+
+		if (ret) {
+			DHD_ERROR(("Failed to memcpy_s() for sdtc_etb. ret:%d\n", ret));
+			return BCME_ERROR;
+		}
+
+		total_size += sdtc_etb_len;
+		buf_ptr += total_size;
+
+		/* Reset SDTC ETB dump length */
+		dhdp->sdtc_etb_dump_len = 0;
+		DHD_PRINT(("%s: type: %u, length: %u\n", __FUNCTION__, *type, *length));
+	}
+#endif /* DHD_SDTC_ETB_DUMP */
 
 	dump->buf = dhdp->coredump_mem;
 	dump->bufsize = total_size;
@@ -12304,6 +12340,13 @@ dhd_convert_memdump_type_to_str(uint32 type, char *buf, size_t buf_len, int subs
 			break;
 		case DUMP_TYPE_ESCAN_SYNCID_MISMATCH:
 			type_str = "ESCAN_SYNCID_MISMATCH";
+			break;
+		case DUMP_TYPE_COREDUMP_BY_USER:
+			/* coredump triggered by host/user */
+			type_str = "COREDUMP_BY_USER";
+			break;
+		case DUMP_TYPE_NO_DB7_ACK:
+			type_str = "NO_DB7_ACK";
 			break;
 		default:
 			type_str = "Unknown_type";

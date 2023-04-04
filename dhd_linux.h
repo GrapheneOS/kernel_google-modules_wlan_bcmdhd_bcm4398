@@ -1,7 +1,7 @@
 /*
  * DHD Linux header file (dhd_linux exports for cfg80211 and other components)
  *
- * Copyright (C) 2022, Broadcom.
+ * Copyright (C) 2023, Broadcom.
  *
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you
@@ -62,7 +62,8 @@
 #include <bcmwifi_monitor.h>
 #else
 #define MAX_RADIOTAP_SIZE      256 /* Maximum size to hold HE Radiotap header format */
-#define MAX_MON_PKT_SIZE       (4096 + MAX_RADIOTAP_SIZE)
+/* SKB length to accommodate max AMSDU frame in monitor mode */
+#define MAX_MON_PKT_SIZE       ((12 * 1024u) + MAX_RADIOTAP_SIZE)
 #endif /* HOST_RADIOTAP_CONV */
 #endif /* WL_MONITOR */
 
@@ -83,14 +84,17 @@
  */
 enum coredump_types {
 	DHD_COREDUMP_TYPE_SSSRDUMP_CORE0_BEFORE = 0,
-	DHD_COREDUMP_TYPE_SSSRDUMP_CORE0_AFTER,
-	DHD_COREDUMP_TYPE_SSSRDUMP_CORE1_BEFORE,
-	DHD_COREDUMP_TYPE_SSSRDUMP_CORE1_AFTER,
-	DHD_COREDUMP_TYPE_SSSRDUMP_CORE2_BEFORE,
-	DHD_COREDUMP_TYPE_SSSRDUMP_CORE2_AFTER,
-	DHD_COREDUMP_TYPE_SSSRDUMP_DIG_BEFORE,
-	DHD_COREDUMP_TYPE_SSSRDUMP_DIG_AFTER,
-	DHD_COREDUMP_TYPE_SOCRAMDUMP
+	DHD_COREDUMP_TYPE_SSSRDUMP_CORE0_AFTER  = 1,
+	DHD_COREDUMP_TYPE_SSSRDUMP_CORE1_BEFORE = 2,
+	DHD_COREDUMP_TYPE_SSSRDUMP_CORE1_AFTER  = 3,
+	DHD_COREDUMP_TYPE_SSSRDUMP_CORE2_BEFORE = 4,
+	DHD_COREDUMP_TYPE_SSSRDUMP_CORE2_AFTER  = 5,
+	DHD_COREDUMP_TYPE_SSSRDUMP_DIG_BEFORE   = 6,
+	DHD_COREDUMP_TYPE_SSSRDUMP_DIG_AFTER    = 7,
+	DHD_COREDUMP_TYPE_SOCRAMDUMP            = 8,
+#ifdef DHD_SDTC_ETB_DUMP
+	DHD_COREDUMP_TYPE_SDTC_ETB_DUMP         = 9
+#endif /* DHD_SDTC_ETB_DUMP */
 };
 
 #ifdef DHD_SSSR_DUMP

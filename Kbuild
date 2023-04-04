@@ -1,6 +1,6 @@
 # bcmdhd
 #
-# Copyright (C) 2022, Broadcom.
+# Copyright (C) 2023, Broadcom.
 #
 #      Unless you and Broadcom execute a separate written software license
 # agreement governing use of this software, this software is licensed to you
@@ -242,7 +242,7 @@ DHDCFLAGS += -DWL_DYNAMIC_INDOOR_POLICY
 # DHDCFLAGS += -DUSE_INDOOR_CHAN_FLAG
 # Comment out below flag after HAL Android interface is integrated. This is enabled
 # by default for SVT validation.
-DHDCFLAGS += -DDYN_INDOOR_ENABLED_BY_DEFAULT
+# DHDCFLAGS += -DDYN_INDOOR_ENABLED_BY_DEFAULT
 
 ifneq ($(CONFIG_BCMDHD_PCIE),)
 	DHDCFLAGS += -DWLAN_ACCEL_BOOT
@@ -324,8 +324,8 @@ ifneq ($(CONFIG_SOC_GOOGLE),)
 	DHDCFLAGS += -DRESCHED_STREAK_MAX_HIGH=10
 	DHDCFLAGS += -DRESCHED_STREAK_MAX_LOW=2
 	DHDCFLAGS += -DCLEAN_IRQ_AFFINITY_HINT
-	DHDCFLAGS += -DIRQ_AFFINITY_BIG_CORE=4
-	DHDCFLAGS += -DIRQ_AFFINITY_SMALL_CORE=4
+	DHDCFLAGS += -DIRQ_AFFINITY_BIG_CORE=7
+	DHDCFLAGS += -DIRQ_AFFINITY_SMALL_CORE=7
 	DHDCFLAGS += -DDHD_BUS_BUSY_TIMEOUT=5000
 	# MSI supported in GOOGLE SOC
 	DHDCFLAGS += -DDHD_MSI_SUPPORT

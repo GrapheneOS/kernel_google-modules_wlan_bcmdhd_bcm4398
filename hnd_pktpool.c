@@ -1,7 +1,7 @@
 /*
  * HND generic packet pool operation primitives
  *
- * Copyright (C) 2022, Broadcom.
+ * Copyright (C) 2023, Broadcom.
  *
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you
@@ -1340,6 +1340,31 @@ int
 BCMFASTPATH(pktpool_get_last_err)(pktpool_t *pktp)
 {
 	return last_alloc_err;
+}
+
+/**
+ * @brief API to validate pktpool's freelist is valid
+ *
+ * @param[in] pktp	pktpool pointer to valiadate freelist
+ *
+ * @return Returns TRUE if freelist is valid else returns FALSE
+ */
+bool
+BCMPOSTTRAPFASTPATH(pktpool_validate_freelist)(pktpool_t *pktp)
+{
+	void *p = pktp->freelist;
+	uint32 pkts_avail = pktp->avail;
+
+	while (pkts_avail--) {
+		if (p == NULL) {
+			printf("poolid %d freelist corrupted at pkts_avail %d while actually %d\n",
+				pktp->id, pkts_avail, pktp->avail);
+			return FALSE;
+		}
+		p = PKTLINK(p);
+	}
+
+	return TRUE;
 }
 
 /** Gets an empty packet from the caller provided pool */

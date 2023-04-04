@@ -1,7 +1,7 @@
 /*
  * Linux cfg80211 Vendor Extension Code
  *
- * Copyright (C) 2022, Broadcom.
+ * Copyright (C) 2023, Broadcom.
  *
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you
@@ -2183,6 +2183,19 @@ wl_cfgvendor_rtt_evt(void *ctx, void *rtt_data)
 					ret));
 				goto free_mem;
 			}
+			ret = nla_put_u32(skb, RTT_ATTRIBUTE_RESULT_FREQ,
+				rtt_result->frequency);
+			if (ret < 0) {
+				WL_ERR(("Failed to put RTT_ATTRIBUTE_RESULT_FREQ, ret:%d\n", ret));
+				goto free_mem;
+			}
+
+			ret = nla_put_u32(skb, RTT_ATTRIBUTE_RESULT_BW,
+				rtt_result->packet_bw);
+			if (ret < 0) {
+				WL_ERR(("Failed to put RTT_ATTRIBUTE_RESULT_CNT, ret:%d\n", ret));
+				goto free_mem;
+			}
 		}
 		nla_nest_end(skb, rtt_nl_hdr);
 		cfg80211_vendor_event(skb, kflags);
@@ -3467,7 +3480,7 @@ wl_cfgvendor_set_sae_password(struct wiphy *wiphy,
 	BCM_REFERENCE(pmk);
 /* This api not needed for wpa_supplicant based sae authentication */
 #ifdef WL_CLIENT_SAE
-	WL_INFORM_MEM(("Ignore for external sae auth\n"));
+	WL_DBG(("Ignore for external sae auth\n"));
 	return BCME_OK;
 #endif /* WL_CLIENT_SAE */
 
@@ -7527,9 +7540,10 @@ exit:
 /* 11n/HT:   OFDM(12) + HT(16) rates = 28 (MCS0 ~ MCS15)
  * 11ac/VHT: OFDM(12) + VHT(12) x 2 nss = 36 (MCS0 ~ MCS11)
  * 11ax/HE:  OFDM(12) + HE(12) x 2 nss = 36 (MCS0 ~ MCS11)
- * 11be/EHT:  OFDM(12) + HE(14) x 2 nss = 40 (MCS0 ~ MCS13)
+ * 11be/EHT:  OFDM(12) + EHT(16) x 2 nss = 44 (MCS0 ~ MCS15)
  */
-#define NUM_RATE 40
+#define NUM_RATE 44
+#define NUM_RATE_NONBE	36
 #define NUM_PEER 1
 #define NUM_CHAN 11
 #define HEADER_SIZE sizeof(ver_len)
@@ -7560,7 +7574,7 @@ static int wl_cfgvendor_send_stats_info(struct wiphy *wiphy,
 		goto fail;
 	}
 
-	ret = nla_put(skb, ANDR_LSTAT_ATTRIBUTE_STATS_INFO, len, data);
+	ret = nla_put(skb, ANDR_ML_LSTAT_ATTRIBUTE_STATS_INFO, len, data);
 	if (unlikely(ret)) {
 		WL_ERR(("Failed to put stats info , ret=%d\n", ret));
 		goto fail;
@@ -7636,7 +7650,7 @@ wl_cfgvendor_get_radio_stats(struct bcm_cfg80211 *cfg, struct net_device *ndev,
 
 	chan_stats_size = sizeof(wifi_channel_stat) * num_channels;
 	/* Radio stat field */
-	radio_stats_size = WL_RADIOSTAT_SLICE_INDEX_MAX*(offsetof(wifi_radio_stat, channels)) +
+	radio_stats_size = cfg->num_radios*(offsetof(wifi_radio_stat, channels)) +
 			chan_stats_size;
 	radio_stat_ptr = (char*)MALLOCZ(cfg->osh, radio_stats_size);
 	if (radio_stat_ptr == NULL) {
@@ -7683,11 +7697,7 @@ wl_cfgvendor_get_radio_stats(struct bcm_cfg80211 *cfg, struct net_device *ndev,
 			radio_h_v2[i].tx_time = radio_v2->tx_time;
 			radio_h_v2[i].num_tx_levels = 0;
 			radio_h_v2[i].tx_time_per_levels = NULL;
-#ifdef LINKSTAT_EXT_SUPPORT
 			radio_h_v2[i].rx_time = radio_v2->myrx_time;
-#else
-			radio_h_v2[i].rx_time = radio_v2->rx_time;
-#endif /* LINKSTAT_EXT_SUPPORT  */
 			if (radio_v2->radio != WL_RADIOSTAT_SLICE_INDEX_SCAN) {
 				radio_h_v2[i].on_time_scan =
 					(uint32)(radio_v2->on_time_scan / 1000);
@@ -7700,12 +7710,12 @@ wl_cfgvendor_get_radio_stats(struct bcm_cfg80211 *cfg, struct net_device *ndev,
 			radio_h_v2[i].on_time_pno_scan =
 				(uint32)(radio_v2->on_time_pno_scan / 1000);
 			radio_h_v2[i].on_time_hs20 = radio_v2->on_time_hs20;
-			if (i == WL_RADIOSTAT_SLICE_INDEX_MAIN) {
-				radio_h_v2[i].num_channels = 0;
-			} else if (i == WL_RADIOSTAT_SLICE_INDEX_AUX) {
-				radio_h_v2[i].num_channels = 0;
-			} else {
+			/* Adding all channels under last slice
+			 */
+			if (i == (cfg->num_radios - 1)) {
 				radio_h_v2[i].num_channels = num_channels;
+			} else {
+				radio_h_v2[i].num_channels = 0;
 			}
 
 			err = memcpy_s(out_radio_stat, avail_radio_stat_len,
@@ -7771,7 +7781,6 @@ exit:
 	return err;
 }
 
-#ifdef LINKSTAT_EXT_SUPPORT
 static int wl_cfgvendor_get_cca_stats(struct bcm_cfg80211 *cfg,
 	struct wireless_dev *wdev, wifi_channel_stat **chan_stats,
 	int bandmask, int cur_band, uint8* no_of_entries, int *rem_len)
@@ -7806,8 +7815,12 @@ static int wl_cfgvendor_get_cca_stats(struct bcm_cfg80211 *cfg,
 	}
 
 	chan_results = (cca_congest_ext_channel_req_v4_t *) iovresp;
+	/* V3 and V4 are same except for bandmask which is not used in out buffer
+	 * So out buffer & handling of out buffer is same for both versions
+	 */
 	if ((err == BCME_OK) &&
-			(dtoh16(chan_results->ver) == WL_CCA_EXT_REQ_VER_V4)) {
+			((dtoh16(chan_results->ver) == WL_CCA_EXT_REQ_VER_V4) ||
+			(dtoh16(chan_results->ver) == WL_CCA_EXT_REQ_VER_V3))) {
 		num_channels = dtoh16(chan_results->num_of_entries);
 		*no_of_entries = num_channels;
 		chan_stat_size = num_channels*sizeof(wifi_channel_stat);
@@ -7853,57 +7866,498 @@ exit:
 	}
 	return err;
 }
-#endif /* LINKSTAT_EXT_SUPPORT  */
+
+/* Parameters to if_counters iovar need to be converted to XTLV format
+ * before sending to FW. The length of the top level XTLV container
+ * containing parameters should not exceed 228 bytes
+ */
+static int
+wl_cfgvendor_if_infra_enh_ifstats_counters(struct net_device *dev, u8 link_id,
+	wl_if_infra_enh_stats_v2_t *if_infra_enh_stats)
+{
+	struct bcm_cfg80211 *cfg = wl_get_cfg(dev);
+	dhd_pub_t *dhdp = (dhd_pub_t *)(cfg->pub);
+	uint8 *pbuf = NULL;
+	bcm_xtlvbuf_t xtlvbuf, local_xtlvbuf;
+	bcm_xtlv_t *xtlv;
+	uint16 expected_resp_len;
+	wl_stats_report_t *request = NULL, *response = NULL;
+	int ret = BCME_OK;
+
+	pbuf = (uint8 *)MALLOCZ(dhdp->osh, WLC_IOCTL_MEDLEN);
+	if (!pbuf) {
+		WL_ERR(("Failed to allocate local pbuf\n"));
+		return BCME_NOMEM;
+	}
+
+	/* top level container length cannot exceed 228 bytes.
+	 * This is because the output buffer is 1535 bytes long.
+	 * Allow 1300 bytes for reporting stats coming in XTLV format
+	 */
+	request = (wl_stats_report_t *)
+		MALLOCZ(dhdp->osh, IF_COUNTERS_PARAM_CONTAINER_LEN_MAX);
+	if (!request) {
+		WL_ERR(("Failed to allocate wl_stats_report_t with length (%d)\n",
+			IF_COUNTERS_PARAM_CONTAINER_LEN_MAX));
+		ret = BCME_NOMEM;
+		goto fail;
+	}
+
+	request->version = WL_STATS_REPORT_REQUEST_VERSION_V2;
+
+	/* Top level container... we will create it ourselves */
+	/* Leave space for report version, length, and top level XTLV
+	 * WL_IFSTATS_XTLV_IF.
+	 */
+	ret = bcm_xtlv_buf_init(&local_xtlvbuf,
+		(uint8*)(request->data) + BCM_XTLV_HDR_SIZE,
+		IF_COUNTERS_PARAM_CONTAINER_LEN_MAX -
+		offsetof(wl_stats_report_t, data) - BCM_XTLV_HDR_SIZE,
+		BCM_XTLV_OPTION_ALIGN32);
+	if (ret) {
+		goto fail;
+	}
+
+	/* Populate requests using this the local_xtlvbuf context. The xtlvbuf
+	 * is used to fill the container containing the XTLVs populated using
+	 * local_xtlvbuf.
+	 */
+	ret = bcm_xtlv_buf_init(&xtlvbuf,
+		(uint8*)(request->data),
+		IF_COUNTERS_PARAM_CONTAINER_LEN_MAX -
+		offsetof(wl_stats_report_t, data),
+		BCM_XTLV_OPTION_ALIGN32);
+	if (ret) {
+		goto fail;
+	}
+
+	ret = bcm_xtlv_put_data(&local_xtlvbuf,
+		WL_IFSTATS_XTLV_INFRA_SPECIFIC, NULL, 0);
+	if (ret) {
+		goto fail;
+	}
+
+	/* Complete the outer container with type and length
+	 * only.
+	 */
+	ret = bcm_xtlv_put_data(&xtlvbuf,
+		WL_IFSTATS_XTLV_IF,
+		NULL, bcm_xtlv_buf_len(&local_xtlvbuf));
+	if (ret) {
+		goto fail;
+	}
+
+	request->length = bcm_xtlv_buf_len(&xtlvbuf) +
+		offsetof(wl_stats_report_t, data);
+
+	/* send the command over to the device and get the output */
+	ret = wldev_link_iovar_getbuf(dev, link_id, "if_counters", (void *)request,
+		request->length, pbuf, WLC_IOCTL_MEDLEN, &cfg->ioctl_buf_sync);
+	if (ret < 0) {
+		WL_ERR(("if_counters not supported ret=%d\n", ret));
+		goto fail;
+	}
+
+	response = (wl_stats_report_t *)pbuf;
+	/* version check */
+	if (response->version != WL_STATS_REPORT_REQUEST_VERSION_V2) {
+		ret = BCME_VERSION;
+		goto fail;
+	}
+
+	xtlv = (bcm_xtlv_t *)(response->data);
+
+	expected_resp_len =
+		(BCM_XTLV_LEN(xtlv) + OFFSETOF(wl_stats_report_t, data));
+
+	/* Check if the received length is as expected */
+	if ((response->length > WLC_IOCTL_MEDLEN) ||
+		(response->length < expected_resp_len)) {
+		ret = BCME_ERROR;
+		WL_ERR(("Illegal response length received. Got: %d"
+			" Expected: %d. Expected len must be <= %u\n",
+			response->length, expected_resp_len, WLC_IOCTL_MEDLEN));
+		goto fail;
+	}
+
+	/* check the type. The return data will be in
+	 * WL_IFSTATS_XTLV_IF container. So check if that container is
+	 * present
+	 */
+	if (BCM_XTLV_ID(xtlv) != WL_IFSTATS_XTLV_IF) {
+		ret = BCME_ERROR;
+		WL_ERR(("unexpected type received: %d Expected: %d\n",
+			BCM_XTLV_ID(xtlv), WL_IFSTATS_XTLV_IF));
+		goto fail;
+	}
+
+	/* Process XTLVs within WL_IFSTATS_XTLV_INFRA_SPECIFIC container */
+	ret = bcm_unpack_xtlv_buf(if_infra_enh_stats,
+		(uint8*)response->data + BCM_XTLV_HDR_SIZE,
+		BCM_XTLV_LEN(xtlv), /* total length of all TLVs in container */
+		BCM_XTLV_OPTION_ALIGN32, wl_cfg80211_ifstats_counters_cb);
+	if (ret) {
+		WL_ERR(("Error unpacking XTLVs in wl_if_infra_enh_stats_v2_t counters: %d\n", ret));
+	}
+
+fail:
+	if (pbuf) {
+		MFREE(dhdp->osh, pbuf, WLC_IOCTL_MEDLEN);
+	}
+
+	if (request) {
+		MFREE(dhdp->osh, request, IF_COUNTERS_PARAM_CONTAINER_LEN_MAX);
+	}
+	return ret;
+}
+
+static int wl_update_ml_link_stat(struct bcm_cfg80211 *cfg, struct net_device *inet_ndev,
+	u8 link_idx, u8 link_id, char **output, uint *total_len)
+{
+	static char iovar_buf[WLC_IOCTL_MAXLEN];
+	wifi_rate_stat_v1 *p_wifi_rate_stat_v1 = NULL;
+	wifi_rate_stat *p_wifi_rate_stat = NULL;
+	dhd_pub_t *dhdp = (dhd_pub_t *)(cfg->pub);
+	const wl_cnt_wlc_t *wlc_cnt;
+	wl_if_stats_t *if_stats = NULL;
+	wl_if_infra_enh_stats_v2_t *if_infra_enh_stats = NULL;
+	scb_val_t scbval;
+	wlc_rev_info_t revinfo;
+	uint32 rxbeaconmbss = 0;
+	int err = 0;
+	int i = 0;
+	u16 num_rate = 0;
+	s32 chan;
+	chanspec_t chanspec = INVCHANSPEC;
+	bss_peer_list_info_t *peer_list_info;
+	wl_bssload_t *bssload;
+	uint32 rspec = 0;
+
+	COMPAT_STRUCT_IFACE(wifi_link_stat, iface);
+
+	BCM_REFERENCE(if_stats);
+	BCM_REFERENCE(num_rate);
+	BCM_REFERENCE(if_infra_enh_stats);
+	BCM_REFERENCE(dhdp);
+
+	/* Get the device rev info */
+	bzero(&revinfo, sizeof(revinfo));
+	err = wldev_ioctl_get(bcmcfg_to_prmry_ndev(cfg), WLC_GET_REVINFO, &revinfo,
+			sizeof(revinfo));
+	if (err != BCME_OK) {
+		goto exit;
+	}
+
+	COMPAT_BZERO_IFACE(wifi_link_stat, iface);
+
+	COMPAT_ASSIGN_VALUE(iface, link_id, link_id);
+	err = wldev_link_iovar_getint(inet_ndev, link_idx, "chanspec", &chan);
+	if (unlikely(err)) {
+		WL_ERR(("%s: Could not get chanspec %d\n", __FUNCTION__, err));
+		return err;
+	}
+	chanspec = wl_chspec_driver_to_host(chan);
+	COMPAT_ASSIGN_VALUE(iface, frequency,
+		wl_channel_to_frequency(wf_chspec_primary20_chan(chanspec),
+		CHSPEC_BAND(chanspec)));
+
+	COMPAT_ASSIGN_VALUE(iface, ac[WIFI_AC_VO].ac, WIFI_AC_VO);
+	COMPAT_ASSIGN_VALUE(iface, ac[WIFI_AC_VI].ac, WIFI_AC_VI);
+	COMPAT_ASSIGN_VALUE(iface, ac[WIFI_AC_BE].ac, WIFI_AC_BE);
+	COMPAT_ASSIGN_VALUE(iface, ac[WIFI_AC_BK].ac, WIFI_AC_BK);
+
+	err = wldev_link_iovar_getbuf(inet_ndev, link_idx, "counters", NULL, 0,
+		iovar_buf, WLC_IOCTL_MAXLEN, NULL);
+	if (unlikely(err)) {
+		WL_ERR(("error (%d) - size = %zu\n", err, sizeof(wl_cnt_wlc_t)));
+		goto exit;
+	}
+
+	CHK_CNTBUF_DATALEN(iovar_buf, WLC_IOCTL_MAXLEN);
+	/* Translate traditional (ver <= 10) counters struct to new xtlv type struct */
+	/* traditional(ver<=10)counters will use WL_CNT_XTLV_CNTV_LE10_UCODE.
+	 * Other cases will use its xtlv type accroding to corerev
+	 */
+	err = wl_cntbuf_to_xtlv_format(NULL, iovar_buf, WLC_IOCTL_MAXLEN, revinfo.corerev);
+	if (err != BCME_OK) {
+		WL_ERR(("wl_cntbuf_to_xtlv_format ERR %d\n", err));
+		goto exit;
+	}
+
+	if (!(wlc_cnt = GET_WLCCNT_FROM_CNTBUF(iovar_buf))) {
+		WL_ERR(("wlc_cnt NULL!\n"));
+		err = BCME_ERROR;
+		goto exit;
+	}
+
+#ifndef DISABLE_IF_COUNTERS
+	if_stats = (wl_if_stats_t *)MALLOCZ(cfg->osh, sizeof(wl_if_stats_t));
+	if (!if_stats) {
+		WL_ERR(("%s: memory allocation for if_stats failed\n", __func__));
+		err = BCME_NOMEM;
+		goto exit;
+	}
+
+	if_infra_enh_stats = (wl_if_infra_enh_stats_v2_t *)MALLOCZ(cfg->osh,
+		sizeof(wl_if_infra_enh_stats_v2_t));
+	if (!if_infra_enh_stats) {
+		WL_ERR(("MALLOCZ failed\n"));
+		err = BCME_NOMEM;
+		goto exit;
+	}
+
+	if (FW_SUPPORTED(dhdp, ifst)) {
+		err = wl_cfgvendor_if_infra_enh_ifstats_counters(inet_ndev, link_idx,
+			if_infra_enh_stats);
+		if (!err) {
+			rxbeaconmbss =	if_infra_enh_stats->rxbeaconmbss;
+		}
+	}
+
+	if (FW_SUPPORTED(dhdp, ifst)) {
+		err = wl_cfg80211_ifstats_counters(inet_ndev, link_idx, if_stats);
+	} else {
+		err = wldev_link_iovar_getbuf(inet_ndev, link_idx, "if_counters",
+			NULL, 0, (char *)if_stats, sizeof(*if_stats), NULL);
+	}
+
+	if (!err) {
+		/* Populate from if_stats */
+		if (dtoh16(if_stats->version) > WL_IF_STATS_T_VERSION_1) {
+			WL_ERR(("incorrect version of wl_if_stats_t,"
+				" expected=%u got=%u\n", WL_IF_STATS_T_VERSION_1,
+				if_stats->version));
+			goto exit;
+		}
+		COMPAT_ASSIGN_VALUE(iface, ac[WIFI_AC_BE].tx_mpdu, (uint32)if_stats->txframe);
+		COMPAT_ASSIGN_VALUE(iface, ac[WIFI_AC_BE].rx_mpdu,
+			(uint32)(if_stats->rxframe - if_stats->rxmulti));
+		COMPAT_ASSIGN_VALUE(iface, ac[WIFI_AC_BE].mpdu_lost,
+				(uint32)if_stats->txfail + wlc_cnt->tx_toss_cnt);
+		COMPAT_ASSIGN_VALUE(iface, ac[WIFI_AC_BE].retries, (uint32)if_stats->txretrans);
+	} else
+#endif /* !DISABLE_IF_COUNTERS */
+	{
+		COMPAT_ASSIGN_VALUE(iface, ac[WIFI_AC_BE].tx_mpdu,
+			(wlc_cnt->txfrmsnt - wlc_cnt->txmulti));
+		COMPAT_ASSIGN_VALUE(iface, ac[WIFI_AC_BE].rx_mpdu, wlc_cnt->rxframe);
+		COMPAT_ASSIGN_VALUE(iface, ac[WIFI_AC_BE].mpdu_lost,
+				wlc_cnt->txfail + wlc_cnt->tx_toss_cnt);
+		COMPAT_ASSIGN_VALUE(iface, ac[WIFI_AC_BE].retries, wlc_cnt->txretrans);
+	}
+
+	err = wldev_link_get_rssi(inet_ndev, link_idx, &scbval);
+	if (unlikely(err)) {
+		WL_ERR(("get_rssi error (%d)\n", err));
+		goto exit;
+	}
+
+	COMPAT_ASSIGN_VALUE(iface, beacon_rx, rxbeaconmbss);
+	COMPAT_ASSIGN_VALUE(iface, rssi_mgmt, scbval.val);
+
+	/* Update duty cycle info based on RSDB/VSDB */
+	if (wl_cfg80211_determine_rsdb_scc_mode(cfg, link_idx)) {
+		COMPAT_ASSIGN_VALUE(iface, time_slicing_duty_cycle_percent,
+			WIFI_RSDB_TIMESLICE_DUTY_CYCLE);
+	} else {
+		COMPAT_ASSIGN_VALUE(iface, time_slicing_duty_cycle_percent,
+			WIFI_VSDB_TIMESLICE_DUTY_CYCLE);
+	}
+
+	COMPAT_ASSIGN_VALUE(iface, num_peers, NUM_PEER);
+
+	err = wldev_link_iovar_getbuf(inet_ndev, link_idx, "bss_peer_info",
+		NULL, 0, iovar_buf, WLC_IOCTL_MAXLEN, NULL);
+	if (err == BCME_OK) {
+		peer_list_info = (bss_peer_list_info_t *)iovar_buf;
+		if (peer_list_info->count > 0) {
+			(void)memcpy_s(&iface.peer_info->peer_mac_address, ETH_ALEN,
+				peer_list_info->peer_info->ea.octet, ETH_ALEN);
+		}
+	} else if (err == BCME_UNSUPPORTED) {
+		WL_ERR(("bssload_report is unsupported \n"));
+	} else if (err == BCME_NOTASSOCIATED) {
+		WL_ERR(("bss_peer_info IOVAR failed. STA is not associated.\n"));
+	} else {
+		WL_ERR(("error (%d) - size = %zu\n", err, sizeof(bss_peer_list_info_t)));
+		goto exit;
+	}
+
+	if ((err == BCME_OK) && (peer_list_info && peer_list_info->count > 0)) {
+		err = wldev_link_iovar_getint(inet_ndev, link_idx, "nrate", (int*)&rspec);
+		if (err != BCME_OK) {
+			WL_ERR(("Error (%d) in getting nrate\n", err));
+			goto exit;
+		}
+
+		if (WL_CFG_RSPEC_ISEHT(rspec)) {
+			num_rate = NUM_RATE;
+		} else {
+			num_rate = NUM_RATE_NONBE;
+		}
+		WL_DBG_MEM(("num_rate %d\n", num_rate));
+		COMPAT_ASSIGN_VALUE(iface, peer_info->num_rate, num_rate);
+	}
+
+	err = wldev_link_iovar_getbuf(inet_ndev, link_idx, "bssload_report", NULL,
+		0, iovar_buf, WLC_IOCTL_MAXLEN, NULL);
+	if (err == BCME_OK) {
+		bssload = (wl_bssload_t *)iovar_buf;
+		COMPAT_ASSIGN_VALUE(iface, peer_info->bssload.sta_count, bssload->sta_count);
+		COMPAT_ASSIGN_VALUE(iface, peer_info->bssload.chan_util, bssload->chan_util);
+	} else if (err == BCME_UNSUPPORTED) {
+		WL_ERR(("bssload_report is unsupported \n"));
+	} else if (err == BCME_NOTASSOCIATED) {
+		WL_ERR(("bssload_report IOVAR failed. STA is not associated.\n"));
+	} else {
+		WL_ERR(("error (%d) - size = %zu\n", err, sizeof(wl_bssload_t)));
+		goto exit;
+	}
+
+	COMPAT_MEMCOPY_IFACE(*output, *total_len, wifi_link_stat, iface, wifi_rate_stat_v1);
+
+	if ((err == BCME_OK) && (peer_list_info && peer_list_info->count > 0)) {
+		err = wldev_link_iovar_getbuf(inet_ndev, link_idx, "ratestat", NULL, 0,
+			iovar_buf, WLC_IOCTL_MAXLEN, NULL);
+		if (err != BCME_OK && err != BCME_UNSUPPORTED) {
+			WL_ERR(("error (%d) - size = %zu\n", err, num_rate*sizeof(wifi_rate_stat)));
+			goto exit;
+		}
+		for (i = 0; i < num_rate; i++) {
+			p_wifi_rate_stat =
+				(wifi_rate_stat *)(iovar_buf + i*sizeof(wifi_rate_stat));
+			p_wifi_rate_stat_v1 = (wifi_rate_stat_v1 *)*output;
+			p_wifi_rate_stat_v1->rate.preamble = p_wifi_rate_stat->rate.preamble;
+			p_wifi_rate_stat_v1->rate.nss = p_wifi_rate_stat->rate.nss;
+			p_wifi_rate_stat_v1->rate.bw = p_wifi_rate_stat->rate.bw;
+			p_wifi_rate_stat_v1->rate.rateMcsIdx = p_wifi_rate_stat->rate.rateMcsIdx;
+			p_wifi_rate_stat_v1->rate.reserved = p_wifi_rate_stat->rate.reserved;
+			p_wifi_rate_stat_v1->rate.bitrate = p_wifi_rate_stat->rate.bitrate;
+			p_wifi_rate_stat_v1->tx_mpdu = p_wifi_rate_stat->tx_mpdu;
+			p_wifi_rate_stat_v1->rx_mpdu = p_wifi_rate_stat->rx_mpdu;
+			p_wifi_rate_stat_v1->mpdu_lost = p_wifi_rate_stat->mpdu_lost;
+			p_wifi_rate_stat_v1->retries = p_wifi_rate_stat->retries;
+			p_wifi_rate_stat_v1->retries_short = p_wifi_rate_stat->retries_short;
+			p_wifi_rate_stat_v1->retries_long = p_wifi_rate_stat->retries_long;
+
+			*output += sizeof(wifi_rate_stat_v1);
+		}
+
+		/* Due to flexible array member, '-' operation is required.
+		 * Remove redundant wifi_peer_info[1] size from 'wifi_iface_stat'
+		 * Remove redundant wifi_rate_stat[1] size from 'wifi_peer_info'
+		 */
+		*total_len = *total_len -
+			sizeof(wifi_rate_stat_v1) +
+			(NUM_PEER * num_rate * sizeof(wifi_rate_stat_v1));
+	} else if (err == BCME_NOTASSOCIATED) {
+		/* Skipping to read the rate stat for not associated case,
+		 * as cca stats are still needed, not returning the err code
+		 */
+		WL_DBG(("not associated. peer_info skipped\n"));
+		err = BCME_OK;
+	}
+
+exit:
+#ifndef DISABLE_IF_COUNTERS
+	if (if_stats) {
+		MFREE(cfg->osh, if_stats, sizeof(wl_if_stats_t));
+	}
+
+	if (if_infra_enh_stats) {
+		MFREE(cfg->osh, if_infra_enh_stats, sizeof(wl_if_infra_enh_stats_v2_t));
+	}
+#endif /* !DISABLE_IF_COUNTERS */
+
+	return err;
+}
+
+static int wl_update_multi_link_stat(struct bcm_cfg80211 *cfg, struct net_device *inet_ndev,
+	char **output, uint *total_len) {
+	int err = 0;
+	u8 link_idx = NON_ML_LINK;
+	u8 link_id = 0;
+	u8 i = 0;
+	wifi_iface_ml_stat ml_iface;
+#ifdef WL_MLO
+	struct net_info *mld_netinfo = NULL;
+	u8 ml_count = 0;
+#endif /* WL_MLO */
+
+	bzero(&ml_iface, sizeof(wifi_iface_ml_stat));
+
+#ifdef WL_MLO
+	/* Get ml specific info */
+	mld_netinfo = wl_cfg80211_get_mld_netinfo_by_cfg(cfg, &ml_count);
+	if (mld_netinfo && mld_netinfo->mlinfo.num_links) {
+		/* Update number links */
+		ml_iface.num_links = mld_netinfo->mlinfo.num_links;
+	} else
+#endif /* WL_MLO */
+	{
+		/* Update duty cycle info based on RSDB/VSDB for non-mlo case */
+		if (wl_cfg80211_determine_rsdb_scc_mode(cfg, 0)) {
+			ml_iface.info.time_slicing_duty_cycle_percent =
+				WIFI_RSDB_TIMESLICE_DUTY_CYCLE;
+		} else {
+			ml_iface.info.time_slicing_duty_cycle_percent =
+				WIFI_VSDB_TIMESLICE_DUTY_CYCLE;
+		}
+		/* For legacy, single link is only populated */
+		ml_iface.num_links = 1;
+	}
+
+	if (memcpy_s(*output, (WLC_IOCTL_MAXLEN - *total_len),
+		&ml_iface, sizeof(wifi_iface_ml_stat))) {
+		err = BCME_BUFTOOSHORT;
+		goto exit;
+	}
+	*output += sizeof(wifi_iface_ml_stat);
+	*total_len += sizeof(wifi_iface_ml_stat);
+
+	/* Update per link info */
+	for (i = 0; i < ml_iface.num_links; i++) {
+		if (mld_netinfo) {
+			link_idx = mld_netinfo->mlinfo.links[i].link_idx;
+			link_id = mld_netinfo->mlinfo.links[i].link_id;
+		}
+		err = wl_update_ml_link_stat(cfg, inet_ndev, link_idx, link_id, output, total_len);
+		if (unlikely(err)) {
+			WL_ERR(("Failed to get link %d iface stat (%d)\n", link_id, err));
+			break;
+		}
+	}
+
+exit:
+	return err;
+}
 
 static int wl_cfgvendor_lstats_get_info(struct wiphy *wiphy,
 	struct wireless_dev *wdev, const void  *data, int len)
 {
-	static char iovar_buf[WLC_IOCTL_MAXLEN];
 	struct bcm_cfg80211 *cfg = wiphy_priv(wiphy);
 	struct net_device *inet_ndev = wdev_to_ndev(wdev);
-	int err = 0, i;
+	int err = 0;
 	wifi_radio_stat_h radio_h;
 	wifi_channel_stat *chan_stats = NULL;
 	int num_channels = 0;
 	uint chan_stats_size = 0;
 	wifi_channel_stat *all_chan_stats = NULL;
-#ifdef LINKSTAT_EXT_SUPPORT
-	wl_bssload_t *bssload;
 	uint8 no_of_entries = 0;
 	uint rem_len = 0;
-#else
-	/* cca_get_stats_ext iovar for Wifi channel statics */
-	cca_congest_ext_channel_req_v2_t *cca_v2_results = NULL;
-	cca_congest_ext_channel_req_v3_t cca_v3_req;
-	cca_congest_ext_channel_req_v2_t cca_v2_req;
-	uint16 cca_ver;
-	cca_congest_channel_req_t *cca_result;
-	cca_congest_channel_req_t cca_req;
-	uint32 cca_busy_time = 0;
-#endif /* LINKSTAT_EXT_SUPPORT  */
-	const wl_cnt_wlc_t *wlc_cnt;
+	int bandmask = BANDMASK_2G | BANDMASK_5G;
 	scb_val_t scbval;
 	char *output = NULL;
 	char *outdata = NULL;
-	wifi_rate_stat_v1 *p_wifi_rate_stat_v1 = NULL;
-	wifi_rate_stat *p_wifi_rate_stat = NULL;
 	uint total_len = 0;
-	uint32 rxbeaconmbss = 0;
-	wlc_rev_info_t revinfo;
-	wl_if_stats_t *if_stats = NULL;
-	wl_if_infra_enh_stats_v2_t *if_infra_enh_stats = NULL;
 	dhd_pub_t *dhdp = (dhd_pub_t *)(cfg->pub);
 	wifi_channel_stat cur_channel_stat;
 	int cur_chansp, cur_band;
 	chanspec_t cur_chanspec;
 
-	COMPAT_STRUCT_IFACE(wifi_iface_stat, iface);
-
 	WL_TRACE(("%s: Enter \n", __func__));
 	RETURN_EIO_IF_NOT_UP(cfg);
 
-	BCM_REFERENCE(if_stats);
-	BCM_REFERENCE(if_infra_enh_stats);
 	BCM_REFERENCE(dhdp);
 	BCM_REFERENCE(chan_stats_size);
 
@@ -7911,13 +8365,6 @@ static int wl_cfgvendor_lstats_get_info(struct wiphy *wiphy,
 	if (!IS_INET_LINK_NDEV(cfg, inet_ndev)) {
 		WL_ERR(("link stats query requested on non primary interface\n"));
 		return BCME_UNSUPPORTED;
-	}
-	/* Get the device rev info */
-	bzero(&revinfo, sizeof(revinfo));
-	err = wldev_ioctl_get(bcmcfg_to_prmry_ndev(cfg), WLC_GET_REVINFO, &revinfo,
-			sizeof(revinfo));
-	if (err != BCME_OK) {
-		goto exit;
 	}
 
 	outdata = (void *)MALLOCZ(cfg->osh, WLC_IOCTL_MAXLEN);
@@ -7954,7 +8401,6 @@ static int wl_cfgvendor_lstats_get_info(struct wiphy *wiphy,
 		cur_channel_stat.channel.center_freq0,
 		cur_channel_stat.channel.center_freq1));
 
-#ifdef LINKSTAT_EXT_SUPPORT
 	/* Allocate chan_stats buffer for all the channes */
 	chan_stats = (wifi_channel_stat*)MALLOCZ(cfg->osh, CHANINFO_LIST_BUF_SIZE);
 	if (chan_stats == NULL) {
@@ -7962,13 +8408,16 @@ static int wl_cfgvendor_lstats_get_info(struct wiphy *wiphy,
 		err = BCME_NOMEM;
 		goto exit;
 	}
-	bzero(chan_stats, chan_stats_size);
+	bzero(chan_stats, CHANINFO_LIST_BUF_SIZE);
 
 	rem_len = CHANINFO_LIST_BUF_SIZE;
 	all_chan_stats = chan_stats;
+#ifdef WL_6G_BAND
+	bandmask |= BANDMASK_6G;
+#endif /* WL_6G_BAND */
 	/* Query per band basis and grow chan_stats */
 	err = wl_cfgvendor_get_cca_stats(cfg, wdev, &chan_stats,
-		BANDMASK_2G | BANDMASK_5G, cur_band, &no_of_entries, &rem_len);
+		bandmask, cur_band, &no_of_entries, &rem_len);
 	if ((err != BCME_OK) && (err != BCME_UNSUPPORTED)) {
 		WL_ERR(("%s: failed to get cca_stats\n", __FUNCTION__));
 		err = -EINVAL;
@@ -7976,115 +8425,6 @@ static int wl_cfgvendor_lstats_get_info(struct wiphy *wiphy,
 	}
 	num_channels = no_of_entries;
 
-#ifdef WL_6G_BAND
-	/* query for 6g band */
-	if (cfg->band_6g_supported) {
-		err = wl_cfgvendor_get_cca_stats(cfg, wdev, &chan_stats,
-			BANDMASK_6G, cur_band, &no_of_entries, &rem_len);
-		if ((err != BCME_OK) && (err != BCME_UNSUPPORTED)) {
-			WL_ERR(("%s: failed to get cca_stats\n", __FUNCTION__));
-			err = -EINVAL;
-			goto exit;
-		}
-		num_channels += no_of_entries;
-	}
-#endif /* WL_6G_BAND */
-#else
-	chan_stats_size = sizeof(wifi_channel_stat);
-	chan_stats = &cur_channel_stat;
-
-	cca_v3_req.num_of_entries = 1;
-	cca_v3_req.ver = WL_CCA_EXT_REQ_VER_V3;
-	cca_v3_req.per_chan_stats->chanspec =
-		wl_chspec_host_to_driver(wf_chspec_primary20_chspec(cur_chanspec));
-
-	err = wldev_iovar_getbuf(inet_ndev, "cca_get_stats_ext", &cca_v3_req,
-		sizeof(cca_v3_req), iovar_buf, WLC_IOCTL_MAXLEN, NULL);
-
-	if (err != BCME_OK && err != BCME_UNSUPPORTED) {
-		WL_ERR(("cca_get_stats_ext iovar err = %d\n", err));
-		goto exit;
-	}
-
-	cca_ver = ((cca_congest_ext_channel_req_v3_t *)iovar_buf)->ver;
-
-	/* Check the verison for cca_get_stats_ext iovar */
-	if ((err == BCME_OK) &&
-			(dtoh16(cca_ver) == WL_CCA_EXT_REQ_VER_V3)) {
-
-		cca_v2_results =
-			((cca_congest_ext_channel_req_v3_t *)iovar_buf)->per_chan_stats;
-
-		/* the accumulated time for the current channel */
-		cur_channel_stat.on_time = dtoh32(cca_v2_results->secs[0].radio_on_time);
-		cur_channel_stat.cca_busy_time = dtoh32(cca_v2_results->secs[0].cca_busy_time);
-
-		WL_TRACE(("wifi chan statics ver.3 - on_time : %u, cca_busy_time : %u\n",
-			cur_channel_stat.on_time, cur_channel_stat.cca_busy_time));
-	} else if ((err == BCME_OK) &&
-			(dtoh16(cca_ver) == WL_CCA_EXT_REQ_VER_V2)) {
-
-		cca_v2_req.chanspec =
-			wl_chspec_host_to_driver(wf_chspec_primary20_chspec(cur_chanspec));
-
-		err = wldev_iovar_getbuf(inet_ndev, "cca_get_stats_ext",
-			&cca_v2_req, sizeof(cca_v2_req), iovar_buf, WLC_IOCTL_MAXLEN, NULL);
-
-		if (err != BCME_OK) {
-			WL_ERR(("cca_get_stats_ext iovar err = %d\n", err));
-			goto exit;
-		}
-
-		cca_v2_results = (cca_congest_ext_channel_req_v2_t *) iovar_buf;
-
-		/* the accumulated time for the current channel */
-		cur_channel_stat.on_time = dtoh32(cca_v2_results->secs[0].radio_on_time);
-		cur_channel_stat.cca_busy_time = dtoh32(cca_v2_results->secs[0].cca_busy_time);
-
-		WL_TRACE(("wifi chan statics ver.2 - on_time : %u, cca_busy_time : %u\n",
-			cur_channel_stat.on_time, cur_channel_stat.cca_busy_time));
-	} else {
-		/* To get fine-grained cca result,
-		* you can increase num_secs because num_secs is the time to get samples.
-		* Also if the time is increased,
-		* it is necessary to use a loop to add the times of cca_result->sec[].
-		* For simplicity, the sampling time is set to 1sec.
-		*/
-		WL_TRACE(("cca_get_stats_ext unsupported or version mismatch\n"));
-
-		cca_req.num_secs = NUM_CCA_SAMPLING_SECS;
-		cca_req.chanspec = wl_chspec_host_to_driver(cur_chanspec);
-
-		err = wldev_iovar_getbuf(inet_ndev, "cca_get_stats", &cca_req,
-			sizeof(cca_req), iovar_buf, WLC_IOCTL_MAXLEN, NULL);
-
-		if (err != BCME_OK && err != BCME_UNSUPPORTED) {
-			WL_ERR(("error (%d) - size = %zu\n",
-				err, sizeof(cca_congest_channel_req_t)));
-			goto exit;
-		}
-
-		cur_channel_stat.on_time = radio_h.on_time;
-
-		if (err == BCME_OK) {
-			cca_result = (cca_congest_channel_req_t *) iovar_buf;
-			cca_busy_time = dtoh32(cca_result->secs[0].congest_ibss) +
-				dtoh32(cca_result->secs[0].congest_obss) +
-				dtoh32(cca_result->secs[0].interference);
-
-			WL_TRACE(("wifi stats : %u, %u, %u, %u, %u\n", cur_channel_stat.on_time,
-				cca_busy_time,
-				dtoh32(cca_result->secs[0].congest_ibss),
-				dtoh32(cca_result->secs[0].congest_obss),
-				dtoh32(cca_result->secs[0].interference)));
-		} else {
-			WL_ERR(("cca_get_stats is unsupported \n"));
-		}
-
-		/* If cca_get_stats is unsupported, cca_busy_time has zero value as initial value */
-		cur_channel_stat.cca_busy_time = cca_busy_time;
-	}
-#endif /* LINKSTAT_EXT_SUPPORT  */
 	err = wl_cfgvendor_get_radio_stats(cfg, inet_ndev, all_chan_stats,
 			num_channels, &output, &total_len);
 	if (unlikely(err)) {
@@ -8092,173 +8432,18 @@ static int wl_cfgvendor_lstats_get_info(struct wiphy *wiphy,
 		goto exit;
 	}
 
-	COMPAT_BZERO_IFACE(wifi_iface_stat, iface);
-#ifdef LINKSTAT_EXT_SUPPORT
-	/* Update duty cycle info based on RSDB/VSDB */
-	if (wl_cfg80211_determine_rsdb_scc_mode(cfg)) {
-		COMPAT_ASSIGN_VALUE(iface, info.time_slicing_duty_cycle_percent,
-			WIFI_RSDB_TIMESLICE_DUTY_CYCLE);
-	} else {
-		COMPAT_ASSIGN_VALUE(iface, info.time_slicing_duty_cycle_percent,
-			WIFI_VSDB_TIMESLICE_DUTY_CYCLE);
-	}
-#endif /* LINKSTAT_EXT_SUPPORT */
-	COMPAT_ASSIGN_VALUE(iface, ac[WIFI_AC_VO].ac, WIFI_AC_VO);
-	COMPAT_ASSIGN_VALUE(iface, ac[WIFI_AC_VI].ac, WIFI_AC_VI);
-	COMPAT_ASSIGN_VALUE(iface, ac[WIFI_AC_BE].ac, WIFI_AC_BE);
-	COMPAT_ASSIGN_VALUE(iface, ac[WIFI_AC_BK].ac, WIFI_AC_BK);
-
-	err = wldev_iovar_getbuf(inet_ndev, "counters", NULL, 0,
-		iovar_buf, WLC_IOCTL_MAXLEN, NULL);
+	err = wl_update_multi_link_stat(cfg, inet_ndev, &output, &total_len);
 	if (unlikely(err)) {
-		WL_ERR(("error (%d) - size = %zu\n", err, sizeof(wl_cnt_wlc_t)));
+		WL_ERR(("Failed to get iface stat (%d)\n", err));
 		goto exit;
 	}
-
-	CHK_CNTBUF_DATALEN(iovar_buf, WLC_IOCTL_MAXLEN);
-	/* Translate traditional (ver <= 10) counters struct to new xtlv type struct */
-	/* traditional(ver<=10)counters will use WL_CNT_XTLV_CNTV_LE10_UCODE.
-	 * Other cases will use its xtlv type accroding to corerev
-	 */
-	err = wl_cntbuf_to_xtlv_format(NULL, iovar_buf, WLC_IOCTL_MAXLEN, revinfo.corerev);
-	if (err != BCME_OK) {
-		WL_ERR(("wl_cntbuf_to_xtlv_format ERR %d\n", err));
-		goto exit;
-	}
-
-	if (!(wlc_cnt = GET_WLCCNT_FROM_CNTBUF(iovar_buf))) {
-		WL_ERR(("wlc_cnt NULL!\n"));
-		err = BCME_ERROR;
-		goto exit;
-	}
-
-#ifndef DISABLE_IF_COUNTERS
-	if_stats = (wl_if_stats_t *)MALLOCZ(cfg->osh, sizeof(wl_if_stats_t));
-	if (!if_stats) {
-		WL_ERR(("%s: memory allocation for if_stats failed\n", __func__));
-		err = BCME_NOMEM;
-		goto exit;
-	}
-
-	if_infra_enh_stats = (wl_if_infra_enh_stats_v2_t *)MALLOCZ(cfg->osh,
-		sizeof(wl_if_infra_enh_stats_v2_t));
-	if (!if_infra_enh_stats) {
-	    WL_ERR(("MALLOCZ failed\n"));
-	    err = BCME_NOMEM;
-	    goto exit;
-	}
-
-	if (FW_SUPPORTED(dhdp, ifst)) {
-		err = wl_cfg80211_if_infra_enh_ifstats_counters(inet_ndev,
-				if_infra_enh_stats);
-		if (!err) {
-			rxbeaconmbss =	if_infra_enh_stats->rxbeaconmbss;
-		}
-	}
-
-	if (FW_SUPPORTED(dhdp, ifst)) {
-		err = wl_cfg80211_ifstats_counters(inet_ndev, if_stats);
-	} else {
-		err = wldev_iovar_getbuf(inet_ndev, "if_counters",
-			NULL, 0, (char *)if_stats, sizeof(*if_stats), NULL);
-	}
-
-	if (!err) {
-		/* Populate from if_stats */
-		if (dtoh16(if_stats->version) > WL_IF_STATS_T_VERSION_1) {
-			WL_ERR(("incorrect version of wl_if_stats_t,"
-				" expected=%u got=%u\n", WL_IF_STATS_T_VERSION_1,
-				if_stats->version));
-			goto exit;
-		}
-		COMPAT_ASSIGN_VALUE(iface, ac[WIFI_AC_BE].tx_mpdu, (uint32)if_stats->txframe);
-		COMPAT_ASSIGN_VALUE(iface, ac[WIFI_AC_BE].rx_mpdu,
-			(uint32)(if_stats->rxframe - if_stats->rxmulti));
-		COMPAT_ASSIGN_VALUE(iface, ac[WIFI_AC_BE].mpdu_lost,
-				(uint32)if_stats->txfail + wlc_cnt->tx_toss_cnt);
-		COMPAT_ASSIGN_VALUE(iface, ac[WIFI_AC_BE].retries, (uint32)if_stats->txretrans);
-	} else
-#endif /* !DISABLE_IF_COUNTERS */
-	{
-		COMPAT_ASSIGN_VALUE(iface, ac[WIFI_AC_BE].tx_mpdu,
-			(wlc_cnt->txfrmsnt - wlc_cnt->txmulti));
-		COMPAT_ASSIGN_VALUE(iface, ac[WIFI_AC_BE].rx_mpdu, wlc_cnt->rxframe);
-		COMPAT_ASSIGN_VALUE(iface, ac[WIFI_AC_BE].mpdu_lost,
-				wlc_cnt->txfail + wlc_cnt->tx_toss_cnt);
-		COMPAT_ASSIGN_VALUE(iface, ac[WIFI_AC_BE].retries, wlc_cnt->txretrans);
-	}
-
-	err = wldev_get_rssi(inet_ndev, &scbval);
-	if (unlikely(err)) {
-		WL_ERR(("get_rssi error (%d)\n", err));
-		goto exit;
-	}
-
-	COMPAT_ASSIGN_VALUE(iface, beacon_rx, rxbeaconmbss);
-	COMPAT_ASSIGN_VALUE(iface, rssi_mgmt, scbval.val);
-	COMPAT_ASSIGN_VALUE(iface, num_peers, NUM_PEER);
-	COMPAT_ASSIGN_VALUE(iface, peer_info->num_rate, NUM_RATE);
-
-#ifdef LINKSTAT_EXT_SUPPORT
-	err = wldev_iovar_getbuf(inet_ndev, "bssload_report", NULL,
-		0, iovar_buf, WLC_IOCTL_MAXLEN, NULL);
-
-	if (err == BCME_OK) {
-		bssload = (wl_bssload_t *)iovar_buf;
-		COMPAT_ASSIGN_VALUE(iface, peer_info->bssload.sta_count, bssload->sta_count);
-		COMPAT_ASSIGN_VALUE(iface, peer_info->bssload.chan_util, bssload->chan_util);
-	} else if (err == BCME_UNSUPPORTED) {
-		WL_ERR(("bssload_report is unsupported \n"));
-	} else if (err == BCME_NOTASSOCIATED) {
-		WL_ERR(("bssload_report IOVAR failed. STA is not associated.\n"));
-	} else {
-		WL_ERR(("error (%d) - size = %zu\n", err, sizeof(wl_bssload_t)));
-		goto exit;
-	}
-#endif /* LINKSTAT_EXT_SUPPORT */
-	COMPAT_MEMCOPY_IFACE(output, total_len, wifi_iface_stat, iface, wifi_rate_stat);
-
-	err = wldev_iovar_getbuf(inet_ndev, "ratestat", NULL, 0,
-		iovar_buf, WLC_IOCTL_MAXLEN, NULL);
-	if (err != BCME_OK && err != BCME_UNSUPPORTED) {
-		WL_ERR(("error (%d) - size = %zu\n", err, NUM_RATE*sizeof(wifi_rate_stat)));
-		goto exit;
-	}
-	for (i = 0; i < NUM_RATE; i++) {
-		p_wifi_rate_stat =
-			(wifi_rate_stat *)(iovar_buf + i*sizeof(wifi_rate_stat));
-		p_wifi_rate_stat_v1 = (wifi_rate_stat_v1 *)output;
-		p_wifi_rate_stat_v1->rate.preamble = p_wifi_rate_stat->rate.preamble;
-		p_wifi_rate_stat_v1->rate.nss = p_wifi_rate_stat->rate.nss;
-		p_wifi_rate_stat_v1->rate.bw = p_wifi_rate_stat->rate.bw;
-		p_wifi_rate_stat_v1->rate.rateMcsIdx = p_wifi_rate_stat->rate.rateMcsIdx;
-		p_wifi_rate_stat_v1->rate.reserved = p_wifi_rate_stat->rate.reserved;
-		p_wifi_rate_stat_v1->rate.bitrate = p_wifi_rate_stat->rate.bitrate;
-		p_wifi_rate_stat_v1->tx_mpdu = p_wifi_rate_stat->tx_mpdu;
-		p_wifi_rate_stat_v1->rx_mpdu = p_wifi_rate_stat->rx_mpdu;
-		p_wifi_rate_stat_v1->mpdu_lost = p_wifi_rate_stat->mpdu_lost;
-		p_wifi_rate_stat_v1->retries = p_wifi_rate_stat->retries;
-		p_wifi_rate_stat_v1->retries_short = p_wifi_rate_stat->retries_short;
-		p_wifi_rate_stat_v1->retries_long = p_wifi_rate_stat->retries_long;
-		output = (char *) &(p_wifi_rate_stat_v1->retries_long);
-		output += sizeof(p_wifi_rate_stat_v1->retries_long);
-	}
-
-	/* Due to flexible array member, '-' operation is required.
-	 * Remove redundant wifi_peer_info[1] size from 'wifi_iface_stat'
-	 * Remove redundant wifi_rate_stat[1] size from 'wifi_peer_info'
-	 */
-	total_len = total_len -
-		sizeof(wifi_peer_info) +
-		NUM_PEER * (sizeof(wifi_peer_info) -
-		sizeof(wifi_rate_stat) +
-		NUM_RATE * sizeof(wifi_rate_stat_v1));
 
 	if (total_len > WLC_IOCTL_MAXLEN) {
 		WL_ERR(("Error! total_len:%d is unexpected value\n", total_len));
 		err = BCME_BADLEN;
 		goto exit;
 	}
+
 	err = wl_cfgvendor_send_stats_info(wiphy, outdata, total_len);
 	if (unlikely(err)) {
 		WL_ERR(("Vendor Command reply failed ret:%d \n", err));
@@ -8268,21 +8453,10 @@ exit:
 	if (outdata) {
 		MFREE(cfg->osh, outdata, WLC_IOCTL_MAXLEN);
 	}
-#ifndef DISABLE_IF_COUNTERS
-	if (if_stats) {
-		MFREE(cfg->osh, if_stats, sizeof(wl_if_stats_t));
-	}
 
-	if (if_infra_enh_stats) {
-		MFREE(cfg->osh, if_infra_enh_stats, sizeof(wl_if_infra_enh_stats_v2_t));
-	}
-#endif /* !DISABLE_IF_COUNTERS */
-
-#ifdef LINKSTAT_EXT_SUPPORT
 	if (all_chan_stats) {
 		MFREE(cfg->osh, all_chan_stats, CHANINFO_LIST_BUF_SIZE);
 	}
-#endif /* LINKSTAT_EXT_SUPPORT */
 
 #ifdef RPM_FAST_TRIGGER
 	WL_INFORM(("Trgger RPM Fast\n"));
@@ -9465,16 +9639,16 @@ static int wl_cfgvendor_nla_put_memdump_data(struct sk_buff *skb,
 	ret = nla_put_string(skb, DUMP_FILENAME_ATTR_MEM_DUMP, memdump_path);
 	if (unlikely(ret)) {
 		WL_ERR(("Failed to nla put mem dump path, ret=%d\n", ret));
-		goto exit;
+		return ret;
 	}
 #endif /* DHD_HAL_RING_DUMP */
+#ifdef MEM_DUMP_DEBUGABILITY
 	ret = nla_put_u32(skb, DUMP_LEN_ATTR_MEMDUMP, fw_len);
 	if (unlikely(ret)) {
 		WL_ERR(("Failed to nla put mem dump length, ret=%d\n", ret));
-		goto exit;
+		return ret;
 	}
-
-exit:
+#endif /* MEM_DUMP_DEBUGABILITY */
 	return ret;
 }
 
@@ -12719,7 +12893,7 @@ wl_cfgvendor_get_cached_scan_results(struct wiphy *wiphy,
 
 	/* Propagate the data to the upper layer */
 	mem_needed = VENDOR_REPLY_OVERHEAD + NLA_HDRLEN +
-		ATTRIBUTE_U16_LEN + ATTRIBUTE_U32_LEN +
+		ATTRIBUTE_U16_LEN + sizeof(ts_since_boot) +
 		sizeof(dest_scan_cache);
 
 	/* Alloc the SKB for vendor_event */
@@ -12741,7 +12915,7 @@ wl_cfgvendor_get_cached_scan_results(struct wiphy *wiphy,
 		scan_cache_data = &scan_cache->scan_data[i];
 		if (scan_cache_data && scan_cache_data->valid) {
 			wl_cfgvendor_map_scan_cache_to_hal(scan_cache_data,
-					&dest_scan_cache[valid_entries]);
+				&dest_scan_cache[valid_entries]);
 			valid_entries++;
 		} else {
 			WL_DBG(("No valid scan cache entry further, exit\n"));
@@ -12757,19 +12931,22 @@ wl_cfgvendor_get_cached_scan_results(struct wiphy *wiphy,
 		goto exit;
 	}
 
-	ret = nla_put_u32(skb, ANDR_WIFI_ATTRIBUTE_CACHED_SCAN_BOOT_TIMESTAMP, ts_since_boot);
+	ret = nla_put(skb, ANDR_WIFI_ATTRIBUTE_CACHED_SCAN_BOOT_TIMESTAMP,
+		sizeof(ts_since_boot), &ts_since_boot);
 	if (unlikely(ret)) {
 		WL_ERR(("Failed to put timestamp\n"));
 		kfree_skb(skb);
 		goto exit;
 	}
 
-	ret = nla_put(skb, ANDR_WIFI_ATTRIBUTE_CACHED_SCAN_RESULTS,
-		(valid_entries*WIFI_CACHED_SCAN_RESULT_SIZE), &dest_scan_cache);
-	if (unlikely(ret)) {
-		WL_ERR(("Failed to put cached scan results\n"));
-		kfree_skb(skb);
-		goto exit;
+	if (valid_entries) {
+		ret = nla_put(skb, ANDR_WIFI_ATTRIBUTE_CACHED_SCAN_RESULTS,
+			(valid_entries*WIFI_CACHED_SCAN_RESULT_SIZE), &dest_scan_cache);
+		if (unlikely(ret)) {
+			WL_ERR(("Failed to put cached scan results\n"));
+			kfree_skb(skb);
+			goto exit;
+		}
 	}
 
 	ret = cfg80211_vendor_cmd_reply(skb);
@@ -12790,7 +12967,7 @@ exit:
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 3, 0))
 const struct nla_policy
 	wifi_get_cached_scan_results_attr_policy[ANDR_WIFI_ATTRIBUTE_CACHED_SCAN_MAX] = {
-	[ANDR_WIFI_ATTRIBUTE_CACHED_SCAN_BOOT_TIMESTAMP] = { .type = NLA_U64 },
+	[ANDR_WIFI_ATTRIBUTE_CACHED_SCAN_BOOT_TIMESTAMP] = { .type = NLA_BINARY },
 	[ANDR_WIFI_ATTRIBUTE_CACHED_SCANNED_FREQ_NUM] = { .type = NLA_U16 },
 	[ANDR_WIFI_ATTRIBUTE_CACHED_SCANNED_FREQ_LIST] = { .type = NLA_BINARY },
 	[ANDR_WIFI_ATTRIBUTE_CACHED_SCAN_RESULT_CNT] = { .type = NLA_U16 },

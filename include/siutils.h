@@ -2,7 +2,7 @@
  * Misc utility routines for accessing the SOC Interconnects
  * of Broadcom HNBU chips.
  *
- * Copyright (C) 2022, Broadcom.
+ * Copyright (C) 2023, Broadcom.
  *
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you
@@ -1157,4 +1157,6 @@ const char *const *si_spm_get_clkstr(si_t *sih);
 int si_spm_get_max_ro(si_t *sih, uint32 *max);
 bool si_buscore_prep(si_t *sih, uint bustype, uint devid, void *sdh);
 bool si_ispcie(const si_t *sih);
+int si_bpind_access(si_t *sih, uint32 addr_high, uint32 addr_low,
+	int32 * data, bool read, uint32 us_timeout);
 #endif	/* _siutils_h_ */

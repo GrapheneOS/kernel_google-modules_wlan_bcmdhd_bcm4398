@@ -1,7 +1,7 @@
 /*
  * Linux cfg80211 Vendor Extension Code
  *
- * Copyright (C) 2022, Broadcom.
+ * Copyright (C) 2023, Broadcom.
  *
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you
@@ -477,6 +477,8 @@ enum rtt_attributes {
 	RTT_ATTRIBUTE_RESULT_CNT		= 32,
 	RTT_ATTRIBUTE_RESULT			= 33,
 	RTT_ATTRIBUTE_RESULT_DETAIL		= 34,
+	RTT_ATTRIBUTE_RESULT_FREQ		= 35,
+	RTT_ATTRIBUTE_RESULT_BW			= 36,
 	/* Add any new RTT_ATTRIBUTE prior to RTT_ATTRIBUTE_MAX */
 	RTT_ATTRIBUTE_MAX
 };
@@ -1089,7 +1091,8 @@ typedef enum {
 	ANDR_LSTAT_ATTRIBUTE_INVALID	= 0,
 	ANDR_LSTAT_ATTRIBUTE_NUM_RADIO	= 1,
 	ANDR_LSTAT_ATTRIBUTE_STATS_INFO	= 2,
-	ANDR_LSTAT_ATTRIBUTE_STATS_MAX	= 3
+	ANDR_ML_LSTAT_ATTRIBUTE_STATS_INFO = 3,
+	ANDR_LSTAT_ATTRIBUTE_STATS_MAX	= 4
 } LINK_STAT_ATTRIBUTE;
 
 typedef enum {

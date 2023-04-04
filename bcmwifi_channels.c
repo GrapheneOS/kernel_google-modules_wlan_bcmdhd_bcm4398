@@ -3,7 +3,7 @@
  * Contents are wifi-specific, used by any kernel or app-level
  * software that might want wifi things as it grows.
  *
- * Copyright (C) 2022, Broadcom.
+ * Copyright (C) 2023, Broadcom.
  *
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you
@@ -2548,7 +2548,7 @@ wf_mhz2channel(uint freq, uint start_factor)
  * @see  WF_CHAN_FACTOR_6_G
  */
 int
-wf_channel2mhz(uint ch, uint start_factor)
+BCMPOSTTRAPFN(wf_channel2mhz)(uint ch, uint start_factor)
 {
 	int freq;
 

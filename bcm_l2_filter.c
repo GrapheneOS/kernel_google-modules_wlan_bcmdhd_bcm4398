@@ -1,7 +1,7 @@
 /*
  * L2 Filter handling functions
  *
- * Copyright (C) 2022, Broadcom.
+ * Copyright (C) 2023, Broadcom.
  *
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you
@@ -371,7 +371,7 @@ bcm_l2_filter_parp_modifyentry(arp_table_t* arp_tbl, struct ether_addr *ea,
 	while (entry) {
 		if (bcmp(entry->ip.data, ip, ip_len) == 0) {
 			/* entry matches, overwrite mac content and return */
-			bcopy((void *)ea, (void *)&entry->ea, ETHER_ADDR_LEN);
+			eacopy(ea, &entry->ea);
 			entry->used = entry_tickcnt;
 #ifdef DHD_DUMP_ARPTABLE
 			bcm_l2_parp_dump_table(arp_tbl);
@@ -415,11 +415,11 @@ bcm_l2_filter_parp_addentry(osl_t *osh, arp_table_t* arp_tbl, struct ether_addr 
 	    return BCME_NOMEM;
 	}
 
-	bcopy((void *)ea, (void *)&entry->ea, ETHER_ADDR_LEN);
+	eacopy(ea, &entry->ea);
 	entry->used = entry_tickcnt;
 	entry->ip.id = ip_ver;
 	entry->ip.len = ip_len;
-	bcopy(ip, entry->ip.data, ip_len);
+	(void)memcpy_s(entry->ip.data, ip_len, ip, ip_len);
 	ptable = arp_tbl;
 	if (cached) {
 	    entry->next = ptable->parp_table[idx];
@@ -547,8 +547,9 @@ bcm_l2_filter_arp_table_update(osl_t *osh, arp_table_t* arp_tbl, bool all, uint8
 			    (del_ea != NULL && !bcmp(del_ea, &entry->ea, ETHER_ADDR_LEN))) {
 				/* copy frame here */
 				ip_ver = entry->ip.id;
-				bcopy(entry->ip.data, ip, entry->ip.len);
-				bcopy(&entry->ea, &ea, ETHER_ADDR_LEN);
+				(void)memcpy_s(ip, sizeof(ip),
+					entry->ip.data, MIN(entry->ip.len, sizeof(ip)));
+				eacopy(&entry->ea, &ea);
 				entry = entry->next;
 				bcm_l2_filter_parp_delentry(osh, ptable, &ea, ip, ip_ver, TRUE);
 			}
@@ -616,11 +617,11 @@ bcm_l2_filter_proxyarp_alloc_reply(osl_t* osh, uint16 pktlen, struct ether_addr 
 	frame = PKTDATA(osh, pkt);
 
 	/* Create 14-byte eth header, plus snap header if applicable */
-	bcopy(src_ea, frame + ETHER_SRC_OFFSET, ETHER_ADDR_LEN);
-	bcopy(dst_ea, frame + ETHER_DEST_OFFSET, ETHER_ADDR_LEN);
+	eacopy(src_ea, frame + ETHER_SRC_OFFSET);
+	eacopy(dst_ea, frame + ETHER_DEST_OFFSET);
 	if (snap) {
 		hton16_ua_store(pktlen, frame + ETHER_TYPE_OFFSET);
-		bcopy(llc_snap_hdr, frame + ETHER_HDR_LEN, SNAP_HDR_LEN);
+		(void)memcpy_s(frame + ETHER_HDR_LEN, SNAP_HDR_LEN, llc_snap_hdr, SNAP_HDR_LEN);
 		hton16_ua_store(ea_type, frame + ETHER_HDR_LEN + SNAP_HDR_LEN);
 	} else
 		hton16_ua_store(ea_type, frame + ETHER_TYPE_OFFSET);
@@ -632,25 +633,25 @@ bcm_l2_filter_proxyarp_alloc_reply(osl_t* osh, uint16 pktlen, struct ether_addr 
 /* copy the smac entry from parp_table */
 void bcm_l2_filter_parp_get_smac(arp_table_t* ptable, void* smac)
 {
-	bcopy(ptable->parp_smac, smac, ETHER_ADDR_LEN);
+	eacopy(ptable->parp_smac, smac);
 }
 
 /* copy the cmac entry from parp_table */
 void bcm_l2_filter_parp_get_cmac(arp_table_t* ptable, void* cmac)
 {
-	bcopy(ptable->parp_cmac, cmac, ETHER_ADDR_LEN);
+	eacopy(ptable->parp_cmac, cmac);
 }
 
 /* copy the smac entry to smac entry in parp_table */
 void bcm_l2_filter_parp_set_smac(arp_table_t* ptable, void* smac)
 {
-	bcopy(smac, ptable->parp_smac, ETHER_ADDR_LEN);
+	eacopy(smac, ptable->parp_smac);
 }
 
 /* copy the cmac entry to cmac entry in parp_table */
 void bcm_l2_filter_parp_set_cmac(arp_table_t* ptable, void* cmac)
 {
-	bcopy(cmac, ptable->parp_cmac, ETHER_ADDR_LEN);
+	eacopy(cmac, ptable->parp_cmac);
 }
 
 uint16

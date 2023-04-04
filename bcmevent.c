@@ -1,7 +1,7 @@
 /*
  * bcmevent read-only data shared by kernel or app layers
  *
- * Copyright (C) 2022, Broadcom.
+ * Copyright (C) 2023, Broadcom.
  *
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you
@@ -167,9 +167,9 @@ static const bcmevent_name_str_t bcmevent_names[] = {
 #ifdef WLWNM
 	BCMEVENT_NAME(WLC_E_WNM_STA_SLEEP),
 #endif /* WLWNM */
-#if defined(WL_PROXDETECT) || defined(RTT_SUPPORT)
+#if defined(FTM) || defined(WL_PROXDETECT) || defined(RTT_SUPPORT)
 	BCMEVENT_NAME(WLC_E_PROXD),
-#endif
+#endif /* FTM || WL_PROXDETECT || RTT_SUPPORT */
 	BCMEVENT_NAME(WLC_E_CCA_CHAN_QUAL),
 	BCMEVENT_NAME(WLC_E_BSSID),
 #ifdef PROP_TXSTATUS

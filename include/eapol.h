@@ -5,7 +5,7 @@
  * IEEE Std 802.1X-2001
  * IEEE 802.1X RADIUS Usage Guidelines
  *
- * Copyright (C) 2022, Broadcom.
+ * Copyright (C) 2023, Broadcom.
  *
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you
@@ -117,6 +117,7 @@ typedef BWL_PRE_PACKED_STRUCT struct {
 
 #define EAPOL_WPA_PMK_MAX_LEN           64u
 #define EAPOL_WPA_PMK_SHA384_LEN        48u
+#define EAPOL_WPA_PMK_SHA512_LEN        64u
 #define EAPOL_WPA_PMK_DEFAULT_LEN	32u
 #define EAPOL_WPA_KCK_DEFAULT_LEN	16u
 #define EAPOL_WPA_KCK_SHA384_LEN	24u
