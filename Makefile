@@ -29,6 +29,8 @@ ifneq ($(KERNEL_SRC),)
   EXTRA_CFLAGS+="-Wno-missing-prototypes"
 endif
 
+EXTRA_SYMBOLS +=$(OUT_DIR)/../google-modules/wlan/wlan_ptracker/Module.symvers
+
 all:
 	$(MAKE) -C $(KERNEL_SRC) M=$(M) \
 	$(KBUILD_OPTIONS) EXTRA_CFLAGS="$(EXTRA_CFLAGS)" KBUILD_EXTRA_SYMBOLS="$(EXTRA_SYMBOLS)" modules
