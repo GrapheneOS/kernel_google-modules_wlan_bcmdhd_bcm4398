@@ -18622,12 +18622,6 @@ static s32 wl_notifier_change_state(struct bcm_cfg80211 *cfg, struct net_info *_
 #endif /* DISABLE_WL_FRAMEBURST_SOFTAP */
 #endif /* BCMDONGLEHOST */
 	}
-#ifdef WLAN_TRACKER
-	/* notifer sta state change */
-	if (err == BCME_OK)
-		dhd_custom_notify(
-			set ? CUSTOM_NOTIFY_STA_CONNECT : CUSTOM_NOTIFY_STA_DISCONNECT);
-#endif /* WLAN_TRACKER */
 	return err;
 }
 
