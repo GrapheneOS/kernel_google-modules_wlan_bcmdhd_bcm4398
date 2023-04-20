@@ -3486,10 +3486,6 @@ bool dhd_runtimepm_state(dhd_pub_t *dhd)
 			DHD_PRINT(("%s: DHD Idle state!! -  idletime :%d, wdtick :%d \n",
 				__FUNCTION__, bus->idletime, dhd_runtimepm_ms));
 #endif /* WL_CFG80211 */
-
-#ifdef WLAN_TRACKER
-			dhd_custom_notify(CUSTOM_NOTIFY_BUS_SUSPEND);
-#endif /* WLAN_TRACKER */
 			/* RPM suspend is failed, return FALSE then re-trying */
 			if (dhdpcie_set_suspend_resume(bus, TRUE)) {
 				DHD_PRINT(("%s: exit with wakelock \n", __FUNCTION__));
