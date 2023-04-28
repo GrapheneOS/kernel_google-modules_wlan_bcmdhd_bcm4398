@@ -34,6 +34,7 @@
 #include <linux/version.h>
 #include <linux/delay.h>
 #include <linux/vmalloc.h>
+#include <linux/sched/clock.h>
 
 #include <wb_regon_coordinator.h>
 #include <bcmstdlib_s.h>
@@ -49,9 +50,16 @@ typedef unsigned int __poll_t;
 #endif
 
 static struct wbrc_pvt_data *g_wbrc_data;
+static struct mutex wbrc_mutex;
+static wait_queue_head_t outmsg_waitq;
 
 static int bt2wbrc_ack_bt_reset(struct wbrc_pvt_data *wbrc_data);
+#ifdef BT_FW_DWNLD
 static int bt2wbrc_bt_fw_dwnld(struct wbrc_pvt_data *wbrc_data, void *fwblob, uint len);
+#endif /* BT_FW_DWNLD */
+#ifdef WBRC_HW_QUIRKS
+static void bt2wbrc_process_reg_onoff_cmds(int cmd);
+#endif
 static void wbrc2bt_cmd_bt_reset(struct wbrc_pvt_data *wbrc_data);
 
 static int wbrc_bt_dev_open(struct inode *, struct file *);
@@ -82,37 +90,76 @@ struct wbrc_pvt_data {
 	int wbrc_bt_dev_major_number;		/* BT char dev major number */
 	struct class *wbrc_bt_dev_class;	/* BT char dev class */
 	struct device *wbrc_bt_dev_device;	/* BT char dev */
-	struct mutex wbrc_mutex;		/* mutex to synchronise */
 	bool bt_dev_opened;			/* To check if bt dev open is called */
 	wait_queue_head_t bt_reset_waitq;	/* waitq to wait till bt reset is done */
 	unsigned int bt_reset_ack;		/* condition variable to be check for bt reset */
-	wait_queue_head_t outmsg_waitq;		/* wait queue for poll */
 	wbrc_msg_t wbrc2bt_msg;			/* message to send to BT stack */
+#ifdef BT_FW_DWNLD
 	/* buffer to store ext message sent from BT to WBRC */
 	unsigned char bt2wbrc_ext_msgbuf[WBRC_MSG_BUF_MAXLEN];
+#endif /* BT_FW_DWNLD */
 	bool read_data_available;		/* condition to check if read data is present */
 	wbrc_state_t state;			/* wbrc state machine */
 	wait_queue_head_t state_change_waitq;	/* Q to wait on for state change events */
 	struct mutex state_mutex;		/* mutex to synchronise on state changes */
+#ifdef WBRC_HW_QUIRKS
+	struct mutex onoff_mutex;	/* mutex to synchronise on wl/bt_regon/off_inprogress */
+	uint wl_regon_inprogress;		/* indicates WL reg on is in progress */
+	uint wl_regoff_inprogress;		/* indicates WL reg off is in progress */
+	uint bt_regon_inprogress;		/* indicates BT reg on is in progress */
+	uint bt_regoff_inprogress;		/* indicates BT reg off is in progress */
+	wait_queue_head_t onoff_waitq;		/* Q to wait on for reg on/off events */
+	uint chipid;
+	unsigned long long bt_after_regoff_ts;	/* timestamp of the last BT reg off */
+	unsigned long long wl_after_regoff_ts;	/* timestamp of the last WL reg off */
+#endif /* WBRC_HW_QUIRKS */
 	void *wl_hdl;				/* opaque handle to wlan host driver */
 };
 
-#define WBRC_LOCK(wbrc_data)	{if (wbrc_data) mutex_lock(&(wbrc_data)->wbrc_mutex);}
-#define WBRC_UNLOCK(wbrc_data)	{if (wbrc_data) mutex_unlock(&(wbrc_data)->wbrc_mutex);}
+#define WBRC_LOCK(wbrc_mutex)           mutex_lock(&wbrc_mutex)
+#define WBRC_UNLOCK(wbrc_mutex)         mutex_unlock(&wbrc_mutex)
 
 #define WBRC_STATE_LOCK(wbrc_data)	{if (wbrc_data) mutex_lock(&(wbrc_data)->state_mutex);}
 #define WBRC_STATE_UNLOCK(wbrc_data)	{if (wbrc_data) mutex_unlock(&(wbrc_data)->state_mutex);}
+
+#define WBRC_ONOFF_LOCK(wbrc_data)	{if (wbrc_data) mutex_lock(&(wbrc_data)->onoff_mutex);}
+#define WBRC_ONOFF_UNLOCK(wbrc_data)	{if (wbrc_data) mutex_unlock(&(wbrc_data)->onoff_mutex);}
+
+#define WBRC_CHKCHIP(chipid) ((chipid) != (0x4390))
+
+#define	MIN(a, b)	(((a) < (b)) ? (a) : (b))
+
+#ifdef WBRC_HW_QUIRKS
+static void
+wbrc_delay(uint msec)
+{
+	msleep(msec);
+}
+
+unsigned long long
+wbrc_sysuptime_ns(void)
+{
+	return local_clock();
+}
+#endif /* WBRC_HW_QUIRKS */
 
 static ssize_t
 wbrc_bt_dev_read(struct file *filep, char *buffer, size_t len,
                              loff_t *offset)
 {
-	struct wbrc_pvt_data *wbrc_data = filep->private_data;
+	struct wbrc_pvt_data *wbrc_data;
 	int err_count = 0;
 	int ret = 0;
 
-	WBRC_LOCK(wbrc_data);
+	WBRC_LOCK(wbrc_mutex);
 	pr_info("%s\n", __func__);
+	wbrc_data = g_wbrc_data;
+	if (!wbrc_data) {
+		pr_err("%s: wbrc not inited !\n", __func__);
+		ret = -EFAULT;
+		goto exit;
+	}
+
 	if (wbrc_data->read_data_available == FALSE) {
 		goto exit;
 	}
@@ -134,7 +181,7 @@ wbrc_bt_dev_read(struct file *filep, char *buffer, size_t len,
 	wbrc_data->read_data_available = FALSE;
 
 exit:
-	WBRC_UNLOCK(wbrc_data);
+	WBRC_UNLOCK(wbrc_mutex);
 	return ret;
 }
 
@@ -142,16 +189,25 @@ static ssize_t
 wbrc_bt_dev_write(struct file *filep, const char *buffer,
 	size_t len, loff_t *offset)
 {
-	struct wbrc_pvt_data *wbrc_data = filep->private_data;
+	struct wbrc_pvt_data *wbrc_data;
 	int err_count = 0;
-	int ret = len, err = 0;
+	int ret = len;
 	wbrc_msg_t msg;
+#ifdef BT_FW_DWNLD
+	int err = 0;
 	wbrc_ext_msg_t *extmsg = NULL;
+#endif /* BT_FW_DWNLD */
 #ifdef WBRC_TEST
 	unsigned char stub_msg = FALSE;
 #endif
 
-	WBRC_LOCK(wbrc_data);
+	WBRC_LOCK(wbrc_mutex);
+	wbrc_data = g_wbrc_data;
+	if (!wbrc_data) {
+		pr_err("%s: wbrc not inited !\n", __func__);
+		ret = -EFAULT;
+		goto exit;
+	}
 
 	pr_info("%s Received %zu bytes\n", __func__, len);
 	if (len < WBRC_MSG_LEN || len > WBRC_MSG_BUF_MAXLEN) {
@@ -186,6 +242,7 @@ wbrc_bt_dev_write(struct file *filep, const char *buffer,
 
 	/* check for extended len msg */
 	if (msg.len & WBRC_EXT_MSG_LEN) {
+#ifdef BT_FW_DWNLD
 		/* copy the full ext msg including BT FW blob */
 #ifdef WBRC_TEST
 		if (stub_msg) {
@@ -228,58 +285,105 @@ wbrc_bt_dev_write(struct file *filep, const char *buffer,
 			pr_err("%s: Unknown extmsg type = 0x%x\n", __func__, extmsg->type);
 			ret = -EFAULT;
 		}
+#endif /* BT_FW_DWNLD */
 	} else if (msg.type == WBRC_TYPE_BT2WBRC_ACK && msg.val == WBRC_ACK_BT_RESET_COMPLETE) {
 		pr_info("RCVD ACK_RESET_BT_COMPLETE");
 		bt2wbrc_ack_bt_reset(wbrc_data);
+	} else if (msg.type == WBRC_TYPE_BT2WBRC_CMD) {
+#ifdef WBRC_HW_QUIRKS
+		if (msg.val >= WBRC_CMD_BT_BEFORE_REG_OFF &&
+			msg.val <= WBRC_CMD_BT_AFTER_REG_ON) {
+			if (WBRC_CHKCHIP(wbrc_data->chipid)) {
+				ret = len;
+			} else {
+				bt2wbrc_process_reg_onoff_cmds(msg.val);
+			}
+		}
+#endif /* WBRC_HW_QUIRKS */
 	} else {
 		pr_err("%s: Unknown msg type %u\n", __func__, msg.type);
 		ret = -EFAULT;
 	}
 
 exit:
-	WBRC_UNLOCK(wbrc_data);
+	WBRC_UNLOCK(wbrc_mutex);
 	return ret;
 }
 
 static __poll_t
 wbrc_bt_dev_poll(struct file *filep, poll_table *wait)
 {
-	struct wbrc_pvt_data *wbrc_data = filep->private_data;
+	struct wbrc_pvt_data *wbrc_data;
 	__poll_t mask = 0;
 
-	poll_wait(filep, &wbrc_data->outmsg_waitq, wait);
+	pr_info("%s\n", __func__);
+	WBRC_LOCK(wbrc_mutex);
+	wbrc_data = g_wbrc_data;
+	if (!wbrc_data) {
+		pr_err("%s: wbrc not inited !\n", __func__);
+		WBRC_UNLOCK(wbrc_mutex);
+		return EPOLLHUP;
+	}
+	WBRC_UNLOCK(wbrc_mutex);
+
+	poll_wait(filep, &outmsg_waitq, wait);
+
+	WBRC_LOCK(wbrc_mutex);
+	wbrc_data = g_wbrc_data;
+	if (!wbrc_data) {
+		pr_err("%s: wbrc not inited after poll_wait\n", __func__);
+		WBRC_UNLOCK(wbrc_mutex);
+		return EPOLLHUP;
+	}
 
 	if (wbrc_data->read_data_available)
 		mask |= EPOLLIN | EPOLLRDNORM;
 
 	if (!wbrc_data->bt_dev_opened)
 		mask |= EPOLLHUP;
+	WBRC_UNLOCK(wbrc_mutex);
 
 	return mask;
 }
 
 /* WL2WBRC - wlan host driver init */
+#ifdef WBRC_HW_QUIRKS
+void
+wl2wbrc_wlan_init(void *wl_hdl, uint chipid)
+#else
 void
 wl2wbrc_wlan_init(void *wl_hdl)
+#endif /* WBRC_HW_QUIRKS */
 {
 	struct wbrc_pvt_data *wbrc_data = g_wbrc_data;
 	wbrc_data->wl_hdl = wl_hdl;
+#ifdef WBRC_HW_QUIRKS
+	wbrc_data->chipid = chipid;
+	pr_err("%s: called for chipid %x\n", __func__, chipid);
+#endif /* WBRC_HW_QUIRKS */
 }
 
 static int
 wbrc_bt_dev_open(struct inode *inodep, struct file *filep)
 {
-	struct wbrc_pvt_data *wbrc_data = g_wbrc_data;
+	struct wbrc_pvt_data *wbrc_data;
 	int ret = 0, tmo_ret = 0;
 	int state = 0;
 
-	WBRC_LOCK(wbrc_data);
-	if (wbrc_data->bt_dev_opened) {
-		pr_err("%s already opened\n", __func__);
-		WBRC_UNLOCK(wbrc_data);
+	WBRC_LOCK(wbrc_mutex);
+	wbrc_data = g_wbrc_data;
+	if (!wbrc_data) {
+		pr_err("%s: wbrc not inited !\n", __func__);
+		WBRC_UNLOCK(wbrc_mutex);
 		return -EFAULT;
 	}
-	WBRC_UNLOCK(wbrc_data);
+
+	if (wbrc_data->bt_dev_opened) {
+		pr_err("%s already opened\n", __func__);
+		WBRC_UNLOCK(wbrc_mutex);
+		return -EFAULT;
+	}
+	WBRC_UNLOCK(wbrc_mutex);
 
 	WBRC_STATE_LOCK(wbrc_data);
 
@@ -333,12 +437,18 @@ wbrc_bt_dev_open(struct inode *inodep, struct file *filep)
 	wake_up(&wbrc_data->state_change_waitq);
 
 exit:
-	WBRC_LOCK(wbrc_data);
+	WBRC_LOCK(wbrc_mutex);
+	wbrc_data = g_wbrc_data;
+	if (!wbrc_data) {
+		pr_err("%s: wbrc not inited in exit\n", __func__);
+		WBRC_UNLOCK(wbrc_mutex);
+		return ret;
+	}
+
 	wbrc_data->bt_dev_opened = TRUE;
 	pr_err("%s Device opened %d time(s)\n", __func__,
 		wbrc_data->bt_dev_opened);
-	filep->private_data = wbrc_data;
-	WBRC_UNLOCK(wbrc_data);
+	WBRC_UNLOCK(wbrc_mutex);
 
 	pr_err("%s Done\n", __func__);
 	return ret;
@@ -347,12 +457,30 @@ exit:
 static int
 wbrc_bt_dev_release(struct inode *inodep, struct file *filep)
 {
-	struct wbrc_pvt_data *wbrc_data = filep->private_data;
-	WBRC_LOCK(wbrc_data);
+	struct wbrc_pvt_data *wbrc_data;
+
+	WBRC_LOCK(wbrc_mutex);
+	wbrc_data = g_wbrc_data;
+	if (!wbrc_data) {
+		pr_err("%s: wbrc not inited !\n", __func__);
+		WBRC_UNLOCK(wbrc_mutex);
+		return -EFAULT;
+	}
+
 	pr_err("%s Device closed %d\n", __func__, wbrc_data->bt_dev_opened);
 	wbrc_data->bt_dev_opened = FALSE;
-	WBRC_UNLOCK(wbrc_data);
-	wake_up_interruptible(&wbrc_data->outmsg_waitq);
+	WBRC_UNLOCK(wbrc_mutex);
+	wake_up_interruptible(&outmsg_waitq);
+#ifdef BT_FW_DWNLD
+	wake_up_interruptible(&wbrc_data->state_change_waitq);
+#endif
+#ifdef WBRC_HW_QUIRKS
+	WBRC_ONOFF_LOCK(wbrc_data);
+	wbrc_data->bt_regon_inprogress = FALSE;
+	wbrc_data->bt_regoff_inprogress = FALSE;
+	WBRC_ONOFF_UNLOCK(wbrc_data);
+	wake_up_interruptible(&wbrc_data->onoff_waitq);
+#endif /* WBRC_HW_QUIRKS */
 	return 0;
 }
 
@@ -369,7 +497,7 @@ wbrc2bt_cmd_bt_reset(struct wbrc_pvt_data *wbrc_data)
 
 	wbrc_data->read_data_available = TRUE;
 	smp_wmb();
-	wake_up_interruptible(&wbrc_data->outmsg_waitq);
+	wake_up_interruptible(&outmsg_waitq);
 }
 
 int
@@ -385,10 +513,14 @@ wbrc_init(void)
 		return -ENOMEM;
 	}
 
-	mutex_init(&wbrc_data->wbrc_mutex);
+	mutex_init(&wbrc_mutex);
 	mutex_init(&wbrc_data->state_mutex);
+#ifdef WBRC_HW_QUIRKS
+	mutex_init(&wbrc_data->onoff_mutex);
+	init_waitqueue_head(&wbrc_data->onoff_waitq);
+#endif /* WBRC_HW_QUIRKS */
 	init_waitqueue_head(&wbrc_data->bt_reset_waitq);
-	init_waitqueue_head(&wbrc_data->outmsg_waitq);
+	init_waitqueue_head(&outmsg_waitq);
 	init_waitqueue_head(&wbrc_data->state_change_waitq);
 
 	g_wbrc_data = wbrc_data;
@@ -432,17 +564,38 @@ err_register:
 void
 wbrc_exit(void)
 {
-	struct wbrc_pvt_data *wbrc_data = g_wbrc_data;
+	struct wbrc_pvt_data *wbrc_data;
 	pr_info("%s\n", __func__);
+	WBRC_LOCK(wbrc_mutex);
+	wbrc_data = g_wbrc_data;
 	if (!wbrc_data) {
+		pr_err("%s: wbrc not inited !\n", __func__);
+		WBRC_UNLOCK(wbrc_mutex);
 		return;
 	}
-	wake_up_interruptible(&wbrc_data->outmsg_waitq);
+	WBRC_UNLOCK(wbrc_mutex);
+
+	/*
+	 * wake up blocking process if exists
+	 * the process akwaken will process fully only if the wbrc_mutex hold prior to this context
+	 * if not, will return error to the user level
+	 */
+	wake_up_interruptible(&outmsg_waitq);
+
+	WBRC_LOCK(wbrc_mutex);
+	wbrc_data = g_wbrc_data;
+	if (!wbrc_data) {
+		pr_err("%s: wbrc not inited after wakeup\n", __func__);
+		WBRC_UNLOCK(wbrc_mutex);
+		return;
+	}
+
 	device_destroy(wbrc_data->wbrc_bt_dev_class, MKDEV(wbrc_data->wbrc_bt_dev_major_number, 0));
 	class_destroy(wbrc_data->wbrc_bt_dev_class);
 	unregister_chrdev(wbrc_data->wbrc_bt_dev_major_number, DEVICE_NAME);
 	vfree(wbrc_data);
 	g_wbrc_data = NULL;
+	WBRC_UNLOCK(wbrc_mutex);
 }
 
 #ifndef BCMDHD_MODULAR
@@ -564,6 +717,7 @@ bt2wbrc_ack_bt_reset(struct wbrc_pvt_data *wbrc_data)
 	return ret;
 }
 
+#ifdef BT_FW_DWNLD
 static int
 bt2wbrc_bt_fw_dwnld(struct wbrc_pvt_data *wbrc_data, void *fwblob, uint len)
 {
@@ -635,6 +789,7 @@ bt2wbrc_bt_fw_dwnld(struct wbrc_pvt_data *wbrc_data, void *fwblob, uint len)
 exit:
 	return ret;
 }
+#endif /* BT_FW_DWNLD */
 
 /* WL2WBRC - wlan recovery start */
 int
@@ -718,25 +873,26 @@ int
 wl2wbrc_req_bt_reset(void)
 {
 	int ret = 0, tmo_ret = 0;
-	struct wbrc_pvt_data *wbrc_data = g_wbrc_data;
+	struct wbrc_pvt_data *wbrc_data;
 
 	pr_err("%s: enter \n", __func__);
+	WBRC_LOCK(wbrc_mutex);
+	wbrc_data = g_wbrc_data;
 	if (!wbrc_data) {
 		pr_err("%s: not allocated mem\n", __func__);
 		return WBRC_ERR;
 	}
 
-	WBRC_LOCK(wbrc_data);
 	if (!wbrc_data->bt_dev_opened) {
 		pr_info("%s: no BT\n", __func__);
-		WBRC_UNLOCK(wbrc_data);
+		WBRC_UNLOCK(wbrc_mutex);
 		return WBRC_OK;
 	}
 	pr_err("%s: fatal error, reset BT... \n", __func__);
 	/* bt_reset_ack will be set after BT acks for reset */
 	wbrc_data->bt_reset_ack = FALSE;
 	wbrc2bt_cmd_bt_reset(wbrc_data);
-	WBRC_UNLOCK(wbrc_data);
+	WBRC_UNLOCK(wbrc_mutex);
 
 	tmo_ret = wbrc_wait_on_condition(&wbrc_data->bt_reset_waitq, WBRC_WAIT_TIMEOUT,
 		&wbrc_data->bt_reset_ack, TRUE);
@@ -757,3 +913,265 @@ wbrc_get_fops(void)
 	return &wbrc_bt_dev_fops;
 }
 #endif /* WBRC_TEST */
+
+#ifdef WBRC_HW_QUIRKS
+void
+wl2wbrc_wlan_before_regoff(void)
+{
+	struct wbrc_pvt_data *wbrc_data = g_wbrc_data;
+	int tmo_ret = 0;
+
+	if (WBRC_CHKCHIP(wbrc_data->chipid)) {
+		return;
+	}
+
+	pr_err("%s: enter \n", __func__);
+	WBRC_ONOFF_LOCK(wbrc_data);
+	if (wbrc_data->bt_regon_inprogress) {
+		WBRC_ONOFF_UNLOCK(wbrc_data);
+		pr_err("%s: wait for BT regon to finish... \n", __func__);
+		tmo_ret = wbrc_wait_on_condition(&wbrc_data->onoff_waitq,
+			WBRC_ONOFF_WAIT_TIMEOUT, &wbrc_data->bt_regon_inprogress, FALSE);
+		if (tmo_ret <= 0) {
+			pr_err("%s: wait for BT regon to finish timed out !\n", __func__);
+		} else {
+			pr_err("%s: BT regon finished \n", __func__);
+		}
+		WBRC_ONOFF_LOCK(wbrc_data);
+	}
+	wbrc_data->wl_regoff_inprogress = TRUE;
+	WBRC_ONOFF_UNLOCK(wbrc_data);
+	pr_err("%s: exit \n", __func__);
+}
+
+void
+wl2wbrc_wlan_after_regoff(void)
+{
+	struct wbrc_pvt_data *wbrc_data = g_wbrc_data;
+
+	if (WBRC_CHKCHIP(wbrc_data->chipid)) {
+		return;
+	}
+
+	wbrc_data->wl_after_regoff_ts = wbrc_sysuptime_ns();
+	pr_err("%s: enter \n", __func__);
+	WBRC_ONOFF_LOCK(wbrc_data);
+	wbrc_data->wl_regoff_inprogress = FALSE;
+	WBRC_ONOFF_UNLOCK(wbrc_data);
+	pr_err("%s: exit \n", __func__);
+}
+
+void
+wl2wbrc_wlan_before_regon(void)
+{
+	struct wbrc_pvt_data *wbrc_data = g_wbrc_data;
+	int tmo_ret = 0;
+	unsigned long long curts = 0;
+
+	if (WBRC_CHKCHIP(wbrc_data->chipid)) {
+		return;
+	}
+
+	curts = wbrc_sysuptime_ns();
+	pr_err("%s: enter \n", __func__);
+
+	if (wbrc_data->bt_after_regoff_ts && curts &&
+		(wbrc_data->bt_after_regoff_ts < curts) &&
+		((curts - wbrc_data->bt_after_regoff_ts) <
+		 (MIN_REGOFF_TO_REGON_DELAY * NSEC_PER_MSEC))) {
+		pr_err("%s: WL_REG_ON requested within %u ms of last BT_REG_OFF !"
+			" curts=%llu ns; bt_after_regoff_ts=%llu ns\n", __func__,
+			MIN_REGOFF_TO_REGON_DELAY, curts, wbrc_data->bt_after_regoff_ts);
+	}
+	if (wbrc_data->wl_after_regoff_ts && curts &&
+		(wbrc_data->wl_after_regoff_ts < curts) &&
+		((curts - wbrc_data->wl_after_regoff_ts) <
+		 (MIN_REGOFF_TO_REGON_DELAY * NSEC_PER_MSEC))) {
+		pr_err("%s: WL_REG_ON requested within %u ms of last WL_REG_OFF !"
+			" curts=%llu ns; wl_after_regoff_ts=%llu ns\n", __func__,
+			MIN_REGOFF_TO_REGON_DELAY, curts, wbrc_data->wl_after_regoff_ts);
+	}
+
+	WBRC_ONOFF_LOCK(wbrc_data);
+	wbrc_data->wl_regon_inprogress = TRUE;
+	if (wbrc_data->bt_regoff_inprogress) {
+		WBRC_ONOFF_UNLOCK(wbrc_data);
+		pr_err("%s:wait for BT regoff to finish... \n", __func__);
+		tmo_ret = wbrc_wait_on_condition(&wbrc_data->onoff_waitq,
+			WBRC_ONOFF_WAIT_TIMEOUT, &wbrc_data->bt_regoff_inprogress, FALSE);
+		if (tmo_ret <= 0) {
+			pr_err("%s: wait for BT regoff to finish timed out !\n", __func__);
+		} else {
+			pr_err("%s:BT regoff finished \n", __func__);
+		}
+		WBRC_ONOFF_LOCK(wbrc_data);
+	}
+	WBRC_ONOFF_UNLOCK(wbrc_data);
+
+	pr_err("%s: delay %u ms \n", __func__, MIN_REGOFF_TO_REGON_DELAY);
+	wbrc_delay(MIN_REGOFF_TO_REGON_DELAY);
+
+	curts = wbrc_sysuptime_ns();
+	if (wbrc_data->bt_after_regoff_ts && curts &&
+		wbrc_data->bt_after_regoff_ts < curts) {
+		pr_err("%s: delta b/w last BT_REG_OFF and this WL_REG_ON = %llu ns\n",
+			__func__, curts - wbrc_data->bt_after_regoff_ts);
+	}
+	if (wbrc_data->wl_after_regoff_ts && curts &&
+		wbrc_data->wl_after_regoff_ts < curts) {
+		pr_err("%s: delta b/w last WL_REG_OFF and this WL_REG_ON = %llu ns\n",
+			__func__, curts - wbrc_data->wl_after_regoff_ts);
+	}
+	pr_err("%s: exit \n", __func__);
+}
+
+void
+wl2wbrc_wlan_after_regon(void)
+{
+	struct wbrc_pvt_data *wbrc_data = g_wbrc_data;
+
+	if (WBRC_CHKCHIP(wbrc_data->chipid)) {
+		return;
+	}
+
+	pr_err("%s: enter \n", __func__);
+	WBRC_ONOFF_LOCK(wbrc_data);
+	wbrc_data->wl_regon_inprogress = FALSE;
+	WBRC_ONOFF_UNLOCK(wbrc_data);
+	pr_err("%s: exit \n", __func__);
+}
+
+static void
+bt2wbrc_bt_before_regoff(void)
+{
+	struct wbrc_pvt_data *wbrc_data = g_wbrc_data;
+	int tmo_ret = 0;
+
+	pr_err("%s: enter \n", __func__);
+	WBRC_ONOFF_LOCK(wbrc_data);
+	if (wbrc_data->wl_regon_inprogress) {
+		WBRC_ONOFF_UNLOCK(wbrc_data);
+		pr_err("%s: wait for WL regon to finish... \n", __func__);
+		tmo_ret = wbrc_wait_on_condition(&wbrc_data->onoff_waitq,
+			WBRC_ONOFF_WAIT_TIMEOUT, &wbrc_data->wl_regon_inprogress, FALSE);
+		if (tmo_ret <= 0) {
+			pr_err("%s: wait for WL regon to finish timed out !\n", __func__);
+		} else {
+			pr_err("%s: WL regon finished \n", __func__);
+		}
+		WBRC_ONOFF_LOCK(wbrc_data);
+	}
+	wbrc_data->bt_regoff_inprogress = TRUE;
+	WBRC_ONOFF_UNLOCK(wbrc_data);
+	pr_err("%s: exit \n", __func__);
+}
+
+static void
+bt2wbrc_bt_after_regoff(void)
+{
+	struct wbrc_pvt_data *wbrc_data = g_wbrc_data;
+
+	wbrc_data->bt_after_regoff_ts = wbrc_sysuptime_ns();
+	pr_err("%s: enter \n", __func__);
+	WBRC_ONOFF_LOCK(wbrc_data);
+	wbrc_data->bt_regoff_inprogress = FALSE;
+	WBRC_ONOFF_UNLOCK(wbrc_data);
+	pr_err("%s: exit \n", __func__);
+
+}
+
+static void
+bt2wbrc_bt_before_regon(void)
+{
+	struct wbrc_pvt_data *wbrc_data = g_wbrc_data;
+	int tmo_ret = 0;
+	unsigned long long curts = 0;
+
+	curts = wbrc_sysuptime_ns();
+	pr_err("%s: enter \n", __func__);
+
+	if (wbrc_data->wl_after_regoff_ts && curts &&
+		(wbrc_data->wl_after_regoff_ts < curts) &&
+		((curts - wbrc_data->wl_after_regoff_ts) <
+		 (MIN_REGOFF_TO_REGON_DELAY * NSEC_PER_MSEC))) {
+		pr_err("%s: BT_REG_ON requested within %u ms of last WL_REG_OFF !"
+			" curts=%llu ns; wl_after_regoff_ts=%llu ns\n", __func__,
+			MIN_REGOFF_TO_REGON_DELAY, curts, wbrc_data->wl_after_regoff_ts);
+	}
+	if (wbrc_data->bt_after_regoff_ts && curts &&
+		(wbrc_data->bt_after_regoff_ts < curts) &&
+		((curts - wbrc_data->bt_after_regoff_ts) <
+		 (MIN_REGOFF_TO_REGON_DELAY * NSEC_PER_MSEC))) {
+		pr_err("%s: BT_REG_ON requested within %u ms of last BT_REG_OFF !"
+			" curts=%llu ns; bt_after_regoff_ts=%llu ns\n", __func__,
+			MIN_REGOFF_TO_REGON_DELAY, curts, wbrc_data->bt_after_regoff_ts);
+	}
+
+	WBRC_ONOFF_LOCK(wbrc_data);
+	wbrc_data->bt_regon_inprogress = TRUE;
+	if (wbrc_data->wl_regoff_inprogress) {
+		WBRC_ONOFF_UNLOCK(wbrc_data);
+		pr_err("%s:wait for WL regoff to finish... \n", __func__);
+		tmo_ret = wbrc_wait_on_condition(&wbrc_data->onoff_waitq,
+			WBRC_ONOFF_WAIT_TIMEOUT, &wbrc_data->wl_regoff_inprogress, FALSE);
+		if (tmo_ret <= 0) {
+			pr_err("%s: wait for WL regoff to finish timed out !\n", __func__);
+		} else {
+			pr_err("%s:WL regoff finished \n", __func__);
+		}
+		WBRC_ONOFF_LOCK(wbrc_data);
+	}
+	WBRC_ONOFF_UNLOCK(wbrc_data);
+
+	pr_err("%s: delay %u ms \n", __func__, MIN_REGOFF_TO_REGON_DELAY);
+	wbrc_delay(MIN_REGOFF_TO_REGON_DELAY);
+
+	curts = wbrc_sysuptime_ns();
+	if (wbrc_data->wl_after_regoff_ts && curts &&
+		wbrc_data->wl_after_regoff_ts < curts) {
+		pr_err("%s: delta b/w last WL_REG_OFF and this BT_REG_ON = %llu ns\n",
+			__func__, curts - wbrc_data->wl_after_regoff_ts);
+	}
+	if (wbrc_data->bt_after_regoff_ts && curts &&
+		wbrc_data->bt_after_regoff_ts < curts) {
+		pr_err("%s: delta b/w last BT_REG_OFF and this BT_REG_ON = %llu ns\n",
+			__func__, curts - wbrc_data->bt_after_regoff_ts);
+	}
+
+	pr_err("%s: exit \n", __func__);
+}
+
+static void
+bt2wbrc_bt_after_regon(void)
+{
+	struct wbrc_pvt_data *wbrc_data = g_wbrc_data;
+
+	pr_err("%s: enter \n", __func__);
+	WBRC_ONOFF_LOCK(wbrc_data);
+	wbrc_data->bt_regon_inprogress = FALSE;
+	WBRC_ONOFF_UNLOCK(wbrc_data);
+	pr_err("%s: exit \n", __func__);
+
+}
+
+static void
+bt2wbrc_process_reg_onoff_cmds(int cmd)
+{
+	switch (cmd) {
+		case WBRC_CMD_BT_BEFORE_REG_OFF:
+			bt2wbrc_bt_before_regoff();
+			break;
+		case WBRC_CMD_BT_AFTER_REG_OFF:
+			bt2wbrc_bt_after_regoff();
+			break;
+		case WBRC_CMD_BT_BEFORE_REG_ON:
+			bt2wbrc_bt_before_regon();
+			break;
+		case WBRC_CMD_BT_AFTER_REG_ON:
+			bt2wbrc_bt_after_regon();
+			break;
+		default:
+			pr_err("%s: unknown cmd %d\n", __func__, cmd);
+	}
+}
+#endif /* WBRC_HW_QUIRKS */

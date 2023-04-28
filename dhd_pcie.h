@@ -469,6 +469,9 @@ typedef struct dhd_bus {
 	uint32 d3_inform_cnt;
 	uint32 d0_inform_cnt;
 	uint32 d0_inform_in_use_cnt;
+#ifdef DHD_TREAT_D3ACKTO_AS_LINKDWN
+	uint32 d3ackto_as_linkdwn_cnt;
+#endif
 	uint8 force_suspend;
 	uint8 is_linkdown;
 	uint8 no_bus_init;

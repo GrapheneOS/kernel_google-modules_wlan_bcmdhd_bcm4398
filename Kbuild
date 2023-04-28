@@ -44,16 +44,27 @@ ifeq ($(CONFIG_BCMDHD),)
 CONFIG_BCMDHD=m
 CONFIG_BCMDHD_PCIE=y
 CONFIG_DHD_OF_SUPPORT=y
-ifneq ($(CONFIG_SOC_GOOGLE),)
-  ifeq ($(BCMDHD), 4383)
-    CONFIG_BCM4383=y
-  else
-    CONFIG_BCM4398=y
-  endif
-else
+
+ifneq ($(GG_REF_PLATFORM),)
+  CONFIG_BCM4390=y
   CONFIG_BCM4398=y
   CONFIG_BCM4383=y
   CONFIG_BCM4389=y
+else
+  ifneq ($(CONFIG_SOC_GOOGLE),)
+    ifeq ($(BCMDHD),4383)
+      CONFIG_BCM4383=y
+    else ifeq ($(BCMDHD),4390)
+      CONFIG_BCM4390=y
+    else
+      CONFIG_BCM4398=y
+    endif
+  else
+    CONFIG_BCM4390=y
+    CONFIG_BCM4398=y
+    CONFIG_BCM4383=y
+    CONFIG_BCM4389=y
+  endif
 endif
 CONFIG_BROADCOM_WIFI_RESERVED_MEM=y
 CONFIG_DHD_USE_STATIC_BUF=y
@@ -71,6 +82,7 @@ DHDCFLAGS += -DCONFIG_BCMDHD_PCIE=$(CONFIG_BCMDHD_PCIE)
 DHDCFLAGS += -DCONFIG_BCM43752=$(CONFIG_BCM43752)
 DHDCFLAGS += -DCONFIG_BCM4389=$(CONFIG_BCM4389)
 DHDCFLAGS += -DCONFIG_BCM4398=$(CONFIG_BCM4398)
+DHDCFLAGS += -DCONFIG_BCM4390=$(CONFIG_BCM4390)
 DHDCFLAGS += -DCONFIG_BCM4383=$(CONFIG_BCM4383)
 DHDCFLAGS += -DCONFIG_DHD_OF_SUPPORT=$(CONFIG_DHD_OF_SUPPORT)
 DHDCFLAGS += -DCONFIG_BROADCOM_WIFI_RESERVED_MEM=$(CONFIG_BROADCOM_WIFI_RESERVED_MEM)
@@ -236,13 +248,10 @@ DHDCFLAGS += -DAPSTA_BLOCK_ARP_DURING_DHCP
 # Bypass wpa_supplicant's BSSID selection
 DHDCFLAGS += -DWL_SKIP_CONNECT_HINTS
 
-# Dynamic indoor policy
-DHDCFLAGS += -DWL_DYNAMIC_INDOOR_POLICY
-# Enable the below flag after supplicant support for indoor flag has been added
-# DHDCFLAGS += -DUSE_INDOOR_CHAN_FLAG
-# Comment out below flag after HAL Android interface is integrated. This is enabled
-# by default for SVT validation.
-# DHDCFLAGS += -DDYN_INDOOR_ENABLED_BY_DEFAULT
+# Dynamic indoor, DFS policy
+DHDCFLAGS += -DWL_DYNAMIC_CHAN_POLICY -DWL_DYNAMIC_CHAN_POLICY_INDOOR -DWL_DYNAMIC_CHAN_POLICY_DFS
+# Keep P2P DFS Skip logic disabled for using dynamic DFS policy
+#DHDCFLAGS += -DP2P_SKIP_DFS
 
 ifneq ($(CONFIG_BCMDHD_PCIE),)
 	DHDCFLAGS += -DWLAN_ACCEL_BOOT
@@ -260,8 +269,6 @@ ifneq ($(CONFIG_BCMDHD_PCIE),)
     ifneq ($(CONFIG_ARCH_HISI),)
         DHDCFLAGS += -DDHD_SSSR_DUMP_BEFORE_SR
     endif
-    # Enable FIS Dump
-    # DHDCFLAGS += -DDHD_FIS_DUMP_ALWAYS
     # Enable System Debug Trace Controller, Embedded Trace Buffer
       DHDCFLAGS += -DDHD_SDTC_ETB_DUMP
     # Enable SMD/Minidump collection
@@ -305,7 +312,7 @@ endif
     # DHD_LB_TXP - Perform TX Packet processing in parallel, default disabled, enabled using DHD_LB_TXP_DEFAULT_ENAB
     # DHD_LB_STATS - To display the Load Blancing statistics
 	DHDCFLAGS += -DDHD_LB -DDHD_LB_RXP -DDHD_LB_TXP -DDHD_LB_STATS
-	DHDCFLAGS += -DDHD_LB_PRIMARY_CPUS=0xF0 -DDHD_LB_SECONDARY_CPUS=0x0E
+	DHDCFLAGS += -DDHD_LB_CPU_SET8=0x100 -DDHD_LB_CPU_SET4=0x0F0 -DDHD_LB_CPU_SET0=0x00E
     # GRO (Generic Receive Offload) feature
 	DHDCFLAGS += -DENABLE_DHD_GRO
     # Support Monitor Mode
@@ -313,6 +320,9 @@ endif
     # WLAN-BT Regon coordinator
 	DHDCFLAGS += -DWBRC
 	DHDCFLAGS += -DWBRC_WLAN_ON_FIRST_ALWAYS
+ifneq ($(filter y, $(CONFIG_BCM4390)),)
+	DHDCFLAGS += -DWBRC_HW_QUIRKS
+endif
     # FW, NVRAM, CLM load based on VID module string, chipid and chiprev
 	DHDCFLAGS += -DSUPPORT_MULTIPLE_REVISION -DSUPPORT_MULTIPLE_REVISION_MAP
 	DHDCFLAGS += -DSUPPORT_MIXED_MODULES -DUSE_CID_CHECK -DSUPPORT_MULTIPLE_CHIPS
@@ -341,6 +351,8 @@ ifneq ($(CONFIG_SOC_GOOGLE),)
 	DHDCFLAGS += -DDHD_FW_MEM_CORRUPTION
         # Recover timeouts
         DHDCFLAGS += -DDHD_RECOVER_TIMEOUT
+        # PCIE CPL TIMEOUT WAR
+	DHDCFLAGS += -DDHD_TREAT_D3ACKTO_AS_LINKDWN
 endif
 endif
 
@@ -491,7 +503,6 @@ DHDCFLAGS += -DWL_SUPPORT_AUTO_CHANNEL
 DHDCFLAGS += -DSUPPORT_SOFTAP_WPAWPA2_MIXED
 # P2P
 DHDCFLAGS += -DP2P_LISTEN_OFFLOADING
-DHDCFLAGS += -DP2P_SKIP_DFS
 
 # SCAN
 DHDCFLAGS += -DCUSTOMER_SCAN_TIMEOUT_SETTING
@@ -779,6 +790,9 @@ DHDCFLAGS += -DBCMSUP_4WAY_HANDSHAKE -DWL_ENABLE_IDSUP
 # Softap authentication offload - configurable by module param. Disabled by default.
 DHDCFLAGS += -DWL_IDAUTH
 
+# STA DUMP
+DHDCFLAGS += -DWL_BSS_STA_INFO
+
 ##########################
 # driver type
 # m: module type driver
@@ -790,7 +804,7 @@ DRIVER_TYPE ?= $(CONFIG_BCMDHD)
 # Chip dependent feature
 #########################
 
-ifneq ($(filter y, $(CONFIG_BCM4389) $(CONFIG_BCM4398) $(CONFIG_BCM4383)),)
+ifneq ($(filter y, $(CONFIG_BCM4389) $(CONFIG_BCM4398) $(CONFIG_BCM4390) $(CONFIG_BCM4383)),)
     #6GHz support
     DHDCFLAGS += -DWL_6G_BAND
   # UNII4 channel support
@@ -800,7 +814,7 @@ ifneq ($(filter y, $(CONFIG_BCM4389) $(CONFIG_BCM4398) $(CONFIG_BCM4383)),)
 endif
 
 # For 4389 and 43752
-ifneq ($(filter y, $(CONFIG_BCM4389) $(CONFIG_BCM4398) $(CONFIG_BCM4383) $(CONFIG_BCM43752) $(CONFIG_BCM4375) $(CONFIG_BCM4385)),)
+ifneq ($(filter y, $(CONFIG_BCM4389) $(CONFIG_BCM4398) $(CONFIG_BCM4390) $(CONFIG_BCM4383) $(CONFIG_BCM43752) $(CONFIG_BCM4375) $(CONFIG_BCM4385)),)
     DHDCFLAGS += -DUSE_WL_TXBF
     DHDCFLAGS += -DCUSTOM_DPC_CPUCORE=0
 
@@ -909,21 +923,28 @@ ifneq ($(CONFIG_SOC_GOOGLE),)
 	DHDCFLAGS += -DPOWERUP_MAX_RETRY=0
 	# Increase assoc beacon wait time
 	DHDCFLAGS += -DDEFAULT_RECREATE_BI_TIMEOUT=40
-    # Add chip specific suffix to the output on customer release
-    ifneq ($(filter y, $(CONFIG_BCM4389)),)
+    ifeq ($(GG_REF_PLATFORM),)
+      # Add chip specific suffix to the output on customer release
+      ifneq ($(filter y, $(CONFIG_BCM4389)),)
 	    BCM_WLAN_CHIP_SUFFIX = 4389
 	    DHDCFLAGS += -DBCMPCI_DEV_ID=0x4441
 	    DHDCFLAGS += -DBCMPCI_NOOTP_DEV_ID=0x4389 -DBCM4389_CHIP_DEF
-    endif
-    ifneq ($(filter y, $(CONFIG_BCM4398)),)
+      endif
+      ifneq ($(filter y, $(CONFIG_BCM4398)),)
 	    BCM_WLAN_CHIP_SUFFIX = 4398
 	    DHDCFLAGS += -DBCMPCI_DEV_ID=0x4444
 	    DHDCFLAGS += -DBCMPCI_NOOTP_DEV_ID=0x4398 -DBCM4398_CHIP_DEF
-    endif
-    ifneq ($(filter y, $(CONFIG_BCM4383)),)
+      endif
+      ifneq ($(filter y, $(CONFIG_BCM4390)),)
+	    BCM_WLAN_CHIP_SUFFIX = 4390
+	    DHDCFLAGS += -DBCMPCI_DEV_ID=0x4438
+	    DHDCFLAGS += -DBCMPCI_NOOTP_DEV_ID=0x4390 -DBCM4390_CHIP_DEF
+      endif
+      ifneq ($(filter y, $(CONFIG_BCM4383)),)
 	    BCM_WLAN_CHIP_SUFFIX = 4383
 	    DHDCFLAGS += -DBCMPCI_DEV_ID=0x4449
 	    DHDCFLAGS += -DBCMPCI_NOOTP_DEV_ID=0x4383 -DBCM4383_CHIP_DEF
+      endif
     endif
     ifneq ($(CONFIG_BCMDHD_PCIE),)
     ifneq ($(filter y, $(CONFIG_SOC_GS201) $(CONFIG_SOC_ZUMA)),)
@@ -936,6 +957,8 @@ ifneq ($(CONFIG_SOC_GOOGLE),)
 
 else ifneq ($(CONFIG_ARCH_HISI),)
 	DHDCFLAGS += -DBOARD_HIKEY -DBOARD_HIKEY_HW2
+	# Enable FIS Dump to collect on special cases
+	DHDCFLAGS += -DDHD_FIS_DUMP
 	DHDCFLAGS += -DDHD_SUPPORT_VFS_CALL
 	# Skip pktlogging of data packets
 	DHDCFLAGS += -DDHD_SKIP_PKTLOGGING_FOR_DATA_PKTS

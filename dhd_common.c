@@ -919,10 +919,10 @@ uint sssr_enab = TRUE;
 #endif /* else GDB_PROXY */
 
 /* If defined collect FIS dump for all cases */
-#ifdef DHD_FIS_DUMP_ALWAYS
-uint fis_enab_always = TRUE;
+#ifdef DHD_FIS_DUMP
+uint fis_enab = TRUE;
 #else
-uint fis_enab_always = FALSE;
+uint fis_enab = FALSE;
 #endif /* DHD_FIS_DUMP_ALWAYS */
 
 int
@@ -4993,7 +4993,9 @@ dhd_ioctl(dhd_pub_t * dhd_pub, dhd_ioctl_t *ioc, void *buf, uint buflen)
 				uint arglen;
 
 				DHD_LINUX_GENERAL_LOCK(dhd_pub, flags);
+				/* Add check if FW not trapped, else OK to use dhd var cmds */
 				if (DHD_BUS_CHECK_DOWN_OR_DOWN_IN_PROGRESS(dhd_pub) &&
+					!dhd_pub->dongle_trap_occured &&
 					bcmstricmp((char *)buf, "devreset")) {
 					/* In platforms like FC19, the FW download is done via IOCTL
 					 * and should not return error for IOCTLs fired before FW

@@ -810,6 +810,11 @@ static const wl_drv_sub_cmd_t mbo_cmd_list[] = {
 
 #endif /* WL_MBO */
 
+#ifdef WL_BSS_STA_INFO
+#define CMD_GET_BSS_STA_INFO		"GETBSSSTAINFO"
+#define CMD_GET_BSS_STA_INFO_ALL	"GETBSSSTAINFOALL"
+#endif /* WL_BSS_STA_INFO */
+
 #ifdef WL_GENL
 static s32 wl_genl_handle_msg(struct sk_buff *skb, struct genl_info *info);
 static int wl_genl_init(void);
@@ -5554,6 +5559,7 @@ wbrc2wl_wlan_on_request(void *dhd_pub)
 	return ret;
 }
 
+#ifdef BT_FW_DWNLD
 /* WBRC2WL - download BT FW over PCIE BAR2 */
 int
 wbrc2wl_wlan_dwnld_bt_fw(void *dhd_pub, void *fw_blob, uint len)
@@ -5643,6 +5649,7 @@ wbrc2wl_wlan_dwnld_bt_fw(void *dhd_pub, void *fw_blob, uint len)
 
 	return ret;
 }
+#endif /* BT_FW_DWNLD */
 #endif /* WBRC */
 
 static int wl_android_set_fwpath(struct net_device *net, char *command, int total_len)
@@ -13333,6 +13340,126 @@ wl_android_set_wsec_info(struct net_device *dev, char *command)
 	return  error;
 }
 
+#ifdef WL_BSS_STA_INFO
+static int
+wl_android_get_bss_sta_info(struct net_device *dev, char *command,
+	int total_len, bool allsta)
+{
+	int error;
+	int bytes_written = 0;
+	void *buf = NULL;
+	bss_sta_list_info_t sta_list_info;
+	bss_sta_info_t *sta_info;
+	int i;
+	bool found = false;
+	struct ether_addr mac_ea;
+	char *str = command;
+	struct bcm_cfg80211 *cfg = wl_get_cfg(dev);
+	bss_sta_info_param_t param;
+
+	WL_DBG(("get sta dump(%s)\n", allsta?"true":"false"));
+
+	if (!allsta) {
+		if (bcmstrtok(&str, " ", NULL) == NULL) {
+			WL_ERR(("invalid command\n"));
+			return BCME_ERROR;
+		}
+
+		if (!str || !bcm_ether_atoe(str, &mac_ea)) {
+			WL_ERR(("invalid MAC address\n"));
+			return BCME_BADADDR;
+		}
+	}
+
+	if ((buf = MALLOCZ(cfg->osh, WLC_IOCTL_MAXLEN)) == NULL) {
+		WL_ERR(("kmalloc failed\n"));
+		return BCME_NOMEM;
+	}
+
+	bzero(&param, sizeof(param));
+	param.version = htod16(BSS_STA_INFO_PARAM_VER_1);
+
+	error = wldev_iovar_getbuf(dev, "bss_sta_info", &param,
+		sizeof(bss_sta_info_param_t), buf, WLC_IOCTL_MAXLEN, NULL);
+	if (unlikely(error)) {
+		WL_ERR(("could not get sta dump (%d)\n", error));
+		MFREE(cfg->osh, buf, WLC_IOCTL_MAXLEN);
+		return error;
+	}
+
+	memcpy_s(&sta_list_info, sizeof(sta_list_info), buf, sizeof(sta_list_info));
+	sta_list_info.version = htod16(sta_list_info.version);
+	sta_list_info.bss_sta_info_len = htod16(sta_list_info.bss_sta_info_len);
+	sta_list_info.count = htod32(sta_list_info.count);
+
+	WL_DBG(("ver:%d, len:%d, count:%d\n", sta_list_info.version,
+		sta_list_info.bss_sta_info_len, sta_list_info.count));
+
+	if (sta_list_info.count > 0) {
+		if (allsta)
+			bytes_written += snprintf(&command[bytes_written], total_len, "%u ",
+				sta_list_info.count);
+
+		sta_info = (bss_sta_info_t *) ((char *)buf + BSS_STA_LIST_INFO_FIXED_LEN);
+
+
+		for (i = 0; i < sta_list_info.count; i++) {
+			WL_DBG(("index:%d rssi:%d, tx:%u, rx:%u\n", i, sta_info->rssi,
+				sta_info->tx_rate, sta_info->rx_rate));
+
+			if (!allsta &&
+				memcmp(&mac_ea, &sta_info->ea, sizeof(struct ether_addr)) == 0) {
+				found = true;
+			}
+
+			if (allsta || found) {
+				bytes_written += snprintf(&command[bytes_written],
+					total_len - bytes_written,
+					MACF" %u %u %d %u %u %llu %u %u %llu %u %u %u",
+					ETHER_TO_MACF(sta_info->ea), sta_info->tx_rate,
+					sta_info->rx_rate, sta_info->rssi, sta_info->idle,
+					sta_info->in_network, sta_info->rx_bytes, sta_info->rx_pkts,
+					sta_info->rx_retries, sta_info->tx_bytes, sta_info->tx_pkts,
+					sta_info->tx_retries, sta_info->tx_fail);
+
+				WL_DBG(("peer: "MACF"\n", ETHER_TO_MACF(sta_info->ea)));
+				WL_DBG(("TxRate:%u kbps  RxRate:%u kbps  RSSI: %d\n",
+					sta_info->tx_rate, sta_info->rx_rate, sta_info->rssi));
+				WL_DBG(("idle:%u sec  in_network:%u\n",
+					sta_info->idle, sta_info->in_network));
+				WL_DBG(("Rx bytes:%llu  Rx packets: %u  Rx retries: %u\n",
+					sta_info->rx_bytes, sta_info->rx_pkts,
+					sta_info->rx_retries));
+				WL_DBG(("Tx bytes:%llu  Tx packets: %u  Tx retries: %u "
+					"Tx failures: %u\n", sta_info->tx_bytes, sta_info->tx_pkts,
+					sta_info->tx_retries, sta_info->tx_fail));
+				WL_DBG(("----------------------------------------------------\n"));
+				if (bytes_written >= total_len) {
+					WL_ERR(("wl_android_get_bss_sta_info: Insufficient"
+						" memory, %d bytes\n",
+						total_len));
+					bytes_written = -1;
+					break;
+				}
+			}
+
+			if (found)
+				break;
+
+			sta_info = (bss_sta_info_t *)((char *)sta_info+sizeof(bss_sta_info_t));
+		}
+	}
+	else {
+		WL_ERR(("could not get sta dump : no item\n"));
+	}
+	WL_DBG(("command(%u):%s\n", total_len, command));
+	WL_DBG(("bytes_written:%d\n", bytes_written));
+
+	MFREE(cfg->osh, buf, WLC_IOCTL_MAXLEN);
+	return bytes_written;
+}
+#endif /* WL_BSS_STA_INFO */
+
 int
 wl_handle_private_cmd(struct net_device *net, char *command, u32 cmd_len)
 {
@@ -13868,7 +13995,7 @@ wl_handle_private_cmd(struct net_device *net, char *command, u32 cmd_len)
 	else if (strnicmp(command, CMD_INTERFACE_DELETE, strlen(CMD_INTERFACE_DELETE)) == 0) {
 		char *name = (command + strlen(CMD_INTERFACE_DELETE) +1);
 		WL_INFORM(("Deleteing %s interface\n", name));
-		bytes_written = wl_cfg80211_del_if(wl_get_cfg(net), net, NULL, name);
+		bytes_written = wl_cfgvif_del_if(wl_get_cfg(net), net, NULL, name);
 	}
 	else if (strnicmp(command, CMD_GET_LINK_STATUS, strlen(CMD_GET_LINK_STATUS)) == 0) {
 		bytes_written = wl_android_get_link_status(net, command, priv_cmd.total_len);
@@ -14380,6 +14507,17 @@ wl_handle_private_cmd(struct net_device *net, char *command, u32 cmd_len)
 			priv_cmd.total_len);
 	}
 #endif /* LIMIT_AP_BW */
+#if defined(WL_BSS_STA_INFO)
+	else if (strnicmp(command, CMD_GET_BSS_STA_INFO_ALL,
+		strlen(CMD_GET_BSS_STA_INFO_ALL)) == 0) {
+		bytes_written = wl_android_get_bss_sta_info(net, command,
+			priv_cmd.total_len, TRUE);
+	} else if (strnicmp(command, CMD_GET_BSS_STA_INFO,
+		strlen(CMD_GET_BSS_STA_INFO)) == 0) {
+		bytes_written = wl_android_get_bss_sta_info(net, command,
+			priv_cmd.total_len, FALSE);
+	}
+#endif /* WL_BSS_STA_INFO */
 	else {
 		DHD_ERROR(("Unknown PRIVATE command %s - ignored\n", command));
 #ifdef CUSTOMER_HW4_DEBUG
@@ -14839,7 +14977,7 @@ wl_cfg80211_static_if_close(struct net_device *net)
 	struct net_device *primary_ndev = bcmcfg_to_prmry_ndev(cfg);
 
 	if (cfg->static_ndev_state == NDEV_STATE_FW_IF_CREATED) {
-		ret = wl_cfg80211_del_if(cfg, primary_ndev, net->ieee80211_ptr, net->name);
+		ret = wl_cfgvif_del_if(cfg, primary_ndev, net->ieee80211_ptr, net->name);
 		if (unlikely(ret)) {
 			WL_ERR(("Del iface failed for static_if %d\n", ret));
 			/* on critical errors the cfg80211_del API would trigger hang event
@@ -16093,3 +16231,77 @@ exit:
 	return bytes_written;
 }
 #endif /* SUPPORT_AP_INIT_BWCONF */
+
+#ifdef WL_BSS_STA_INFO
+void
+wl_cfg80211_get_bss_sta_info(struct bcm_cfg80211 *cfg, struct net_device *dev,
+	struct ether_addr *mac_ea, struct station_info *sinfo)
+{
+	void *buf = NULL;
+	size_t buf_len = WLC_IOCTL_SMLEN;
+	bss_sta_list_info_t *sta_list_info;
+	bss_sta_info_t *sta_info;
+	bss_sta_info_param_t param;
+	int error;
+
+	if (ETHER_ISNULLDEST(&mac_ea->octet)) {
+		WL_ERR(("Invalid MAC \n"));
+		return;
+	}
+
+	if ((buf = MALLOCZ(cfg->osh, buf_len)) == NULL) {
+		WL_ERR(("kmalloc failed\n"));
+		return;
+	}
+
+	bzero(&param, sizeof(param));
+	param.version = htod16(BSS_STA_INFO_PARAM_VER_1);
+	memcpy_s(&param.ea, sizeof(struct ether_addr), mac_ea, sizeof(struct ether_addr));
+	error = wldev_iovar_getbuf(dev, "bss_sta_info", &param,
+		sizeof(bss_sta_info_param_t), buf, buf_len, NULL);
+	if (unlikely(error)) {
+		WL_ERR(("could not get sta dump (%d)\n", error));
+		MFREE(cfg->osh, buf, buf_len);
+		return;
+	}
+
+	sta_list_info = (bss_sta_list_info_t *)buf;
+	sta_info = sta_list_info->peer_sta_info;
+
+	sinfo->filled |= STA_INFO_BIT(INFO_RX_PACKETS);
+	sinfo->rx_packets = dtoh32(sta_info->rx_pkts);
+	sinfo->filled |= STA_INFO_BIT(INFO_RX_BYTES);
+	sinfo->rx_bytes = dtoh64(sta_info->rx_bytes);
+	/* No vaild rx_drop info per scb, should be 0 */
+	sinfo->filled |= STA_INFO_BIT(INFO_RX_DROP_MISC);
+	sinfo->rx_dropped_misc = dtoh32(sta_info->rx_error);
+	sinfo->filled |= STA_INFO_BIT(INFO_TX_PACKETS);
+	sinfo->tx_packets = dtoh32(sta_info->tx_pkts);
+	sinfo->filled |= STA_INFO_BIT(INFO_TX_BYTES);
+	sinfo->tx_bytes = dtoh64(sta_info->tx_bytes);
+	sinfo->filled |= STA_INFO_BIT(INFO_TX_FAILED);
+	sinfo->tx_failed  = dtoh32(sta_info->tx_fail);
+	sinfo->filled |= STA_INFO_BIT(INFO_SIGNAL);
+	sinfo->signal  = sta_info->rssi;
+	sinfo->filled |= STA_INFO_BIT(INFO_TX_BITRATE);
+	sinfo->txrate.legacy = dtoh32(dtoh32(sta_info->tx_rate) / 100);
+	sinfo->filled |= STA_INFO_BIT(INFO_RX_BITRATE);
+	sinfo->rxrate.legacy = dtoh32(dtoh32(sta_info->rx_rate) / 100);
+
+	WL_DBG(("peer: "MACF"\n", ETHER_TO_MACF(sta_info->ea)));
+	WL_DBG(("TxRate:%u kbps  RxRate:%u kbps  RSSI: %d\n",
+		sta_info->tx_rate, sta_info->rx_rate, sta_info->rssi));
+	WL_DBG(("idle:%u sec  in_network:%u\n",
+		sta_info->idle, sta_info->in_network));
+	WL_DBG(("Rx bytes:%llu  Rx packets: %u  Rx retries: %u\n",
+		sta_info->rx_bytes, sta_info->rx_pkts,
+		sta_info->rx_retries));
+	WL_DBG(("Tx bytes:%llu  Tx packets: %u  Tx retries: %u"
+		" Tx failures: %u\n",
+		sta_info->tx_bytes, sta_info->tx_pkts,
+		sta_info->tx_retries, sta_info->tx_fail));
+	WL_DBG(("----------------------------------------------------\n"));
+
+	MFREE(cfg->osh, buf, buf_len);
+}
+#endif /* WL_BSS_STA_INFO */

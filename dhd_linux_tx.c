@@ -1432,9 +1432,9 @@ dhd_handle_pktdata(dhd_pub_t *dhdp, int ifidx, void *pkt, uint8 *pktdata, uint32
 				} else {
 					struct sk_buff *skb = (struct sk_buff *)pkt;
 					if (pkt_wake) {
-						DHD_PKTLOG_WAKERX(dhdp, skb, pktdata);
+						DHD_PKTLOG_WAKERX(dhdp, skb, pktdata, ether_type);
 					} else {
-						DHD_PKTLOG_RX(dhdp, skb, pktdata);
+						DHD_PKTLOG_RX(dhdp, skb, pktdata, ether_type);
 					}
 				}
 			}

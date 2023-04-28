@@ -24,6 +24,12 @@
 #ifndef _BCM_WIFISHARK_H_
 #define _BCM_WIFISHARK_H_
 
+/*
+ * 0x888A is reserved Broadcom ether type.
+ * Refer https://standards-oui.ieee.org/ethertype/eth.txt
+ */
+#define ETHER_TYPE_BROADCOM 0x888A
+
 typedef struct log_msgbuf_ring {
 	uint16 hlrd, hlwr; /* Host local rd wr */
 	uint16 hdrd, hdwr; /* Host DMA rd wr */

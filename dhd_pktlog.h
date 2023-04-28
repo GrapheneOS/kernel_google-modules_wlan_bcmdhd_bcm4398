@@ -240,12 +240,12 @@ extern void dhd_pktlog_filter_pull_forward(dhd_pktlog_filter_t *filter,
 	} while (0); \
 }
 
-#define DHD_PKTLOG_RX(dhdp, pkt, pktdata) \
+#define DHD_PKTLOG_RX(dhdp, pkt, pktdata, ether_type) \
 { \
 	do { \
 		if ((dhdp) && (dhdp)->pktlog && (pkt)) { \
 			PKTLOG_SET_IN_RX(dhdp); \
-			if (ntoh16((pkt)->protocol) != ETHER_TYPE_BRCM) { \
+			if (ether_type != ETHER_TYPE_BRCM) { \
 				if ((dhdp)->pktlog->pktlog_ring && \
 					OSL_ATOMIC_READ((dhdp)->osh, \
 						(&(dhdp)->pktlog->pktlog_ring->start))) { \
@@ -258,12 +258,12 @@ extern void dhd_pktlog_filter_pull_forward(dhd_pktlog_filter_t *filter,
 	} while (0); \
 }
 
-#define DHD_PKTLOG_WAKERX(dhdp, pkt, pktdata) \
+#define DHD_PKTLOG_WAKERX(dhdp, pkt, pktdata, ether_type) \
 { \
 	do { \
 		if ((dhdp) && (dhdp)->pktlog && (pkt)) { \
 			PKTLOG_SET_IN_RX(dhdp); \
-			if (ntoh16((pkt)->protocol) != ETHER_TYPE_BRCM) { \
+			if (ether_type != ETHER_TYPE_BRCM) { \
 				if ((dhdp)->pktlog->pktlog_ring && \
 					OSL_ATOMIC_READ((dhdp)->osh, \
 						(&(dhdp)->pktlog->pktlog_ring->start))) { \

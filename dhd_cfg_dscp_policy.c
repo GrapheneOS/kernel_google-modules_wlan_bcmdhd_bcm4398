@@ -1164,13 +1164,14 @@ dhd_dscp_process_wfa_cap_ie(struct bcm_cfg80211 *cfg, const uint8 *ies, uint ies
 	uint wfa_cap_oui_type_len = 1;
 	dscp_policy_info_t *policy_info = (dscp_policy_info_t *) cfg->dscp_policy_info;
 	uint8 wfa_cap_data_len;
-	int ret_val = BCME_ERROR;
+	int ret_val = BCME_OK;
 
 	/* Look for vendor-specific WFA Capabilities IE in the association response ies */
 	wfa_cap_ie = (wfa_cap_ie_t *) bcm_find_vendor_ie(ies, ies_len,
 	                                                 WFA_OUI, &wfa_cap_oui_type,
 	                                                 wfa_cap_oui_type_len);
 	if (wfa_cap_ie == NULL) {
+		DHD_INFO(("no wfa cap IE\n"));
 		goto done;
 	}
 

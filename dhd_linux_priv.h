@@ -229,8 +229,8 @@ typedef struct dhd_info {
 	cpumask_var_t cpumask_curr_avail;
 
 	/* Primary and secondary CPU mask */
-	cpumask_var_t cpumask_primary, cpumask_secondary; /* configuration */
-	cpumask_var_t cpumask_primary_new, cpumask_secondary_new; /* temp */
+	cpumask_var_t cpumask_set8, cpumask_set4, cpumask_set0; /* configuration */
+	cpumask_var_t cpumask_set8_new, cpumask_set4_new, cpumask_set0_new; /* temp */
 
 	struct notifier_block cpu_notifier;
 
@@ -555,7 +555,7 @@ void dhd_net_if_unlock_local(dhd_info_t *dhd);
 
 #ifdef DHD_SSSR_DUMP
 extern uint sssr_enab;
-extern uint fis_enab_always;
+extern uint fis_enab;
 #endif /* DHD_SSSR_DUMP */
 
 /*

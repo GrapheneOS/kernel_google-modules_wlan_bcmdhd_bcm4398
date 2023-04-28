@@ -1328,7 +1328,8 @@ u32
 wl_cfgp2p_vndr_ie(struct bcm_cfg80211 *cfg, u8 *iebuf, s32 pktflag,
             s8 *oui, s32 ie_id, const s8 *data, s32 datalen, const s8* add_del_cmd)
 {
-	vndr_ie_setbuf_t hdr;	/* aligned temporary vndr_ie buffer header */
+	uint8 buff[sizeof(vndr_ie_setbuf_t) + sizeof(vndr_ie_info_t)];
+	vndr_ie_setbuf_t *hdr = (vndr_ie_setbuf_t *)buff;
 	s32 iecount;
 	u32 data_offset;
 
@@ -1342,11 +1343,11 @@ wl_cfgp2p_vndr_ie(struct bcm_cfg80211 *cfg, u8 *iebuf, s32 pktflag,
 	}
 
 	/* Copy the vndr_ie SET command ("add"/"del") to the buffer */
-	strlcpy(hdr.cmd, add_del_cmd, sizeof(hdr.cmd));
+	strlcpy(hdr->cmd, add_del_cmd, sizeof(hdr->cmd));
 
 	/* Set the IE count - the buffer contains only 1 IE */
 	iecount = htod32(1);
-	memcpy((void *)&hdr.vndr_ie_buffer.iecount, &iecount, sizeof(s32));
+	memcpy((void *)&hdr->vndr_ie_buffer.iecount, &iecount, sizeof(s32));
 
 	/* For vendor ID DOT11_MNG_ID_EXT_ID, need to set pkt flag to VNDR_IE_CUSTOM_FLAG */
 	if (ie_id == DOT11_MNG_ID_EXT_ID) {
@@ -1355,28 +1356,28 @@ wl_cfgp2p_vndr_ie(struct bcm_cfg80211 *cfg, u8 *iebuf, s32 pktflag,
 
 	/* Copy packet flags that indicate which packets will contain this IE */
 	pktflag = htod32(pktflag);
-	memcpy((void *)&hdr.vndr_ie_buffer.vndr_ie_list[0].pktflag, &pktflag,
+	memcpy((void *)&hdr->vndr_ie_buffer.vndr_ie_list->pktflag, &pktflag,
 		sizeof(u32));
 
 	/* Add the IE ID to the buffer */
-	hdr.vndr_ie_buffer.vndr_ie_list[0].vndr_ie_data.id = ie_id;
+	hdr->vndr_ie_buffer.vndr_ie_list->vndr_ie_data.id = ie_id;
 
 	/* Add the IE length to the buffer */
-	hdr.vndr_ie_buffer.vndr_ie_list[0].vndr_ie_data.len =
+	hdr->vndr_ie_buffer.vndr_ie_list->vndr_ie_data.len =
 		(uint8) VNDR_IE_MIN_LEN + datalen;
 
 	/* Add the IE OUI to the buffer */
-	hdr.vndr_ie_buffer.vndr_ie_list[0].vndr_ie_data.oui[0] = oui[0];
-	hdr.vndr_ie_buffer.vndr_ie_list[0].vndr_ie_data.oui[1] = oui[1];
-	hdr.vndr_ie_buffer.vndr_ie_list[0].vndr_ie_data.oui[2] = oui[2];
+	hdr->vndr_ie_buffer.vndr_ie_list->vndr_ie_data.oui[0] = oui[0];
+	hdr->vndr_ie_buffer.vndr_ie_list->vndr_ie_data.oui[1] = oui[1];
+	hdr->vndr_ie_buffer.vndr_ie_list->vndr_ie_data.oui[2] = oui[2];
 
 	/* Copy the aligned temporary vndr_ie buffer header to the IE buffer */
-	memcpy(iebuf, &hdr, sizeof(hdr) - 1);
+	memcpy(iebuf, buff, sizeof(buff) - 1);
 
 	/* Copy the IE data to the IE buffer */
 	data_offset =
-		(u8*)&hdr.vndr_ie_buffer.vndr_ie_list[0].vndr_ie_data.data[0] -
-		(u8*)&hdr;
+		(u8*)&(hdr->vndr_ie_buffer.vndr_ie_list->vndr_ie_data.data[0]) -
+		(u8*)hdr;
 	memcpy(iebuf + data_offset, data, datalen);
 	return data_offset + datalen;
 

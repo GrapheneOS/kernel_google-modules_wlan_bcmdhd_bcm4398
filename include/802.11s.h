@@ -281,7 +281,7 @@ typedef BWL_PRE_PACKED_STRUCT struct mesh_peer_info {
 
 /* once an entry is added into mesh_peer_list, if peering is lost, it will
 * get retried for peering, MAX_MESH_PEER_ENTRY_RETRIES times. after wards, it
-* won't get retried and will be moved to MESH_PEER_ENTRY_STATE_TIMEDOUT state,
+* wont get retried and will be moved to MESH_PEER_ENTRY_STATE_TIMEDOUT state,
 * until user adds it again explicitely, when its entry_state is changed
 * to MESH_PEER_ENTRY_STATE_ACTIVE and tried again.
 */

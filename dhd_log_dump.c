@@ -2805,6 +2805,7 @@ clear_debug_dump_time(char *str)
 {
 	bzero(str, DEBUG_DUMP_TIME_BUF_LEN);
 }
+
 #if defined(WL_CFGVENDOR_SEND_HANG_EVENT) || defined(DHD_PKT_LOGGING)
 void
 copy_debug_dump_time(char *dest, char *src)

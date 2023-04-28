@@ -5049,7 +5049,7 @@ int dhd_get_reboot_status(struct dhd_pub *dhdp);
 static INLINE int dhd_get_reboot_status(struct dhd_pub *dhdp) { return 0; }
 #endif /* __linux__ */
 
-#ifdef WBRC
+#if defined(WBRC) && defined(BT_FW_DWNLD)
 int dhd_bt_fw_dwnld_blob(void *wl_hdl, char* buf, size_t len);
 #endif
 

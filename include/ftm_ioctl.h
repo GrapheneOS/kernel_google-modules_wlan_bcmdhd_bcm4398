@@ -284,10 +284,13 @@ enum wl_ftm_event_type {
 };
 typedef uint16 wl_ftm_event_type_t;
 
+/* up to 32 events */
+typedef uint32 wl_ftm_event_mask_t;
 
 #define WL_FTM_EVENT_MASK_ALL			0xfffffffe
-#define WL_FTM_EVENT_ENABLED(_mask, _event_type) \
-	(((_mask) & (1u << (_event_type))) != 0)
+#define WL_FTM_EVENT_TYPE2MASK(_evt_type)	(1u << (_evt_type))
+#define WL_FTM_EVENT_ENABLED(_evt_mask, _evt_type) \
+	(((_evt_mask) & WL_FTM_EVENT_TYPE2MASK(_evt_type)) != 0)
 
 /** FTM session states */
 enum wl_ftm_session_state {

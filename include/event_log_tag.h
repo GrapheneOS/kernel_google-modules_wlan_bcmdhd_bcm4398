@@ -613,8 +613,11 @@
 #define EVENT_LOG_TAG_HNDARM_ERROR		464
 #define EVENT_LOG_TAG_OOBR_ERROR		465
 
+/* Additional RRM logs for 802.11k/v/r */
+#define EVENT_LOG_TAG_RRM_11KVR_RPT		466
+
 /* EVENT_LOG_TAG_MAX	= Set to the same value of last tag, not last tag + 1 */
-#define EVENT_LOG_TAG_MAX			465
+#define EVENT_LOG_TAG_MAX			466
 
 typedef enum wl_el_set_type_def {
 	EVENT_LOG_SET_TYPE_DEFAULT = 0, /* flush the log buffer when it is full - Default option */

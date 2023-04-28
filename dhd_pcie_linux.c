@@ -1710,7 +1710,9 @@ dhdpcie_bus_unregister(void)
 		if (dhdp->dongle_isolation == FALSE)
 #endif /* OEM_ANDROID */
 		{
-			dhdpcie_pci_suspend_resume(dhdp->bus, FALSE);
+			dhd_bus_resume(dhdp, 1);
+			/* Do force devreset here, as F0 FLR is must before pulling WL_REG_ON low */
+			dhd_bus_devreset(dhdp, TRUE);
 		}
 	} else {
 		DHD_GENERAL_UNLOCK(dhdp, flags);
@@ -3747,6 +3749,7 @@ dhd_bus_check_driver_up(void)
 #define BT_BASE 0x19000000u
 #define ADDR_SIZE 4u
 
+#ifdef BT_FW_DWNLD
 #ifdef WBRC_TEST
 static bool
 dhd_bt_fw_verify_read_back(dhd_pub_t *dhdp, const char* buf, size_t len)
@@ -3875,4 +3878,5 @@ dhd_bt_fw_dwnld_blob(void *wl_hdl, char* buf, size_t len)
 
 	return ret;
 }
+#endif /* BT_FW_DWNLD */
 #endif /* WBRC */

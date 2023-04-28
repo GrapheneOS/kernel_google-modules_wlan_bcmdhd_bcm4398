@@ -1885,17 +1885,50 @@ wl_cfgvendor_stop_hal(struct wiphy *wiphy,
 }
 #endif /* WL_CFG80211 */
 
-#ifdef WL_DYNAMIC_INDOOR_POLICY
-#define ENABLE_INDOOR_CHANNEL 0x0001
-#define ENABLE_DFS_CHANNEL    0x0002
+#ifdef WL_MLO
+static int
+wl_cfgvendor_set_ml_policy(struct wiphy *wiphy,
+		struct wireless_dev *wdev, const void *data, int len)
+{
+	int err = BCME_OK, rem, type;
+	u32 ml_policy;
+	const struct nlattr *iter;
+	u8 ml_status = 0;
+	struct bcm_cfg80211 *cfg = wl_get_cfg(wdev->netdev);
+
+	nla_for_each_attr(iter, data, len, rem) {
+		type = nla_type(iter);
+		switch (type) {
+			case ANDR_WIFI_ATTRIBUTE_ML_POLICY:
+				ml_policy = nla_get_u32(iter);
+				if ((err = wl_cfgvif_get_multilink_status(cfg,
+						wdev->netdev, &ml_status)) != BCME_OK) {
+					WL_ERR(("get multilink status failed. err:%d\n", err));
+				}
+
+				/* place holder API interface. FW handles the multilink mode */
+				WL_INFORM_MEM(("[ML-MULTILINK] requested policy:%u fw_status:%d\n",
+					ml_policy, ml_status));
+				break;
+			default:
+				WL_ERR(("Unknown type: %d\n", type));
+				return err;
+		}
+	}
+
+	return err;
+}
+#endif /* WL_MLO */
+
+#ifdef WL_DYNAMIC_CHAN_POLICY
 static int
 wl_cfgvendor_set_channel_policy(struct wiphy *wiphy,
 		struct wireless_dev *wdev, const void *data, int len)
 {
 	int err = BCME_OK, rem, type;
 	u32 channel_policy;
+	u32 wl_chan_policy = 0;
 	const struct nlattr *iter;
-	bool enable;
 	struct bcm_cfg80211 *cfg = wl_get_cfg(wdev->netdev);
 
 	nla_for_each_attr(iter, data, len, rem) {
@@ -1903,14 +1936,40 @@ wl_cfgvendor_set_channel_policy(struct wiphy *wiphy,
 		switch (type) {
 			case ANDR_WIFI_ATTRIBUTE_CHAN_POLICY:
 				channel_policy = nla_get_u32(iter);
-				enable = (channel_policy & ENABLE_INDOOR_CHANNEL) ? TRUE : FALSE;
+				WL_INFORM_MEM(("channel policy:%x\n", channel_policy));
+				if (channel_policy & ~DYN_CHAN_POLICY_MASK) {
+					WL_ERR(("unsupported policy:%x\n", channel_policy));
+					return -EINVAL;
+				}
+
+				if (channel_policy & DYN_CHAN_POLICY_INDOOR) {
+#ifdef WL_DYNAMIC_CHAN_POLICY_INDOOR
+					/* convert to fw val */
+					wl_chan_policy |= WL_CHAN_CC_INDOOR_EXT;
+#else
+					WL_ERR(("Indoor policy not supported.\n"));
+					return -EINVAL;
+#endif /* WL_DYNAMIC_CHAN_POLICY_INDOOR */
+				}
+
+				if (channel_policy & DYN_CHAN_POLICY_DFS) {
+#ifdef WL_DYNAMIC_CHAN_POLICY_DFS
+					/* convert to fw val */
+					wl_chan_policy |= WL_CHAN_CC_DFS_EXT;
+#else
+					WL_ERR(("DFS policy not supported. clearing\n"));
+					return -EINVAL;
+#endif /* WL_DYNAMIC_CHAN_POLICY_INDOOR */
+				}
+
 				err = wldev_iovar_setint(wdev->netdev,
-						"chan_concurrency_policy", enable);
+						"chan_concurrency_policy", wl_chan_policy);
 				if (unlikely(err)) {
 					WL_INFORM(("indoor channel policy failed (%d)\n", err));
 				} else {
-					WL_INFORM(("indoor chan policy configured (%d)\n", enable));
-					cfg->dyn_indoor_policy = enable;
+					WL_INFORM(("indoor chan policy configured (0x%x)\n",
+							channel_policy));
+					cfg->dyn_chan_policy = channel_policy;
 				}
 				break;
 			default:
@@ -1921,7 +1980,7 @@ wl_cfgvendor_set_channel_policy(struct wiphy *wiphy,
 
 	return err;
 }
-#endif /* WL_DYNAMIC_INDOOR_POLICY */
+#endif /* WL_DYNAMIC_CHAN_POLICY */
 
 #ifdef WL_LATENCY_MODE
 static int
@@ -3474,8 +3533,9 @@ wl_cfgvendor_set_sae_password(struct wiphy *wiphy,
 	int err = BCME_OK;
 	struct net_device *net = wdev->netdev;
 	struct bcm_cfg80211 *cfg = wl_get_cfg(net);
-	wsec_pmk_t pmk;
 	s32 bssidx;
+	uint8 arr[sizeof(wsec_pmk_t) + sizeof(uint8)] = {0};
+	wsec_pmk_t *pmk = (wsec_pmk_t *)arr;
 
 	BCM_REFERENCE(pmk);
 /* This api not needed for wpa_supplicant based sae authentication */
@@ -3483,9 +3543,6 @@ wl_cfgvendor_set_sae_password(struct wiphy *wiphy,
 	WL_DBG(("Ignore for external sae auth\n"));
 	return BCME_OK;
 #endif /* WL_CLIENT_SAE */
-
-	/* clear the content of pmk structure before usage */
-	(void)memset_s(&pmk, sizeof(wsec_pmk_t), 0x0, sizeof(wsec_pmk_t));
 
 	if ((bssidx = wl_get_bssidx_by_wdev(cfg, net->ieee80211_ptr)) < 0) {
 		WL_ERR(("Find p2p index from wdev(%p) failed\n", net->ieee80211_ptr));
@@ -10456,20 +10513,20 @@ static int wl_cfgvendor_set_pmk(struct wiphy *wiphy,
 	struct wireless_dev *wdev, const void *data, int len)
 {
 	int ret = 0;
-	wsec_pmk_t pmk;
+	uint8 arr[sizeof(wsec_pmk_t) + sizeof(uint8)] = {0};
+	wsec_pmk_t *pmk = (wsec_pmk_t *)arr;
 	const struct nlattr *iter;
 	int rem, type;
 	struct net_device *ndev = wdev_to_ndev(wdev);
 	struct bcm_cfg80211 *cfg = wiphy_priv(wiphy);
 
-	bzero(&pmk, sizeof(pmk));
 	nla_for_each_attr(iter, data, len, rem) {
 		type = nla_type(iter);
 		switch (type) {
 			case BRCM_ATTR_DRIVER_KEY_PMK:
-				pmk.flags = 0;
-				pmk.key_len = htod16(nla_len(iter));
-				ret = memcpy_s(pmk.key, sizeof(pmk.key),
+				pmk->flags = 0;
+				pmk->key_len = htod16(nla_len(iter));
+				ret = memcpy_s(pmk->key, sizeof(pmk->key),
 					(uint8 *)nla_data(iter), nla_len(iter));
 				if (ret) {
 					WL_ERR(("Failed to copy pmk: %d\n", ret));
@@ -10485,7 +10542,7 @@ static int wl_cfgvendor_set_pmk(struct wiphy *wiphy,
 	}
 	wl_cfg80211_set_okc_pmkinfo(cfg, ndev, pmk, TRUE);
 
-	ret = wldev_ioctl_set(ndev, WLC_SET_WSEC_PMK, &pmk, sizeof(pmk));
+	ret = wldev_ioctl_set(ndev, WLC_SET_WSEC_PMK, pmk, sizeof(arr));
 	WL_INFORM_MEM(("IOVAR set_pmk ret:%d", ret));
 exit:
 	return ret;
@@ -12536,8 +12593,7 @@ static int wl_cfgvendor_get_usable_channels_handler(struct bcm_cfg80211 *cfg,
 		restrict_chan = ((chaninfo & WL_CHAN_RADAR) ||
 				(chaninfo & WL_CHAN_PASSIVE) ||
 				(chaninfo & WL_CHAN_CLM_RESTRICTED) ||
-				(chaninfo & WL_CHAN_INDOOR_ONLY) ||
-				(chaninfo & WL_CHAN_P2P_PROHIBITED));
+				(chaninfo & WL_CHAN_INDOOR_ONLY));
 
 #ifdef WL_SOFTAP_6G
 		vlp_psc_include = ((chaninfo & WL_CHAN_BAND_6G_PSC) &&
@@ -12590,8 +12646,11 @@ static int wl_cfgvendor_get_usable_channels_handler(struct bcm_cfg80211 *cfg,
 #endif /* WL_SOFTAP_6G */
 				} else {
 					/* handle 2G and 5G channels */
-					mask |= ((1 << WIFI_INTERFACE_P2P_GO) |
-						(1 << WIFI_INTERFACE_SOFTAP));
+					mask |= (1 << WIFI_INTERFACE_SOFTAP);
+
+					if (!(chaninfo & WL_CHAN_P2P_PROHIBITED)) {
+						mask |= (1 << WIFI_INTERFACE_P2P_GO);
+					}
 #ifdef WL_NAN_INSTANT_MODE
 					/* handle nan instant mode filter mask case separately */
 					if ((u_info->iface_mode_mask & (1 << WIFI_INTERFACE_NAN)) &&
@@ -12611,7 +12670,8 @@ static int wl_cfgvendor_get_usable_channels_handler(struct bcm_cfg80211 *cfg,
 
 		/* Supplicant does scan passive channel but not for DFS channel */
 		if (!(chaninfo & WL_CHAN_RADAR) && !ch_160mhz_5g &&
-			!CHSPEC_IS6G(chspec) && (!is_unii4)) {
+			!CHSPEC_IS6G(chspec) && (!is_unii4) &&
+				!(chaninfo & WL_CHAN_P2P_PROHIBITED)) {
 			mask |= (1 << WIFI_INTERFACE_P2P_CLIENT);
 		}
 
@@ -13216,6 +13276,7 @@ const struct nla_policy andr_wifi_attr_policy[ANDR_WIFI_ATTRIBUTE_MAX] = {
 	[ANDR_WIFI_ATTRIBUTE_VOIP_MODE] = { .type = NLA_U32, .len = sizeof(uint32) },
 	[ANDR_WIFI_ATTRIBUTE_DTIM_MULTIPLIER] = { .type = NLA_U32, .len = sizeof(uint32) },
 	[ANDR_WIFI_ATTRIBUTE_CHAN_POLICY] = { .type = NLA_U32, .len = sizeof(uint32) },
+	[ANDR_WIFI_ATTRIBUTE_ML_POLICY] = { .type = NLA_U32, .len = sizeof(uint32) },
 };
 
 const struct nla_policy dump_buf_policy[DUMP_BUF_ATTR_MAX] = {
@@ -14909,7 +14970,7 @@ static struct wiphy_vendor_command wl_vendor_cmds [] = {
 		.maxattr = ANDR_WIFI_ATTRIBUTE_CACHED_SCAN_MAX
 #endif /* LINUX_VERSION >= 5.3 */
 	},
-#ifdef WL_DYNAMIC_INDOOR_POLICY
+#ifdef WL_DYNAMIC_CHAN_POLICY
 	{
 		{
 			.vendor_id = OUI_GOOGLE,
@@ -14922,7 +14983,21 @@ static struct wiphy_vendor_command wl_vendor_cmds [] = {
 		.maxattr = ANDR_WIFI_ATTRIBUTE_MAX
 #endif /* LINUX_VERSION >= 5.3 */
 	},
-#endif /* WL_DYNAMIC_INDOOR_POLICY */
+#endif /* WL_DYNAMIC_CHAN_POLICY */
+#ifdef WL_MLO
+	{
+		{
+			.vendor_id = OUI_GOOGLE,
+			.subcmd = WIFI_SUBCMD_ML_POLICY
+		},
+		.flags = WIPHY_VENDOR_CMD_NEED_WDEV | WIPHY_VENDOR_CMD_NEED_NETDEV,
+		.doit = wl_cfgvendor_set_ml_policy,
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 3, 0))
+		.policy = andr_wifi_attr_policy,
+		.maxattr = ANDR_WIFI_ATTRIBUTE_MAX
+#endif /* LINUX_VERSION >= 5.3 */
+	},
+#endif /* WL_MLO */
 };
 
 static const struct  nl80211_vendor_cmd_info wl_vendor_events [] = {

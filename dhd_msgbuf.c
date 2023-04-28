@@ -6134,6 +6134,12 @@ int dhd_sync_with_dongle(dhd_pub_t *dhd)
 	DHD_PRINT(("%s: GET_REVINFO device 0x%x, vendor 0x%x, chipnum 0x%x\n", __FUNCTION__,
 		revinfo.deviceid, revinfo.vendorid, revinfo.chipnum));
 
+	DHD_SSSR_DUMP_INIT(dhd);
+
+#if defined(DHD_SDTC_ETB_DUMP)
+	dhd_sdtc_etb_init(dhd);
+#endif /* DHD_SDTC_ETB_DUMP */
+
 	/* Get the RxBuf post size */
 	/* Use default value in case of failure */
 	prot->rxbufpost_sz = DHD_FLOWRING_RX_BUFPOST_PKTSZ;
@@ -6177,14 +6183,10 @@ int dhd_sync_with_dongle(dhd_pub_t *dhd)
 	/* Post buffers for packet reception */
 	dhd_msgbuf_rxbuf_post(dhd, FALSE); /* alloc pkt ids */
 
-	DHD_SSSR_DUMP_INIT(dhd);
-
 	dhd_process_cid_mac(dhd, TRUE);
 	ret = dhd_preinit_ioctls(dhd);
 	dhd_process_cid_mac(dhd, FALSE);
-#if defined(DHD_SDTC_ETB_DUMP)
-	dhd_sdtc_etb_init(dhd);
-#endif /* DHD_SDTC_ETB_DUMP */
+
 #if defined(DHD_H2D_LOG_TIME_SYNC)
 #ifdef DHD_HP2P
 	if (FW_SUPPORTED(dhd, h2dlogts) || dhd->hp2p_capable) {
@@ -9458,7 +9460,8 @@ BCMFASTPATH(dhd_prot_txstatus_process)(dhd_pub_t *dhd, void *msg)
 #ifdef HOST_SFH_LLC
 	if (dhd->host_sfhllc_supported) {
 		struct ether_header eth;
-		if (!memcpy_s(&eth, sizeof(eth),
+		if ((PKTLEN(dhd->osh, pkt) >= sizeof(eth)) &&
+			!memcpy_s(&eth, sizeof(eth),
 			PKTDATA(dhd->osh, pkt), sizeof(eth))) {
 			if (dhd_8023_llc_to_ether_hdr(dhd->osh,
 				&eth, pkt) != BCME_OK) {

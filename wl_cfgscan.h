@@ -229,6 +229,14 @@ int get_roam_channel_list(struct bcm_cfg80211 *cfg, chanspec_t target_chan, chan
 	int n_channels, const wlc_ssid_t *ssid, int ioctl_ver);
 void set_roam_band(int band);
 #endif /* ESCAN_CHANNEL_CACHE */
+#ifdef WL_DYNAMIC_CHAN_POLICY
 extern s32 wl_cfgscan_update_dynamic_channels(struct bcm_cfg80211 *cfg,
 		struct net_device *ndev, bool linkup);
+#endif /* WL_DYNAMIC_CHAN_POLICY */
+extern bool wl_is_5g_restricted(struct bcm_cfg80211 *cfg, chanspec_t chspec);
+extern bool wl_is_6g_restricted(struct bcm_cfg80211 *cfg, chanspec_t chspec);
+extern bool wl_is_2g_restricted(struct bcm_cfg80211 *cfg, chanspec_t chspec);
+#define WL_MLO_PRMRY_NON_SLEEPABLE
+extern bool wl_is_link_sleepable(struct bcm_cfg80211 *cfg, chanspec_t pri_chspec,
+	chanspec_t target_chspec);
 #endif /* _wl_cfgscan_h_ */

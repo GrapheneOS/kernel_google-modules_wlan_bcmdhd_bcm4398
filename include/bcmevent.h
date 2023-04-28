@@ -1136,7 +1136,7 @@ typedef struct {
 typedef struct wl_event_radar_detect_data {
 
 	uint32 version;
-	uint16 current_chanspec; /* chanspec on which the radar is received */
+	uint16 current_chanspec; /* chanspec on which the radar is recieved */
 	uint16 target_chanspec; /*  Target chanspec after detection of radar on current_chanspec */
 	radar_detected_event_info_t radar_info[2];
 } wl_event_radar_detect_data_t;
@@ -1759,7 +1759,8 @@ typedef struct wl_event_mscs {
 
 typedef enum wl_mlo_link_info_opcode {
 	WL_MLO_LINK_INFO_OPCODE_ADD	= 1,	/* MLO links addition */
-	WL_MLO_LINK_INFO_OPCODE_DEL	= 2	/* MLO links deletion */
+	WL_MLO_LINK_INFO_OPCODE_DEL	= 2,	/* MLO links deletion */
+	WL_MLO_LINK_INFO_OPCODE_UPDATE	= 3	/* Asynchronous Upate of MLO links */
 } wl_mlo_link_info_opcode_t;
 
 typedef enum wl_mlo_link_info_role {

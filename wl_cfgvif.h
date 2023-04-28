@@ -133,7 +133,8 @@ extern s32 wl_cfg80211_handle_if_role_conflict(struct bcm_cfg80211 *cfg, wl_ifty
 
 extern s32 wl_get_vif_macaddr(struct bcm_cfg80211 *cfg, u16 wl_iftype, u8 *mac_addr);
 extern s32 wl_release_vif_macaddr(struct bcm_cfg80211 *cfg, u8 *mac_addr, u16 wl_iftype);
-
+extern s32 wl_cfgvif_del_if(struct bcm_cfg80211 *cfg, struct net_device *primary_ndev,
+	struct wireless_dev *wdev, char *name);
 
 int wl_cfg80211_set_he_mode(struct net_device *dev, struct bcm_cfg80211 *cfg,
 		s32 bssidx, u32 interface_type, bool set);
@@ -284,7 +285,7 @@ extern void wl_mlo_update_linkaddr(wl_mlo_config_v1_t *mlo_config);
 extern s32
 wl_cfg80211_ml_ap_link_add(struct bcm_cfg80211 *cfg, struct wireless_dev *wdev,
 	const wl_event_msg_t *e, void *data);
-extern chanspec_t wl_mlo_get_primary_sta_chspec(struct bcm_cfg80211 *cfg);
+extern bool wl_cfgvif_mlo_is_primary_link(struct bcm_cfg80211 *cfg, u8 ifidx, u8 bsscfgidx);
 #endif /* WL_MLO */
 
 #ifdef BCN_PROT_AP
@@ -304,4 +305,12 @@ s32 wl_cfgvif_get_channel(struct wiphy *wiphy,
 s32 wl_cfgvif_get_channel(struct wiphy *wiphy,
 	struct wireless_dev *wdev, struct cfg80211_chan_def *chandef);
 #endif /* (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 19, 0)) || defined(WL_MLO_BKPORT) */
+s32 wl_cfgvif_ml_link_update(struct bcm_cfg80211 *cfg, struct wireless_dev *wdev,
+	const wl_event_msg_t *e, void *data, enum wl_mlo_link_update state);
+extern s32 wl_cfgvif_persta_multilink(struct bcm_cfg80211 *cfg,
+		struct net_device *dev, u8 enable);
+extern s32 wl_cfgvif_set_multi_link(struct bcm_cfg80211 *cfg, u8 enable);
+extern s32 wl_cfgvif_get_multilink_status(struct bcm_cfg80211 *cfg,
+		struct net_device *dev, u8 *status);
+bool wl_cfgvif_bssid_match_found(struct bcm_cfg80211 *cfg, struct wireless_dev *wdev, u8 *mac_addr);
 #endif /* _wl_cfgvif_h_ */

@@ -719,7 +719,7 @@ bcm_mdelay(uint ms)
 
 /* State machine logger info (per module) */
 struct bcm_sm_log_info {
-	uint32 idx;		/* Index into the circular buffer of entries */
+	uint32 idx;		/* Index into the circular buffer of entires */
 	uint32 flags;		/* State machine logger flags */
 	uint32 num_entries;	/* Number of entries */
 	uint32 module_entry_sz;	/* Size of each module specific entry in bytes */
@@ -801,8 +801,8 @@ fail:
  * @brief Logs the state info in a given logger instance.
  *
  * @param[in] bcmli	 Pointer to logger instance
- * @param[in] state      State number (supports up to 255)
- * @param[in] event      Event number (supports up to 255)
+ * @param[in] state      State number (supports upto 255)
+ * @param[in] event      Event number (supports upto 255)
  * @param[in] call_site  Caller address
  *
  * @return Returns the pointer to module specific portion of each entry

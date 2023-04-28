@@ -110,12 +110,13 @@ static int16 linuxbcmerrormap[] = {
 	-EINVAL,		/* BCME_6GCH_EPERM */
 	-EINVAL,		/* BCME_6G_NO_TPE */
 	-EINVAL,		/* BCME_PLL_RCCAL_FAIL */
+	-EINVAL,		/* BCME_BT_RCCAL_FAIL */
 
 /* When an new error code is added to bcmutils.h, add os
  * specific error translation here as well
  */
 /* check if BCME_LAST changed since the last time this function was updated */
-#if BCME_LAST != BCME_PLL_RCCAL_FAIL
+#if BCME_LAST != BCME_BT_RCCAL_FAIL
 #error "You need to add a OS error translation in the linuxbcmerrormap \
 	for new error code defined in bcmutils.h"
 #endif

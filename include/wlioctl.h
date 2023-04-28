@@ -712,6 +712,9 @@ typedef struct wl_bss_config {
 #define STAID3_IDX	3
 #define HE_STAID_MAX_VAL	0x07FF
 
+#define HE_BSSCOLOR_EMLSR_LINKID_VALID	0x80
+#define HE_BSSCOLOR_EMLSR_LINKID_MASK	0x7F
+
 typedef struct wl_bsscolor_info {
 	uint16 version;		/**< structure version */
 	uint16 length;		/**< length of the bsscolor info */
@@ -721,6 +724,8 @@ typedef struct wl_bsscolor_info {
 	uint8	disable_bsscolor_ind;	/**< To disable particular bsscolor */
 	/* bsscolor_disable to be added as part of D1.0 */
 	uint16	staid_info[HE_MAX_STAID_PER_BSSCOLOR];	/**< 0-3 staid info of each bsscolor */
+	uint8	emlsr_linkid;	/**<emlsr linkid of the cfg */
+	uint8	PAD[3];
 } wl_bsscolor_info_t;
 
 #define WL_BSS_USER_RADAR_CHAN_SELECT	0x1	/**< User application will randomly select
@@ -1711,6 +1716,34 @@ typedef struct wifi_radio_stat_v2 {
 	uint32 num_channels;
 	uint8 channels[];
 } wifi_radio_stat_v2_t;
+
+/* per rate statistics */
+#define WLC_LINKSTATS_RATESTATS_V1	1u
+
+/* wifi rate */
+typedef struct wlc_link_stats_wifi_rate_v1 {
+	uint32 preamble;	/* 0: OFDM, 1:CCK, 2:HT 3:VHT 4:HE 5:EHT 6..7 reserved */
+	uint32 nss;		/* 0:1x1, 1:2x2, 3:3x3, 4:4x4 */
+	uint32 bw;		/* 0:20MHz, 1:40Mhz, 2:80Mhz, 3:160Mhz */
+	uint32 rateMcsIdx;	/* OFDM/CCK rate code would be as per ieee std
+				 * in the units of 0.5mbps
+				 * For HT/VHT/HE/EHT, it would be mcs index
+				 */
+	uint32 reserved;	/* reserved */
+	uint32 bitrate;		/* units of 100 Kbps */
+} wlc_link_stats_wifi_rate_v1_t;
+
+typedef struct wlc_link_stats_wifi_rate_stat_v1 {
+	uint16 version;
+	uint16 length;
+	uint32 tx_mpdu;        /* number of successfully transmitted data pkts (ACK rcvd) */
+	uint32 rx_mpdu;        /* number of received data pkts */
+	uint32 mpdu_lost;      /* number of data packet losses (no ACK) */
+	uint32 retries;        /* total number of data pkt retries */
+	uint32 retries_short;  /* number of short data pkt retries */
+	uint32 retries_long;   /* number of long data pkt retries */
+	wlc_link_stats_wifi_rate_v1_t rate; /* rate info */
+} wlc_link_stats_wifi_rate_stat_v1_t;
 
 /* This is obsolete.Pls add new fields by extending versioned structure.
  * cca_congest_ext_vX_t [X is latest version]
@@ -3116,13 +3149,13 @@ enum {
 enum {
 	WL_OTA_SYNC_IDLE = 0,	/**< Idle state */
 	WL_OTA_SYNC_ACTIVE = 1,	/**< Waiting for Sync */
-	WL_OTA_SYNC_FAIL = 2	/**< Sync pkt not received */
+	WL_OTA_SYNC_FAIL = 2	/**< Sync pkt not recieved */
 };
 
 /* Various error states dut can get stuck during test */
 enum {
 	WL_OTA_SKIP_TEST_CAL_FAIL = 1,		/**< Phy calibration failed */
-	WL_OTA_SKIP_TEST_SYNCH_FAIL = 2,	/**< Sync Packet not received */
+	WL_OTA_SKIP_TEST_SYNCH_FAIL = 2,	/**< Sync Packet not recieved */
 	WL_OTA_SKIP_TEST_FILE_DWNLD_FAIL = 3,	/**< Cmd flow file download failed */
 	WL_OTA_SKIP_TEST_NO_TEST_FOUND = 4,	/**< No test found in Flow file */
 	WL_OTA_SKIP_TEST_WL_NOT_UP = 5,		/**< WL UP failed */
@@ -9725,6 +9758,9 @@ typedef enum event_msgs_ext_command {
 } event_msgs_ext_command_t;
 
 #define EVENTMSGS_VER 1
+/* Do not use below definition in newer code as
+ * BCM_FLEX_ARRAY may not be defined to 1
+ */
 #define EVENTMSGS_EXT_STRUCT_SIZE	((uint)(sizeof(eventmsgs_ext_t) - 1))
 
 /* len-	for SET it would be mask size from the application to the firmware */
@@ -10500,6 +10536,19 @@ typedef BWL_PRE_PACKED_STRUCT struct nd_param {
 } BWL_POST_PACKED_STRUCT nd_param_t;
 #include <packed_section_end.h>
 
+/* restricted_roam IOVAR */
+#define WLC_RESTRICTED_ROAM_CONFIG_VER_1 (1u)
+typedef struct wlc_restricted_roam_cfg_v1 {
+	uint16	ver;			/* Version */
+	uint16	len;			/* Length of the structure */
+	uint32	lowrssi_roam_thresh;	/* time thresh for restricting low rssi roam */
+} wlc_restricted_roam_cfg_v1_t;
+
+enum wlc_restricted_roam_cmd_id {
+	WLC_RESTRICTED_ROAM_XTLV_LOWRSSI_ROAM_THRESH_ID		= 1u,
+	WLC_RESTRICTED_ROAM_XTLV_LAST_ID
+};
+
 typedef struct wl_pfn_roam_thresh {
 	uint32 pfn_alert_thresh; /**< time in ms */
 	uint32 roam_alert_thresh; /**< time in ms */
@@ -10513,6 +10562,7 @@ typedef struct wl_pfn_roam_thresh {
 #define PFN_ALERT_THRESH_EXCEEDED	(1<<3)
 #define CONST_AWAKE_DUR_ALERT		(1<<4)
 #define CONST_AWAKE_DUR_RECOVERY	(1<<5)
+#define RESTRICTED_LOWRSSI_ROAM_THRESH_EXCEEDED	(1<<6)
 
 #define MIN_PM_ALERT_LEN 9
 
@@ -13960,7 +14010,7 @@ typedef BWL_PRE_PACKED_STRUCT struct wl_proxd_params_tof_tune_v1 {
 	int16		w_len[TOF_BW_NUM];	/**< length of threshold crossing window(per BW) */
 	int32		maxDT;			/**< max time difference of T4/T1 or T3/T2 */
 	int32		minDT;			/**< min time difference of T4/T1 or T3/T2 */
-	uint8		totalfrmcnt;	/**< total count of transferred measurement frames */
+	uint8		totalfrmcnt;	/**< total count of transfered measurement frames */
 	uint16		rsv_media;		/**< reserve media value for TOF */
 	uint32		flags;			/**< flags */
 	uint8		core;			/**< core to use for tx */
@@ -13976,7 +14026,7 @@ typedef BWL_PRE_PACKED_STRUCT struct wl_proxd_params_tof_tune_v1 {
 	wl_proxd_seq_config_t seq_2g20;		/* Thresh crossing params for 2G Sequence */
 	uint16          bitflip_thresh;		/* bitflip threshold */
 	uint16          snr_thresh;		/* SNR threshold */
-	int8            recv_2g_thresh;		/* 2g receive sensitivity threshold */
+	int8            recv_2g_thresh;		/* 2g recieve sensitivity threshold */
 	uint32          acs_gdv_thresh;
 	int8            acs_rssi_thresh;
 	uint8           smooth_win_en;
@@ -13996,7 +14046,7 @@ typedef BWL_PRE_PACKED_STRUCT struct wl_proxd_params_tof_tune_v2 {
 	int16		w_len[TOF_BW_NUM];	/**< length of threshold crossing window(per BW) */
 	int32		maxDT;			/**< max time difference of T4/T1 or T3/T2 */
 	int32		minDT;			/**< min time difference of T4/T1 or T3/T2 */
-	uint8		totalfrmcnt;		/**< total count of transferred measurement frames */
+	uint8		totalfrmcnt;		/**< total count of transfered measurement frames */
 	uint16		rsv_media;		/**< reserve media value for TOF */
 	uint32		flags;			/**< flags */
 	uint8		core;			/**< core to use for tx */
@@ -14012,7 +14062,7 @@ typedef BWL_PRE_PACKED_STRUCT struct wl_proxd_params_tof_tune_v2 {
 	wl_proxd_seq_config_t seq_2g20;		/* Thresh crossing params for 2G Sequence */
 	uint16          bitflip_thresh;		/* bitflip threshold */
 	uint16          snr_thresh;		/* SNR threshold */
-	int8            recv_2g_thresh;		/* 2g receive sensitivity threshold */
+	int8            recv_2g_thresh;		/* 2g recieve sensitivity threshold */
 	uint32          acs_gdv_thresh;
 	int8            acs_rssi_thresh;
 	uint8           smooth_win_en;
@@ -14040,7 +14090,7 @@ typedef struct wl_proxd_params_tof_tune_v3 {
 	int16		ch_offset_2gcore_val4; /**< ch 11-13 offset for core 0/1 */
 	int32		maxDT;			/**< max time difference of T4/T1 or T3/T2 */
 	int32		minDT;			/**< min time difference of T4/T1 or T3/T2 */
-	uint8		totalfrmcnt;	/**< total count of transferred measurement frames */
+	uint8		totalfrmcnt;	/**< total count of transfered measurement frames */
 	uint8		PAD[3];
 	uint16		rsv_media;		/**< reserve media value for TOF */
 	uint16		ch_offset_2gcore;   /**< 2g core id */
@@ -14061,7 +14111,7 @@ typedef struct wl_proxd_params_tof_tune_v3 {
 	wl_proxd_seq_config_t seq_2g20;		/* Thresh crossing params for 2G Sequence */
 	uint16          bitflip_thresh;		/* bitflip threshold */
 	uint16          snr_thresh;		/* SNR threshold */
-	int8            recv_2g_thresh;		/* 2g receive sensitivity threshold */
+	int8            recv_2g_thresh;		/* 2g recieve sensitivity threshold */
 	uint8		PAD[3];
 	uint32          acs_gdv_thresh;
 	int8            acs_rssi_thresh;
@@ -14084,13 +14134,13 @@ typedef struct wl_proxd_params_tof_tune_v4 {
 	uint16	len;
 	uint8	core;		/**< core to use for tx */
 	uint8	setflags;	/* set flags of K, N. S values  */
-	uint8	totalfrmcnt;	/**< total count of transferred measurement frames */
+	uint8	totalfrmcnt;	/**< total count of transfered measurement frames */
 	uint8	sw_adj;		/**< enable sw assisted timestamp adjustment */
 	uint8	hw_adj;		/**< enable hw assisted timestamp adjustment */
 	uint8	seq_en;		/**< enable ranging sequence */
 	uint8	smooth_win_en;
 	uint8	core_mask;	/* core mask selection */
-	int8	recv_2g_thresh;	/* 2g receive sensitivity threshold */
+	int8	recv_2g_thresh;	/* 2g recieve sensitivity threshold */
 	int8	acs_rssi_thresh;
 	int8	acs_delta_rssi_thresh;
 	uint8	ftm_cnt[TOF_BW_SEQ_NUM_V2];	/**< no. of ftm frames based on bw */
@@ -14126,13 +14176,13 @@ typedef struct wl_proxd_params_tof_tune_v5 {
 	uint16	len;
 	uint8	core;			/**< core to use for tx */
 	uint8	setflags;		/* set flags of K, N. S values  */
-	uint8	totalfrmcnt;		/**< total count of transferred measurement frames */
+	uint8	totalfrmcnt;		/**< total count of transfered measurement frames */
 	uint8	sw_adj;			/**< enable sw assisted timestamp adjustment */
 	uint8	hw_adj;			/**< enable hw assisted timestamp adjustment */
 	uint8	seq_en;			/**< enable ranging sequence */
 	uint8	smooth_win_en;		/**< enable smooth win with ifft from matched filter */
 	uint8	core_mask;		/* core mask selection */
-	int8	recv_2g_thresh;		/* 2g receive sensitivity threshold */
+	int8	recv_2g_thresh;		/* 2g recieve sensitivity threshold */
 	int8	acs_rssi_thresh;	/* RSSI threshold below which core will not be used
 					 * for auto core selection.
 					 */
@@ -14189,13 +14239,13 @@ typedef struct wl_proxd_params_tof_tune_v6 {
 	uint16	len;
 	uint8	core;		/**< core to use for tx */
 	uint8	setflags;	/* set flags of K, N. S values  */
-	uint8	totalfrmcnt;	/**< total count of transferred measurement frames */
+	uint8	totalfrmcnt;	/**< total count of transfered measurement frames */
 	uint8	sw_adj;		/**< enable sw assisted timestamp adjustment */
 	uint8	hw_adj;		/**< enable hw assisted timestamp adjustment */
 	uint8	seq_en;		/**< enable ranging sequence */
 	uint8	smooth_win_en;
 	uint8	core_mask;	/* core mask selection */
-	int8	recv_2g_thresh;	/* 2g receive sensitivity threshold */
+	int8	recv_2g_thresh;	/* 2g recieve sensitivity threshold */
 	int8	acs_rssi_thresh;
 	int8	acs_delta_rssi_thresh;
 	uint8	ftm_cnt[TOF_BW_SEQ_NUM_V2];	/**< no. of ftm frames based on bw */
@@ -16213,11 +16263,11 @@ typedef int8 wl_nan_sd_optional_field_types_t;
 /* Nan Service Based control Flags */
 /* If set, dev will take care of dp_resp */
 #define WL_NAN_SVC_CTRL_AUTO_DPRESP               0x1000000
-/* If set, host won't rec event "receive" */
+/* If set, host wont rec event "receive" */
 #define WL_NAN_SVC_CTRL_SUPPRESS_EVT_RECEIVE      0x2000000
-/* If set, host won't rec event "replied" */
+/* If set, host wont rec event "replied" */
 #define WL_NAN_SVC_CTRL_SUPPRESS_EVT_REPLIED      0x4000000
-/* If set, host won't rec event "terminated" */
+/* If set, host wont rec event "terminated" */
 #define WL_NAN_SVC_CTRL_SUPPRESS_EVT_TERMINATED   0x8000000
 
 /* Pub/sub service supports suspension */
@@ -16385,7 +16435,7 @@ typedef struct wl_nan_sd_stats {
 
 /* Flag bits for sd transmit message (wl_nan_sd_transmit_t flags) */
 
-/* If set, host won't rec "tx status" event for tx-followup msg */
+/* If set, host wont rec "tx status" event for tx-followup msg */
 #define WL_NAN_FUP_SUPR_EVT_TXS      0x01
 /* If set, insert shared key descr attribute in tx-followup msg */
 #define WL_NAN_FUP_ADD_SKDA          0x02
@@ -18161,7 +18211,8 @@ typedef struct wl_wsec_info {
 #define AP_BLOCK_NONE		0x00000000u	/* No restriction (default) */
 /* Policy when WPA3/SAE is configured for the BSS */
 #define AP_ALLOW_WPA2		0x00000001u	/* Allow WPA2PSK AP during join or roam */
-#define AP_ALLOW_TSN		0x00000002u	/* Allow WPA3 transition AP during join or roam  */
+#define AP_ALLOW_WPA3_TO_WPA2_TSN	0x00000002u	/* Replacement for AP_ALLOW_TSN */
+#define AP_ALLOW_TSN			AP_ALLOW_WPA3_TO_WPA2_TSN
 #define AP_ALLOW_WPA3_ONLY	0x00000004u	/* Allow WPA3 only AP during join or roam */
 /* AP_ALLOW_WPA3_ONLY is write only
 ** supports AP_ALLOW_WPA3_2G_5G_ONLY and AP_ALLOW_WPA3_6G_ONLY
@@ -18170,6 +18221,9 @@ typedef struct wl_wsec_info {
 /* Policy when WPA2 PSK, but not SAE is configured for the BSS */
 #define AP_WPA2_PSK_NO_MIX_SEC	0x00000008u	/* Disallow Mixed WPA/WPA2 security during roam */
 
+#define AP_ALLOW_WPA2_to_WPA_NO_TSN	0x00000008u /* Replacement for AP_WPA2_PSK_NO_MIX_SEC */
+#define AP_ALLOW_WPA3_TO_WPA_NO_TSN	0x00000040u /* Dont allow WPA3 to WPA TSN */
+#define AP_ALLOW_NO_TSN			(AP_ALLOW_WPA3_TO_WPA_NO_TSN | AP_ALLOW_WPA2_to_WPA_NO_TSN)
 #define AP_ALLOW_WPA3_2G_5G_ONLY 0x00000010u	/* Allow WPA3 only 2G/5G AP join or roam */
 #define AP_ALLOW_WPA3_6G_ONLY	0x00000020u	/* Allow WPA3 only 6G AP during join or roam */
 /* All flags */
@@ -19039,109 +19093,6 @@ typedef struct wl_bssload_static {
 	uint8  PAD;
 	uint16 aac;
 } wl_bssload_static_t;
-
-/* Buffer of size WLC_SAMPLECOLLECT_MAXLEN (=10240 for 4345a0 ACPHY)
- * gets copied to this, multiple times
- */
-typedef enum wl_gpaio_option {
-	GPAIO_PMU_AFELDO,
-	GPAIO_PMU_TXLDO,
-	GPAIO_PMU_VCOLDO,
-	GPAIO_PMU_LNALDO,
-	GPAIO_PMU_ADCLDO,
-	GPAIO_ICTAT_CAL,
-	GPAIO_PMU_CLEAR,
-	GPAIO_OFF,
-	GPAIO_PMU_LOGENLDO,
-	GPAIO_PMU_RXLDO2G,
-	GPAIO_PMU_RXLDO5G,
-	GPAIO_PMU_LPFTXLDO,
-	GPAIO_PMU_LDO1P6,
-	GPAIO_RCAL,
-	GPAIO_IQDAC_BUF_DC_MEAS,
-	GPAIO_IQDAC_BUF_DC_CLEAR,
-	GPAIO_DAC_IQ_DC_RDBK,
-	GPAIO_DAC_IQ_DC_RDBK_CLEAR,
-	GPAIO_AFE_LDO_FOR_DAC_DC,
-	GPAIO_PA5G_VCAS_SOURCE,
-	GPAIO_BIQ2_DC_MEAS,
-	GPAIO_BIQ2_DC_CLEAR,
-	GPAIO_VBATMONITOR,
-	GPAIO_PA5G_VCAS_GMDRAIN,
-	GPAIO_PMU_ROLDO,
-	GPAIO_PMU_PFDLDO,
-	GPAIO_PMU_LCHLDO,
-	GPAIO_PMU_MMDLDO,
-	GPAIO_PMU_VCOCORELDO,
-	GPAIO_PMU_PLLLDO,
-	GPAIO_PMU_RXLDO,
-	GPAIO_IQDAC_DC_TP,
-	GPAIO_BG_ICTAT_CAL,
-	GPAIO_BG_ICTAT_UNCAL,
-	GPAIO_BG_CTAT_UNCAL,
-	GPAIO_RX_TIA_VDD,
-	GPAIO_RX_NBIAS_TIA,
-	GPAIO_RX_NBIAS_LPF,
-	GPAIO_RX_CMREF_BB,
-	GPAIO_RX_CMREF_RF,
-	GPAIO_RX_LDO_RF_V0P8,
-	GPAIO_RX_IBIAS_N,
-	GPAIO_RX_IBIAS_P,
-	GPAIO_DIG_LDO,
-	GPAIO_IPTAT_UNCAL,
-	GPAIO_IPTAT_CAL,
-	GPAIO_VPTAT_UNCAL,
-	GPAIO_VCTAT_CAL,
-	GPAIO_VBE,
-	GPAIO_IOUT_TEST_3U,
-	GPAIO_VCO_BIAS_N,
-	GPAIO_VCO_BIAS_P,
-	GPAIO_VCO_TEMPCO_N,
-	GPAIO_VCO_TEMPCO_P,
-	GPAIO_MMD_LDO,
-	GPAIO_VCO_LDO,
-	GPAIO_SRO_LDO,
-	GPAIO_TX_VCTRL,
-	GPAIO_TX_VCTRL_TC,
-	GPAIO_GPA_BUF,
-	GPAIO_LPBK_OUT,
-	GPAIO_ADC_LPBK_INN,
-	GPAIO_ADC_LPBK_INP,
-	GPAIO_ETSSI,
-	GPAIO_PAD5G_GM_BIAS_V,
-	GPAIO_PAD5G_GM_DRAIN_V,
-	GPAIO_PAD5G_CAS_BIAS_V,
-	GPAIO_PMU_LDO1P8,
-	GPAIO_RX_GM_VDD,
-	GPAIO_RX_TIA_FINAL_CM_V,
-	GPAIO_RX_TIA_FINAL_CM_V1,
-	GPAIO_RX_TIA_FINAL_CM_V2,
-	GPAIO_PA5G_GM_BIAS_V,
-	GPAIO_PA5G_GM_DRAIN_V,
-	GPAIO_PA5G_CAS_BIAS_V,
-	GPAIO_PMU_LOGENLDO1,
-	GPAIO_PMU_RX5G_RF_LDO,
-	GPAIO_PMU_LPF_LDO,
-	GPAIO_VCO_LDO_TX,
-	GPAIO_VCO_LDO_RX,
-	GPAIO_RX_PD_LDO,
-	GPAIO_RX_MMD_LDO,
-	GPAIO_DTX_DIG_LDO,
-	GPAIO_DTX_RF_LDO,
-	GPAIO_RX_LDO_LOGIC,
-	GPAIO_RX_LDO_BB,
-	GPAIO_PMU_PLL_VCO_LDO,
-	GPAIO_PMU_PLL_RO_LDO,
-	GPAIO_PMU_BTVCO_LDO,
-	GPAIO_PMU_BTPLL_LDO,
-	GPAIO_PMU_PLLMMD_LDO,
-	GPAIO_PMU_BBLDO,
-	GPAIO_PMU_IF_LDO,
-	GPAIO_AFEDIV_LDO_OUT,
-	GPAIO_WBADC_REF_LDO_OUT,
-	GPAIO_DTX_RF_LDO_BYPASS,
-	RETRIGGER_MINIPMUCAL
-} wl_gpaio_option_t;
 
 /** IO Var Operations - the Value of iov_op In wlc_ap_doiovar */
 typedef enum wlc_ap_iov_bss_operation {
@@ -24201,6 +24152,7 @@ typedef enum wl_hc_dd_type {
 	WL_HC_DD_SBSS		=10,	/* Slotted bss health check */
 	WL_HC_DD_NAN		=11,	/* NAN health check */
 	WL_HC_DD_CHSW		=12,	/* Channel Switch health check */
+	WL_HC_DD_LHL		=13,	/* LHL timer health check */
 	WL_HC_DD_MAX
 } wl_hc_dd_type_t;
 
@@ -24905,6 +24857,7 @@ enum {
 	WL_MLO_CMD_LINK_PS_BMAP		= 8u,	/* Modify PS state of a particular link in MLO. */
 	WL_MLO_CMD_LINK_DORMANT_BMAP	= 9u,	/* Bitmap to configure dormant state for links */
 	WL_MLO_CMD_REC_LINK_BMAP	= 10u,	/* Bitmap to configure recommended links */
+	WL_MLO_CMD_CONFIG_PREF		= 11u,	/* Configure mlo mode and band preferences */
 	/* Add new sub command IDs here... */
 
 	/* debug/test related sub-commands, mogrify? */
@@ -24914,6 +24867,13 @@ enum {
 	WL_MLO_CMD_ML_OP_UPD		= 0x1003u,	/* send a ML Op Upd request frame */
 	WL_MLO_CMD_MLOSIM		= 0x2000u,	/* to set mlo simulation option */
 };
+
+/* MLO multilink active modes */
+#define	WL_MLO_MULTILINK_DISABLE	0u	/* Proces beacons and data on single link */
+#define	WL_MLO_MULTILINK_ML_BCN		1u	/* Process beacons & data on all links */
+#define	WL_MLO_MULTILINK_SL_BCN		2u	/* Process beacons on single link & data
+						 * on all links
+						 */
 
 /* MLO config Flags definition */
 #define WL_MLO_USE_FW_GEN_LINKADDR	(1u << 0u) /* fw generates the link addresses */
@@ -24928,28 +24888,52 @@ typedef struct wl_mlo_link_config_v1 {
 } wl_mlo_link_config_v1_t;
 
 /* MLO modes of operation */
-#define MLO_STR			(0u)
-/* MLO_TDM is being deprecated, pls use MLO_EMLSR */
-#define MLO_TDM			(1u)
-#define MLO_EMLSR		(1u)
-#define MLO_AUTO		(2u)
-#define WL_MLO_MODE_INVALID	(0xFFu)
+#define MLO_STR			0u	/* STR Mode */
+#define MLO_TDM			1u	/* Deprecated over MLO_EMLSR */
+#define MLO_EMLSR		1u	/* eMLSR Mode */
+#define MLO_AUTO		2u	/* Best possible based on scoring */
+#define MLO_MON			3u	/* Monitor Mode */
+#define MLO_3LINK		4u	/* 3 Link association (STR+eMLSR) Mode */
+#define MLO_1LINK		5u	/* Single Link MLO Mode */
+#define MLO_NONML		6u	/* Non-MLO association (legacy) */
+#define WL_MLO_MODE_INVALID	0xFFu	/* Invalid mode */
 
-#define WL_MLO_CONFIG_VER_1	(1u)
+#define WL_MLO_CONFIG_VER_1	1u
 
 /* mlo status structure for an interface */
-/* ================================================== */
-#define WL_MLO_STATUS_VER_1	(1u)
+/* ===================================== */
+#define WL_MLO_STATUS_VER_1	1u
 
 typedef struct wl_mlo_config_v1 {
-	uint16	version;
-	uint16	length;
-	uint32	flags;		/* Flags */
-	uint8	num_links;	/* Number of links */
-	uint8	mode;		/* Mode of operation */
-	struct ether_addr mld_addr;
-	wl_mlo_link_config_v1_t link_config[];
+	uint16	version;			/* Structure version */
+	uint16	length;				/* Length of structure */
+	uint32	flags;				/* Flags */
+	uint8	num_links;			/* Number of links */
+	uint8	mode;				/* Mode of operation */
+	struct ether_addr mld_addr;		/* MLD mac address */
+	wl_mlo_link_config_v1_t link_config[];	/* Link addresses based on num_links */
 } wl_mlo_config_v1_t;
+
+/* MLO config_pref Flags definition */
+#define WL_MLO_UPDATE_MODE_PREF		(1u << 0u) /* Mode is updated in the config req */
+#define WL_MLO_UPDATE_BAND_PREF		(1u << 1u) /* Band pref is updated in the config req */
+#define WL_MLO_RESET_CONFIG_PREF	(1u << 2u) /* Reset the pref_config to invalid */
+
+#define WL_MLO_CONFIG_PREF_VER_1	1u
+
+/* Max number of mode_pref which can be given. MLO_MON is NOT valid to give in mode_pref  */
+#define MLO_MODE_PREF_MAX_V1		6u
+
+typedef struct wl_mlo_config_pref_v1 {
+	uint16	version;			/* Structure version */
+	uint16	length;				/* Length of structure */
+	uint32	flags;				/* Flags */
+	uint8	num_mode_pref;			/* Number of valid modes in mode array */
+	uint8	num_band_pref;			/* Number of valid bands in pref_band array */
+	uint8	mode_pref[MLO_MODE_PREF_MAX_V1]; /* MLO mode priority order */
+	uint8	band_pref[WL_BAND_MAX_CNT];	/* Preferred band priority order */
+	uint8	pad;				/* Explicit padding */
+} wl_mlo_config_pref_v1_t;
 
 /* mlo info structure per link */
 typedef struct wl_mlo_link_status_v1 {
@@ -25778,7 +25762,7 @@ typedef struct wl_qos_rav_scs_qos_char_v1 {
 	uint32  srv_start_time;		/* Anticipated time in microseconds */
 	uint32  mean_data_rate;		/* Mean Data Rate in Kbps, lower 3 bytes */
 	uint32  burst_size;		/* Burst Size in octets */
-	uint16  max_msdu_size;		/* Maximum MSDU Size in octets */
+	uint16  max_msdu_size;		/* Maxmimum MSDU Size in octets */
 	uint16  medium_time;		/* Medium Time in the units of 256-microseconds
 					 * per second
 					 */
@@ -27954,7 +27938,13 @@ typedef struct wl_avs_info_v1 {
 	uint32 aging;		/* aging setting in nvram */
 } wl_avs_info_v1_t;
 
+/* Placeholder, add more fields later */
+typedef struct wl_avs_info_v2 {
+	uint16 version;		/* Structure version */
+} wl_avs_info_v2_t;
+
 #define WL_AVS_INFO_VER_1	1
+#define WL_AVS_INFO_VER_2	2
 
 /* SC (scan core) command IDs */
 enum wl_sc_cmd {
@@ -30379,7 +30369,7 @@ typedef struct wl_pasn_iov {
  * SETUP_PMKSA implies USE_PMKSA i.e. attempt to use existing PMKSA before
  * attempting setup. Ignore USE_PMKSA when SETUP_PMKSA is set.
  * if USE_PMKSA or SETUP_PMKSA are not set, attempt w/o PMKSA - OWE like
- * USE_PMKSA does not imply SETUP_PMKSA - i.e. we won't attempt setting up PASN via tunneling.
+ * USE_PMKSA does not imply SETUP_PMKSA - i.e. we wont attempt setting up PASN via tunneling.
  */
 enum {
 	WL_PASN_POLICY_NONE		= 0, /* Not used. */
@@ -31775,4 +31765,46 @@ typedef struct wlc_sup_oper_class_cfg_v1 {
 							WLC_SUP_OPR_CLS_IE_SUP_OPR_CLS_PRES_VAL)
 
 
+#define BSS_STA_INFO_PARAM_VER_1	1u
+
+/** Input structure for IOV_BSS_PEER_INFO */
+typedef struct bss_sta_info_param {
+	uint16			version;
+	struct ether_addr	ea;		/**< peer MAC address */
+}  bss_sta_info_param_t;
+
+#define BSS_STA_INFO_VER_1	1u
+
+typedef struct bss_sta_info {
+	uint16			version;
+	uint16			aid;		/* Association ID */
+	struct ether_addr	ea;		/* Peer MAC ADDR */
+	uint16			pad;		/* For 32bit alignment */
+	uint32			idle;		/**< time since data pkt rx'd from sta */
+	uint32			listen_int;	/* Min Listen interval in ms for this STA */
+	int32			rssi;		/* RSSI AVG */
+	uint32			tx_rate;	/**< current tx rate */
+	uint32			rx_rate;	/**< current rx rate */
+	uint32			in_network;	/**< in network seconds */
+	uint32			rx_pkts;	/* rx data pkts */
+	uint64			rx_bytes;	/* rx data bytes */
+	uint32			rx_retries;	/* rx pkts with retry bit set */
+	uint32			rx_error;	/* rx error */
+	uint64			tx_bytes;	/* tx total bytes */
+	uint32			tx_pkts;	/* tx total pkts */
+	uint32			tx_retries;	/* tx pkts retries */
+	uint32			tx_fail;	/* tx failures */
+	uint32			pad1;		/* For 64bits alignment */
+} bss_sta_info_t;
+
+#define BSS_STA_LIST_INFO_VER_1	1u
+
+typedef struct bss_sta_list_info {
+	uint16			version;
+	uint16			bss_sta_info_len;	/**< length of bss_sta_info_t */
+	uint32			count;			/**< number of peer info */
+	bss_sta_info_t		peer_sta_info[];	/**< peer info */
+} bss_sta_list_info_t;
+
+#define BSS_STA_LIST_INFO_FIXED_LEN OFFSETOF(bss_sta_list_info_t, peer_sta_info)
 #endif /* _wlioctl_h_ */

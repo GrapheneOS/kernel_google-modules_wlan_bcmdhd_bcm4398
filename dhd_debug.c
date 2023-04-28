@@ -451,6 +451,7 @@ dhd_dbg_msgtrace_msg_parser(void *event_data)
 	if (*data)
 		DHD_FWLOG(("[FWLOG] %s", data));
 }
+
 #ifdef SHOW_LOGTRACE
 #define DATA_UNIT_FOR_LOG_CNT 4
 
@@ -1191,7 +1192,8 @@ dhd_dbg_send_evtlog_to_ring(prcd_event_log_hdr_t *plog_hdr,
 #endif /* EWP_BCM_TRACE || EWP_RTT_LOGGING || EWP_ECNTRS_LOGGING || EWP_CX_TIMELINE */
 
 static void
-dhd_dbg_logtrace_process_payload(dhd_pub_t *dhdp, char *data, uint datalen, dll_t *list_head)
+dhd_dbg_logtrace_process_payload(dhd_pub_t *dhdp, char *data, uint datalen, dll_t *list_head,
+	bool cx_evntlog)
 {
 	const uint32 log_hdr_len = sizeof(event_log_hdr_t);
 	uint32 log_pyld_len;
@@ -1241,7 +1243,7 @@ dhd_dbg_logtrace_process_payload(dhd_pub_t *dhdp, char *data, uint datalen, dll_
 			(prcd_log_hdr.tag != EVENT_LOG_TAG_PROXD_SAMPLE_COLLECT) &&
 			(prcd_log_hdr.tag != EVENT_LOG_TAG_ROAM_ENHANCED_LOG) &&
 			(prcd_log_hdr.tag != EVENT_LOG_TAG_BCM_TRACE) &&
-			!prcd_log_hdr.binary_payload &&
+			(!cx_evntlog || !prcd_log_hdr.binary_payload) &&
 			(prcd_log_hdr.count > MAX_NO_OF_ARG)) {
 			break;
 		}
@@ -1299,6 +1301,7 @@ dhd_dbg_msgtrace_log_parser(dhd_pub_t *dhdp, void *event_data,
 	uint32 event_log_max_sets;
 	uint min_expected_len = 0;
 	uint16 len_chk = 0;
+	bool cx_evntlog;
 
 	BCM_REFERENCE(ecntr_pushed);
 	BCM_REFERENCE(rtt_pushed);
@@ -1416,7 +1419,15 @@ dhd_dbg_msgtrace_log_parser(dhd_pub_t *dhdp, void *event_data,
 	data += EVENT_LOG_BLOCK_HDRLEN;
 	datalen -= EVENT_LOG_BLOCK_HDRLEN;
 
-	dhd_dbg_logtrace_process_payload(dhdp, data, datalen, &list_head);
+#ifdef COEX_CPU
+	cx_evntlog = logset == EVENT_LOG_SET_COEX_SHADOW_INFO ||
+		logset == EVENT_LOG_SET_COEX_SHADOW_ERR ||
+		logset == EVENT_LOG_SET_COEX_SHADOW_TIMELINE;
+#else
+	cx_evntlog = FALSE;
+#endif /* COEX_CPU */
+
+	dhd_dbg_logtrace_process_payload(dhdp, data, datalen, &list_head, cx_evntlog);
 	dll_inited = TRUE;
 
 	while (!dll_empty(&list_head)) {
@@ -1499,8 +1510,7 @@ dhd_dbg_msgtrace_log_parser(dhd_pub_t *dhdp, void *event_data,
 #endif /* DHD_EVENT_LOG_FILTER */
 
 #ifdef COEX_CPU
-		if (logset == EVENT_LOG_SET_COEX_SHADOW_INFO ||
-			logset == EVENT_LOG_SET_COEX_SHADOW_ERR) {
+		if (cx_evntlog) {
 			dhd_dbg_verboselog_coex_handler(dhdp, plog_hdr, raw_event_ptr,
 				logset, block, (uint32 *)data);
 			msg_processed = TRUE;
@@ -3264,6 +3274,7 @@ pr_roam_wtc_btm_rep_v3(prcd_event_log_hdr_t *plog_hdr)
 			log->wtcresp.rsn_code, log->wtcresp.status));
 	}
 }
+
 /* ROAM logging BTM Request */
 void
 pr_roam_btm_req_v4(prcd_event_log_hdr_t *plog_hdr)
@@ -3284,6 +3295,7 @@ pr_roam_btm_req_v4(prcd_event_log_hdr_t *plog_hdr)
 		}
 	}
 }
+
 /* ROAM logging BTM Response */
 void
 pr_roam_btm_resp_v4(prcd_event_log_hdr_t *plog_hdr)

@@ -212,6 +212,19 @@ do {	\
 	}	\
 } while (0)
 
+#ifdef DHD_DEBUGABILITY_LOG_DUMP_RING
+#define DHD_EVENT(args) \
+do {	\
+	if (dhd_msg_level & DHD_EVENT_VAL) {	\
+		DBG_PRINT_SYSTEM_TIME;	\
+		pr_cont args;		\
+	}	\
+	if (dhd_log_level & DHD_EVENT_VAL) {	\
+		DHD_LOG_DUMP_WRITE_TS;	\
+		DHD_LOG_DUMP_WRITE args;	\
+	}	\
+} while (0)
+#else
 #define DHD_EVENT(args) \
 do {	\
 	if (dhd_msg_level & DHD_EVENT_VAL) {	\
@@ -223,6 +236,8 @@ do {	\
 		DHD_LOG_DUMP_WRITE_PRSRV args;	\
 	}	\
 } while (0)
+#endif /* DHD_DEBUGABILITY_LOG_DUMP_RING */
+
 #define DHD_PRSRV_MEM(args) \
 do {	\
 	if (dhd_msg_level & DHD_EVENT_VAL) {	\
