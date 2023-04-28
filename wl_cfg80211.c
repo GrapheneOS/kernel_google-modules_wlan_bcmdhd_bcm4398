@@ -7043,6 +7043,45 @@ wl_cfg80211_get_link_idx_by_ifidx_cfgidx(struct bcm_cfg80211 *cfg, u8 ifidx, u8 
 }
 #endif /* WL_MBO_HOST || WL_CLIENT_SAE */
 
+static u8
+wl_cfg80211_get_link_idx_by_bssid(struct bcm_cfg80211 *cfg, struct net_device *ndev,
+		const u8* bssid)
+{
+
+	u8 link_idx = NON_ML_LINK;
+#ifdef WL_MLO
+	struct net_info *mld_netinfo = NULL;
+	wl_mlo_link_t *linkinfo = NULL;
+	int i;
+
+	if (!cfg->mlo.supported) {
+		return link_idx;
+	}
+
+	mld_netinfo = wl_get_netinfo_by_netdev(cfg, ndev);
+	if (!mld_netinfo) {
+		WL_ERR(("netinfo not found!\n"));
+		return link_idx;
+	}
+
+	if (!mld_netinfo->mlinfo.num_links) {
+		return link_idx;
+	}
+
+	for (i = 0; i < mld_netinfo->mlinfo.num_links; i++) {
+		linkinfo = &mld_netinfo->mlinfo.links[i];
+		if (memcmp(linkinfo->peer_link_addr, bssid, ETHER_ADDR_LEN) == 0) {
+			link_idx = linkinfo->link_idx;
+			WL_DBG(("Found matching idx:%d bssid:"MACDBG"\n",
+			       link_idx, MAC2STRDBG(bssid)));
+			break;
+		}
+	}
+
+#endif /* WL_MLO */
+	return link_idx;
+}
+
 static bool
 wl_is_mlo_sec_supported(struct bcm_cfg80211 *cfg, struct net_device *dev,
 	struct cfg80211_connect_params *sme)
@@ -9037,7 +9076,7 @@ wl_check_assoc_state(struct bcm_cfg80211 *cfg, struct net_device *dev)
 }
 
 static s32
-wl_cfg80211_get_rssi(struct net_device *dev, struct bcm_cfg80211 *cfg, s32 *rssi)
+wl_cfg80211_get_rssi(struct net_device *dev, struct bcm_cfg80211 *cfg, int link_idx, s32 *rssi)
 {
 	s32 err = BCME_OK;
 	scb_val_t scb_val;
@@ -9075,8 +9114,12 @@ wl_cfg80211_get_rssi(struct net_device *dev, struct bcm_cfg80211 *cfg, s32 *rssi
 	if (cfg->rssi_sum_report == FALSE) {
 		bzero(&scb_val, sizeof(scb_val));
 		scb_val.val = 0;
-		err = wldev_ioctl_get(dev, WLC_GET_RSSI, &scb_val,
-			sizeof(scb_val_t));
+		if (link_idx == NON_ML_LINK) {
+			err = wldev_ioctl_get(dev, WLC_GET_RSSI, &scb_val,
+				sizeof(scb_val_t));
+		} else {
+			err = wldev_link_get_rssi(dev, link_idx, &scb_val);
+		}
 		if (err) {
 			WL_ERR(("Could not get rssi (%d)\n", err));
 			return err;
@@ -9322,12 +9365,16 @@ wl_cfg80211_get_station(struct wiphy *wiphy, struct net_device *dev,
 #endif
 	void *buf;
 	s32 ifidx = DHD_BAD_IF;
+	int link_idx = NON_ML_LINK;
 
 	RETURN_EIO_IF_NOT_UP(cfg);
 
 	if (cfg80211_to_wl_iftype(dev->ieee80211_ptr->iftype, &wl_iftype, &wl_mode) < 0) {
 		return -EINVAL;
 	}
+
+	link_idx = wl_cfg80211_get_link_idx_by_bssid(cfg, dev, mac);
+	WL_DBG(("query bssid:"MACDBG" link_idx:%d\n", MAC2STRDBG(mac), link_idx));
 
 	buf = MALLOC(cfg->osh, WLC_IOCTL_MEDLEN);
 	if (buf == NULL) {
@@ -9411,14 +9458,17 @@ wl_cfg80211_get_station(struct wiphy *wiphy, struct net_device *dev,
 				fw_assoc_watchdog_started = FALSE;
 			}
 #endif /* defined(BCMDONGLEHOST) */
-			curmacp = wl_read_prof(cfg, dev, WL_PROF_BSSID);
-			if (memcmp(mac, curmacp, ETHER_ADDR_LEN)) {
-				WL_ERR(("Wrong Mac address: "MACDBG" != "MACDBG"\n",
-					MAC2STRDBG(mac), MAC2STRDBG(curmacp)));
+			if (link_idx == NON_ML_LINK) {
+				curmacp = wl_read_prof(cfg, dev, WL_PROF_BSSID);
+				if (memcmp(mac, curmacp, ETHER_ADDR_LEN)) {
+					WL_ERR(("Wrong Mac address: "MACDBG" != "MACDBG"\n",
+							MAC2STRDBG(mac), MAC2STRDBG(curmacp)));
+				}
 			}
+
 			sta = (wlcfg_sta_info_t *)buf;
 			bzero(sta, WLC_IOCTL_MEDLEN);
-			err = wldev_iovar_getbuf(dev, "sta_info", (const void*)curmacp,
+			err = wldev_link_iovar_getbuf(dev, link_idx, "sta_info", (const void*)mac,
 					ETHER_ADDR_LEN, buf, WLC_IOCTL_MEDLEN, NULL);
 			if (err < 0) {
 				WL_ERR(("GET STA INFO failed, %d\n", err));
@@ -9439,7 +9489,7 @@ wl_cfg80211_get_station(struct wiphy *wiphy, struct net_device *dev,
 			/* falls through */
 		case WL_IF_TYPE_P2P_GC:
 		case WL_IF_TYPE_P2P_DISC:
-			if ((err = wl_cfg80211_get_rssi(dev, cfg, &rssi)) != BCME_OK) {
+			if ((err = wl_cfg80211_get_rssi(dev, cfg, link_idx, &rssi)) != BCME_OK) {
 				goto get_station_err;
 			}
 			sinfo->filled |= STA_INFO_BIT(INFO_SIGNAL);
@@ -9469,7 +9519,7 @@ wl_cfg80211_get_station(struct wiphy *wiphy, struct net_device *dev,
 		case WL_IF_TYPE_P2P_GO:
 #ifdef WL_RATE_INFO
 			/* Get the current tx/rx rate */
-			err = wldev_iovar_getbuf(dev, "rate_info", NULL, 0,
+			err = wldev_link_iovar_getbuf(dev, link_idx, "rate_info", NULL, 0,
 				buf, WLC_IOCTL_SMLEN, NULL);
 #else
 			/* Get the current tx rate */
@@ -9536,7 +9586,7 @@ wl_cfg80211_get_station(struct wiphy *wiphy, struct net_device *dev,
 			} else
 #endif /* BCMDONGLEHOST */
 			{
-				err = wldev_iovar_getbuf(dev, "if_counters", NULL, 0,
+				err = wldev_link_iovar_getbuf(dev, link_idx, "if_counters", NULL, 0,
 						(char *)if_stats, WLC_IOCTL_MEDLEN, NULL);
 			}
 

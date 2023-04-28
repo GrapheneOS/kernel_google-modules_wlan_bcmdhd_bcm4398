@@ -1325,8 +1325,8 @@ enum wl_mlo_link_update {
 	LINK_UPDATE_ROAM_FAIL
 };
 
-#ifdef WL_MLO
 #define NON_ML_LINK 0xFFu
+#ifdef WL_MLO
 #define WL_ASSOC_LINK_IDX 0u
 typedef struct wl_mlo_link {
 	u8 link_id;
