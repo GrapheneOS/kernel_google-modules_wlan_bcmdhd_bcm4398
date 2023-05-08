@@ -16872,7 +16872,7 @@ wl_fillup_conn_resp_params(struct bcm_cfg80211 *cfg, struct net_device *ndev,
 			resp_params->links[i].bss = CFG80211_GET_BSS(wiphy, NULL,
 				mld_netinfo->mlinfo.links[i].peer_link_addr,
 				ssid->SSID, ssid->SSID_len);
-			resp_params->valid_links |= BIT(mld_netinfo->mlinfo.links[i].link_id);
+			resp_params->valid_links |= BIT(i);
 			if (!resp_params->links[i].bss && (status == WLAN_STATUS_SUCCESS)) {
 				WL_ERR(("null bss for BSSID " MACDBG "\n", MAC2STRDBG((const u8*)(
 					&mld_netinfo->mlinfo.links[i].peer_link_addr))));
