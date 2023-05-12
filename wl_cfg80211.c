@@ -2455,6 +2455,8 @@ wl_cfg80211_iface_state_ops(struct wireless_dev *wdev,
 				if (ret == BCME_OK) {
 					/* disable multi link for mlo stas */
 					wl_cfgvif_set_multi_link(cfg, FALSE);
+				} else {
+					return ret;
 				}
 			}
 #ifdef WL_BCNRECV
@@ -4043,6 +4045,14 @@ wl_cfg80211_delete_iface(struct bcm_cfg80211 *cfg,
 			if (iter->iftype != sec_data_if_type) {
 				continue;
 			}
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 15, 0))
+			if (iter->ndev->flags & IFF_UP) {
+				WL_ERR(("Avoid deleting netdev in UP state\n"));
+				ret = -ENOTSUPP;
+				goto fail;
+			}
+#endif /* LINUX_VERSION_CODE >= KERNEL_VERSION(5, 15, 0) */
+
 			switch (sec_data_if_type) {
 				case WL_IF_TYPE_P2P_GO:
 				case WL_IF_TYPE_P2P_GC: {
