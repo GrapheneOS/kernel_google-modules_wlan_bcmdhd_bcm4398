@@ -6386,16 +6386,27 @@ wl_cfg80211_get_mld_netinfo_by_cfg(struct bcm_cfg80211 *cfg, u8 *ml_conn_count)
 }
 
 wl_mlo_link_t *
-wl_cfg80211_get_ml_linkinfo_by_index(struct bcm_cfg80211 *cfg,
-		struct net_info *mld_netinfo, u8 index)
+wl_cfg80211_get_ml_linkinfo_by_linkid(struct bcm_cfg80211 *cfg,
+		struct net_info *mld_netinfo, u8 link_id)
 {
+	wl_mlo_link_t *linkinfo = NULL;
+	int i;
 
-	if (!mld_netinfo || (index >= MAX_MLO_LINK)) {
-		WL_ERR(("invalid arg. index:%u\n", index));
+	if (!mld_netinfo) {
+		WL_ERR(("invalid arg\n"));
 		return NULL;
 	}
 
-	return &mld_netinfo->mlinfo.links[index];
+	for (i = 0; i < MAX_MLO_LINK; i++) {
+		linkinfo = &mld_netinfo->mlinfo.links[i];
+
+		if (linkinfo->link_id == link_id) {
+			WL_DBG(("matching link found for link_id:%d", link_id));
+			break;
+		}
+	}
+
+	return linkinfo;
 }
 
 wl_mlo_link_t *
@@ -9374,7 +9385,7 @@ wl_cfg80211_get_station(struct wiphy *wiphy, struct net_device *dev,
 	}
 
 	link_idx = wl_cfg80211_get_link_idx_by_bssid(cfg, dev, mac);
-	WL_DBG(("query bssid:"MACDBG" link_idx:%d\n", MAC2STRDBG(mac), link_idx));
+	WL_INFORM_MEM(("query bssid:"MACDBG" link_idx:%d\n", MAC2STRDBG(mac), link_idx));
 
 	buf = MALLOC(cfg->osh, WLC_IOCTL_MEDLEN);
 	if (buf == NULL) {
@@ -16867,20 +16878,33 @@ wl_fillup_conn_resp_params(struct bcm_cfg80211 *cfg, struct net_device *ndev,
 	mld_netinfo = wl_cfg80211_get_netinfo(cfg, netinfo->ifidx, netinfo->bssidx);
 	if ((mld_netinfo) && (mld_netinfo->mlinfo.num_links)) {
 		for (i = 0; i < mld_netinfo->mlinfo.num_links; i++) {
-			resp_params->links[i].addr = mld_netinfo->mlinfo.links[i].link_addr;
-			resp_params->links[i].bssid = mld_netinfo->mlinfo.links[i].peer_link_addr;
-			resp_params->links[i].bss = CFG80211_GET_BSS(wiphy, NULL,
-				mld_netinfo->mlinfo.links[i].peer_link_addr,
+			wl_mlo_link_t *link = &mld_netinfo->mlinfo.links[i];
+			u8 link_id = link->link_id;
+
+			if (link_id >= IEEE80211_MLD_MAX_NUM_LINKS) {
+				WL_ERR(("wrong value for link_id:%d\n", link_id));
+				return BCME_ERROR;
+			}
+			resp_params->links[link_id].addr = link->link_addr;
+			resp_params->links[link_id].bssid = link->peer_link_addr;
+			resp_params->links[link_id].bss = CFG80211_GET_BSS(wiphy, NULL,
+				link->peer_link_addr,
 				ssid->SSID, ssid->SSID_len);
-			resp_params->valid_links |= BIT(i);
-			if (!resp_params->links[i].bss && (status == WLAN_STATUS_SUCCESS)) {
+			resp_params->valid_links |= BIT(link_id);
+			WL_INFORM_MEM(("peer_link_addr:" MACDBG " link_addr:" MACDBG " index:%d\n",
+				MAC2STRDBG((const u8*)(link->peer_link_addr)),
+				MAC2STRDBG((const u8*)(link->link_addr)), link_id));
+			if (!resp_params->links[link_id].bss && (status == WLAN_STATUS_SUCCESS)) {
 				WL_ERR(("null bss for BSSID " MACDBG "\n", MAC2STRDBG((const u8*)(
-					&mld_netinfo->mlinfo.links[i].peer_link_addr))));
+					&mld_netinfo->mlinfo.links[link_id].peer_link_addr))));
 				return BCME_ERROR;
 			}
 		}
 		if (resp_params->valid_links) {
 			resp_params->ap_mld_addr = mld_netinfo->mlinfo.peer_mld_addr;
+			WL_INFORM_MEM(("valid_links:0x%x ap_mld_addr:" MACDBG "\n",
+				resp_params->valid_links,
+				MAC2STRDBG((const u8*)(resp_params->ap_mld_addr))));
 		}
 	} else {
 		resp_params->links[0].addr = ndev->dev_addr;

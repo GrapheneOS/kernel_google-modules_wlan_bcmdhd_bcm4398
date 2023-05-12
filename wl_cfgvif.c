@@ -2074,7 +2074,7 @@ set_channel:
 	if (cfg->acs_chspec &&
 		CHSPEC_IS6G(cfg->acs_chspec) &&
 		(wf_chspec_ctlchspec(cfg->acs_chspec) == wf_chspec_ctlchspec(cur_chspec))) {
-		WL_DBG(("using acs_chanspec %x\n", cfg->acs_chspec));
+		WL_DBG_MEM(("using acs_chanspec %x\n", cfg->acs_chspec));
 		cur_chspec = cfg->acs_chspec;
 	}
 #endif /* WL_6G_BAND */
@@ -2083,12 +2083,13 @@ set_channel:
 	if (wf_chspec_valid(cur_chspec)) {
 		/* convert 802.11 ac chanspec to current fw chanspec type */
 		cur_chspec = wl_chspec_host_to_driver(cur_chspec);
+		WL_INFORM_MEM(("set chanspec 0x%x\n", cur_chspec));
 		if (cur_chspec != INVCHANSPEC) {
 			if ((err = wldev_iovar_setint(dev, "chanspec",
 				cur_chspec)) == BCME_BADCHAN) {
 				u32 local_channel = wf_chspec_center_channel(cur_chspec);
 				/* For failure cases, attempt BW downgrade */
-				WL_DBG_MEM(("set chanspec failed for %d\n", cur_chspec));
+				WL_ERR(("set chanspec failed for %x\n", cur_chspec));
 				if ((bw == WL_CHANSPEC_BW_80) || (bw == WL_CHANSPEC_BW_160) ||
 					(bw == WL_CHANSPEC_BW_320))
 					goto change_bw;
@@ -8423,14 +8424,14 @@ s32 wl_cfgvif_get_channel(struct wiphy *wiphy,
 		goto exit;
 	}
 
-	WL_INFORM(("get_channel for I/F (%s) iftype %d\n", wdev->netdev->name, netinfo->iftype));
+	WL_DBG(("get_channel for I/F (%s) iftype %d\n", wdev->netdev->name, netinfo->iftype));
 
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 19, 0)) || defined(WL_MLO_BKPORT)
 	if (netinfo->mlinfo.num_links) {
-		linkinfo = wl_cfg80211_get_ml_linkinfo_by_index(cfg, netinfo, link_id);
+		linkinfo = wl_cfg80211_get_ml_linkinfo_by_linkid(cfg, netinfo, link_id);
 		if (linkinfo && linkinfo->chspec) {
 			cur_chansp = linkinfo->chspec;
-			WL_INFORM_MEM(("get_channel for ml link_id:%d chspec:%x\n",
+			WL_DBG(("get_channel for ml link_id:%d chspec:%x\n",
 				link_id, cur_chansp));
 		} else {
 			WL_ERR(("ml linkinfo not found for linkid:%d\n", link_id));
@@ -8446,7 +8447,7 @@ s32 wl_cfgvif_get_channel(struct wiphy *wiphy,
 			err = -EINVAL;
 			goto exit;
 		}
-		WL_INFORM_MEM(("get_channel for non_ml. chspec:%x\n", cur_chansp));
+		WL_DBG(("get_channel for non_ml. chspec:%x\n", cur_chansp));
 	}
 
 	cur_chanspec = wl_chspec_driver_to_host(cur_chansp);
@@ -8462,7 +8463,8 @@ s32 wl_cfgvif_get_channel(struct wiphy *wiphy,
 	}
 
 	if (!err) {
-		WL_INFORM(("freq:%d width:%d returned\n", chandef->center_freq1, chandef->width));
+		WL_INFORM_MEM(("[%s] freq:%d width:%d chanspec:0x%x\n",
+			wdev->netdev->name, chandef->center_freq1, chandef->width, cur_chanspec));
 	}
 exit:
 	return err;
