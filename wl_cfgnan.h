@@ -671,6 +671,10 @@ typedef struct nan_hal_capabilities {
 	uint32 max_subscribe_address;
 	uint32 ndpe_attr_supported;
 	bool is_instant_mode_supported;
+	bool is_6g_supported;
+	bool is_he_supported;
+	bool is_pairing_supported;
+	bool is_set_cluster_id_supported;
 	bool is_suspension_supported;
 } nan_hal_capabilities_t;
 
