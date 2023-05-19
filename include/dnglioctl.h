@@ -119,6 +119,8 @@ typedef struct memuse_info {
 } memuse_info_t;
 
 #define RTE_POOLUSEINFO_VER 0x01
+#define RTE_POOLUSEINFO_VER2 0x02
+
 typedef struct pooluse_info {
 	uint16 ver;				/* version of this struct */
 	uint16 len;				/* length in bytes of this structure */
@@ -170,6 +172,10 @@ typedef struct pooluse_info {
 
 	uint32 total_size;			/* pktpool total size in bytes */
 	uint32 total_overhead;			/* pktpool total with overhead */
+
+	uint32 urb_main_sz;			/* URB memory used for main core. */
+	uint32 urb_aux_sz;			/* URB memory used for aux core. */
+	uint32 inuse_sz_bm;			/* Total Bootmem size used. */
 } pooluse_info_t;
 
 typedef struct memuse_ext_info {
@@ -440,6 +446,7 @@ enum capext_ecounters_subfeature_bitpos {
 	CAPEXT_ECOUNTERS_BITPOS_PHY_CAL		= 3,
 	CAPEXT_ECOUNTERS_BITPOS_CHSTATS		= 4,
 	CAPEXT_ECOUNTERS_BITPOS_PEERSTATS	= 5,
+	CAPEXT_ECOUNTERS_BITPOS_DTIM_MISS	= 6,
 	CAPEXT_ECOUNTERS_BITPOS_MAX
 };
 

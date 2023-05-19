@@ -196,11 +196,19 @@ typedef enum {
 #include <asm/atomic.h>
 
 /* FIXME: Make this a module param or a sysfs. */
-#if !defined(DHD_LB_PRIMARY_CPUS)
-#define DHD_LB_PRIMARY_CPUS     0x0 /* Big CPU coreids mask */
+/* CPUs are divided into 3 sets -
+ * SET_0 --> CPUs 0-3
+ * SET_4 --> CPUs 4-7
+ * SET_8 --> CPUs 8-11
+ */
+#if !defined(DHD_LB_CPU_SET8)
+#define DHD_LB_CPU_SET8 0x0u /* Bigger CPU coreids mask */
 #endif
-#if !defined(DHD_LB_SECONDARY_CPUS)
-#define DHD_LB_SECONDARY_CPUS   0xFE /* Little CPU coreids mask */
+#if !defined(DHD_LB_CPU_SET4)
+#define DHD_LB_CPU_SET4 0x0u /* Big CPU coreids mask */
+#endif
+#if !defined(DHD_LB_CPU_SET0)
+#define DHD_LB_CPU_SET0 0xFEu /* Little CPU coreids mask */
 #endif
 
 #define HIST_BIN_SIZE	9

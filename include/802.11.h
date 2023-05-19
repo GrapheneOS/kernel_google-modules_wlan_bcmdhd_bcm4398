@@ -398,6 +398,16 @@ BWL_PRE_PACKED_STRUCT struct dot11y_action_ext_csa {
 	struct dot11_csa_body b;	/* body of the ie */
 } BWL_POST_PACKED_STRUCT;
 
+/** Max Channel Switch Time param */
+typedef BWL_PRE_PACKED_STRUCT struct dot11_max_ie_cst {
+	uint8 id;
+	uint8 len;
+	uint8 id_ext;
+	uint8 switch_time[3];		/**< Max time delta */
+} BWL_POST_PACKED_STRUCT dot11_max_cst_ie_t;
+
+#define DOT11_MAX_CST_IE_LEN	4	/* length of Max Channel Switch Time IE body */
+
 /* TPE Transmit Power Information Field */
 #define DOT11_TPE_INFO_MAX_TX_PWR_CNT_MASK               0x07u
 #define DOT11_TPE_INFO_MAX_TX_PWR_INTRPN_MASK            0x38u
@@ -1303,11 +1313,7 @@ BWL_PRE_PACKED_STRUCT struct dot11_management_notification {
  */
 #define DOT11_SC_TCLAS_PROCESSING_TERMINATED_POLICY_CONFLICT	129u
 
-#define DOT11_SC_INVALID_PUBLIC_KEY	130u /* Public key format is invalid */
-#define DOT11_SC_PASN_BASE_AKM_FAILED	131u /* Failure from Base AKM processing during PASN */
-#define DOT11_SC_OCI_MISMATCH		132u /* OCI does not match received */
-
-/* Draft P802.11be D1.4 Table 9-78 Status codes */
+/* Draft P802.11be D3.0 Table 9-78 Status codes */
 /* DENIED_STA_AFFILIATED_WITH_MLD_WITH_EXISTING_MLD_ASSOCIATION
  * Association denied because the requesting STA is affiliated with a non-AP MLD
  * that is associated with the AP MLD.
@@ -1333,7 +1339,27 @@ BWL_PRE_PACKED_STRUCT struct dot11_management_notification {
 /* DENIED_EHT_NOT_SUPPORTED
  * Association denied because the requesting STA does not support EHT features.
  */
-#define DOT11_SC_DENIED_EHT_UNSUPPORTED	135u	/* TBD */
+#define DOT11_SC_DENIED_EHT_UNSUPPORTED	135u
+/* DENIED_LINK_ON_WHICH_THE_(RE)ASSOCIATION FRAME_IS_TRANSMITTED_NOT_ACCEPTED
+ * Link not accepted because the link on which the (Re)Association Request frame
+ * is transmitted is not accepted.
+ */
+#define DOT11_SC_DENIED_ASSOC_LINK_NOT_ACCEPTD	139u
+/* EPCS_DENIED_VERIFICATION_FAILURE
+ * EPCS priority access is temporarily denied because the receiving AP MLD
+ * is unable to verify that the non-AP MLD is authorized for an unspecified reason.
+ */
+#define DOT11_SC_EPCS_DENIED_VERIFY_FAIL 140u
+/* DENIED_OPERATION_PARAMETER_UPDATE
+ * Operation parameter update denied because the requested operation parameters
+ * or capabilities are not acceptable.
+ */
+#define DOT11_SC_DENIED_OP_PARM_UPD	141u
+
+/* FIXME - no spec. assigned value yet */
+#define DOT11_SC_INVALID_PUBLIC_KEY	130u /* Public key format is invalid */
+#define DOT11_SC_PASN_BASE_AKM_FAILED	131u /* Failure from Base AKM processing during PASN */
+#define DOT11_SC_OCI_MISMATCH		132u /* OCI does not match received */
 
 /* Info Elts, length of INFORMATION portion of Info Elts */
 #define DOT11_MNG_DS_PARAM_LEN			1	/* d11 management DS parameter length */
@@ -1540,6 +1566,8 @@ enum dot11_tag_ids {
 #define DOT11_MNG_SRPS_ID			(DOT11_MNG_ID_EXT_ID + EXT_MNG_SRPS_ID)
 #define EXT_MNG_BSSCOLOR_CHANGE_ID		42u	/* BSS Color Change Announcement */
 #define DOT11_MNG_BSSCOLOR_CHANGE_ID		(DOT11_MNG_ID_EXT_ID + EXT_MNG_BSSCOLOR_CHANGE_ID)
+#define EXT_MNG_MAX_CST_ID			52u	/* Max channel switch time */
+#define DOT11_MNG_MAX_CST_ID			(DOT11_MNG_ID_EXT_ID + EXT_MNG_MAX_CST_ID)
 #define OCV_EXTID_MNG_OCI_ID			54u     /* OCI element */
 #define DOT11_MNG_OCI_ID			(DOT11_MNG_ID_EXT_ID + OCV_EXTID_MNG_OCI_ID)
 #define EXT_MNG_NON_INHERITANCE_ID		56u     /* Non-Inheritance element */
@@ -1604,6 +1632,8 @@ enum dot11_tag_ids {
 #define EXT_MNG_AKM_SUITE_SELECTOR_ID		114u	/* AKM Suite Selector */
 #define DOT11_MNG_AKM_SUITE_SELECTOR_ID		(DOT11_MNG_ID_EXT_ID + \
 						 EXT_MNG_AKM_SUITE_SELECTOR_ID)
+#define EXT_MNG_AID_BITMAP_ID			134u	/* AID Bitmap */
+#define DOT11_MNG_AID_BITMAP_ID			(DOT11_MNG_ID_EXT_ID + EXT_MNG_AID_BITMAP_ID)
 
 /* deprecated definitions, do not use, to be deleted later */
 #define FILS_HLP_CONTAINER_EXT_ID		FILS_EXTID_MNG_HLP_CONTAINER_ID
@@ -2072,8 +2102,8 @@ typedef struct dot11_mscs_subelement dot11_mscs_subelement_t;
 #define DOT11_SCS_REQ_TYPE_REMOVE	1u
 #define DOT11_SCS_REQ_TYPE_CHANGE	2u
 
-/* 9.4.2.316 QoS Characteristics element in Draft P802.11be_D2.2
- * Figure 9-1002as Control Info field in Draft P802.11be_D2.2
+/* 9.4.2.316 QoS Characteristics element in Draft P802.11be_D3.0
+ * Figure 9-1002as Control Info field in Draft P802.11be_D3.0
  */
 #define DOT11_QOS_CHAR_DATA_RATE_LEN	3u
 #define DOT11_QOS_CHAR_DELAY_BOUND_LEN	3u
@@ -2105,11 +2135,15 @@ BWL_PRE_PACKED_STRUCT struct dot11_qos_char_ie {
 	/* optional Mean Data Rate */
 	/* optional Burst Size */
 	/* optional MSDU Lifetime */
-	/* optional MSDU Delivery Ratio */
-	/* optional MSDU Count Exponent */
+	/* optional MSDU Delivery Info */
 	/* optional Medium Time */
 } BWL_POST_PACKED_STRUCT;
 typedef struct dot11_qos_char_ie dot11_qos_char_ie_t;
+#define DOT11_SCS_QOS_CHAR_IE_LEN	19u	/* Fixed length, exludes id and len */
+#define DOT11_SCS_QOS_CHAR_IE_HDR_LEN	21u	/* Entire dot11_qos_char_ie header
+						 * length (fixed fields)
+						 */
+
 
 /** SCS Descriptor element */
 BWL_PRE_PACKED_STRUCT struct dot11_scs_descr_ie {

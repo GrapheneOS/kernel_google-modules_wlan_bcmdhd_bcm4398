@@ -242,6 +242,10 @@ osl_attach(void *pdev, uint bustype, bool pkttag)
 
 	switch (bustype) {
 		case PCI_BUS:
+			spin_lock_init(&(osh->bpaccess_lock_r));
+			spin_lock_init(&(osh->bpaccess_lock_w));
+			osh->pub.mmbus = TRUE;
+			break;
 		case SI_BUS:
 			osh->pub.mmbus = TRUE;
 			break;
@@ -383,6 +387,20 @@ osl_pci_read_config(osl_t *osh, uint offset, uint size)
 
 	/* only 4byte access supported */
 	ASSERT(size == 4);
+
+#ifdef NIC_REG_ACCESS_LEGACY
+		/*
+		 * If the Config Write is to update the BAR0 window, ensure that
+		 * the address is cached and updated in osl_reg_access_pcie_window.bp_addr
+		 * One could call R_REG, W_REG and the NIC_REG_ACCESS_LEGACY option ensures
+		 * that the BAR window value is cached. But one could directly call
+		 * OSL_PCI_WRITE_CONFIG to update BAR windows, in that case too, bp_addr
+		 * should be updated.
+		 */
+		if ((offset == PCI_BAR0_WIN) && (val != osl_reg_access_pcie_window.bp_addr)) {
+			osl_reg_access_pcie_window.bp_addr = val;
+		}
+#endif /* NIC_REG_ACCESS_LEGACY */
 
 	do {
 		pci_read_config_dword(osh->pdev, offset, &val);
@@ -2260,19 +2278,34 @@ osl_pcie_window_t osl_reg_access_pcie_window;
 /**
  * Initialize osl_reg_access_pcie_window.
  * @param[in]  osh                      OS handle.
- * @param[in]  bp_access_lock           Lock for restricting backplane access.
  * @param[in]  window_offset            Config space window base register offset.
  * @param[in]  bar_addr                 ioremap address of this window.
  */
 void
-osl_reg_access_pcie_window_init(osl_t *osh, void *bp_access_lock, unsigned long window_offset,
+osl_reg_access_pcie_window_init(osl_t *osh, unsigned long window_offset,
 		volatile void *bar_addr)
 {
-	osl_reg_access_pcie_window.bp_access_lock = bp_access_lock;
+	osl_reg_access_pcie_window.osh = osh;
+	osl_reg_access_pcie_window.bp_access_lock_r = (void *)&osh->bpaccess_lock_r;
+	osl_reg_access_pcie_window.bp_access_lock_w = (void *)&osh->bpaccess_lock_w;
 	osl_reg_access_pcie_window.window_offset = window_offset;
 	osl_reg_access_pcie_window.bar_addr = bar_addr;
 	osl_reg_access_pcie_window.bp_addr = OSL_PCI_READ_CONFIG(osh,
 		osl_reg_access_pcie_window.window_offset, sizeof(uint32));
+}
+
+/**
+ * De-Initialize osl_reg_access_pcie_window.
+ * @param[in]  osh                      OS handle.
+ */
+void
+osl_reg_access_pcie_window_deinit(osl_t *osh)
+{
+	osl_reg_access_pcie_window.osh = NULL;
+	osl_reg_access_pcie_window.bp_access_lock_r = NULL;
+	osl_reg_access_pcie_window.bp_access_lock_w = NULL;
+	osl_reg_access_pcie_window.bp_addr = (uintptr)NULL;
+	osl_reg_access_pcie_window.bar_addr = NULL;
 }
 
 /**
@@ -2290,7 +2323,9 @@ osl_update_pcie_win(osl_t *osh, volatile void *reg_addr)
 	unsigned long base_addr = (r_addr & BAR0_WINDOW_ADDRESS_MASK);
 	if (base_addr != osl_reg_access_pcie_window.bp_addr) {
 		osl_reg_access_pcie_window.bp_addr = base_addr;
-		OSL_PCI_WRITE_CONFIG(osh, osl_reg_access_pcie_window.window_offset, sizeof(uint32),
+
+		OSL_PCI_WRITE_CONFIG(osl_reg_access_pcie_window.osh,
+			osl_reg_access_pcie_window.window_offset, sizeof(uint32),
 			osl_reg_access_pcie_window.bp_addr);
 	}
 	return (volatile void *)(((volatile uint8 *)osl_reg_access_pcie_window.bar_addr) +

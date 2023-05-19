@@ -499,7 +499,7 @@ struct wl_scan_summary_v3 {
 	} u;
 };
 
-/* Raom target evaluation detail data type */
+/* Roam target evaluation detail data type */
 typedef enum {
 	WL_ROAM_TRGT_EVAL_BASIC		= 1u,
 	WL_ROAM_TRGT_EVAL_RSSI_SCORE	= 2u,
@@ -596,6 +596,79 @@ typedef struct wl_rrm_bcn_rpt_record_v1 {
 	int32  rssi;
 	int32  snr;
 } wl_rrm_bcn_rpt_record_v1_t;
+
+/* Roam 802.11k/v/r report data type
+ * Host may map the following types of corresponding structures to EVENT_LOG_TAG_RRM_11KVR_RPT
+ */
+typedef enum {
+	WLC_RRM_BCN_RPT_REQ		= 1u,
+	WLC_RRM_BCN_RPT_RESP		= 2u,
+	WLC_RRM_NBR_RPT_REQ		= 3u,
+	WLC_RRM_NBR_RPT_RESP		= 4u,
+	WLC_WNM_DMS_REQ			= 5u,
+	WLC_WNM_DMS_RESP		= 6u,
+	WLC_FBT_ODS_REQ			= 7u,
+	WLC_FBT_ODS_RESP		= 8u,
+	WL_ROAM_11KVR_RPT_MAX
+} wl_roam_11kvr_report_eval_msg_type_t;
+
+#define WLC_RRM_BCN_RPT_REQ_V1	1u
+typedef struct wl_roam_11kvr_bcn_rpt_req_v1 {
+	uint32 type;		/* = WLC_RRM_BCN_RPT_REQ (1) */
+	uint32 ver;		/* structure version */
+	uint32 reg;		/* operating class */
+	uint32 channel;		/* number of requesting channel */
+	uint32 bcn_mode;
+	uint32 bssid_hi;	/* 32-bit MSB MAC address */
+	uint32 bssid_lo;	/* 16-bit LSB MAC address */
+	uint32 duration;
+	uint32 channel_num;
+	uint32 chanspec;
+} wl_roam_11kvr_bcn_rpt_req_v1_t;
+
+#define WLC_RRM_BCN_RPT_RESP_V1	1u
+typedef struct wl_roam_11kvr_bcn_rpt_resp_v1 {
+	uint32 type;		/* = WLC_RRM_BCN_RPT_RESP (2) */
+	uint32 ver;		/* structure version */
+	uint32 index;		/* Index of AP inclided in the report */
+	uint32 num_aps;		/* total number of APs reported */
+	uint32 measure_mode;	/* Beacon measurement mode */
+	uint32 bssid_lo;	/* BSSID[3:0] */
+	uint32 bssid_hi;	/* BSSID[5:4] */
+	uint32 ssid_match;	/* 0: not-match 1:match */
+	uint32 chanspec;
+	int32  rssi;
+	int32  snr;
+} wl_roam_11kvr_bcn_rpt_resp_v1_t;
+
+#define WLC_RRM_NBR_RPT_REQ_V1	1u
+typedef struct wl_roam_11kvr_nbr_rpt_req_v1 {
+	uint32 type;		/* = WLC_RRM_NBR_RPT_REQ (3) */
+	uint32 ver;		/* structure version */
+	uint32 token;
+} wl_roam_11kvr_nbr_rpt_req_v1_t;
+
+#define WLC_RRM_NBR_RPT_RESP_V1	1u
+typedef struct wl_roam_11kvr_nbr_rpt_resp_v1 {
+	uint32 type;		/* = WLC_RRM_NBR_RPT_RESP (4) */
+	uint32 ver;		/* structure version */
+	uint32 channel_num;
+	uint32 chanspec;
+} wl_roam_11kvr_nbr_rpt_resp_v1_t;
+
+#define WLC_WNM_DMS_REQ_V1	1u
+typedef struct wl_roam_11kvr_dms_req_v1 {
+	uint32 type;		/* = WLC_WNM_DMS_REQ (5) */
+	uint32 ver;		/* structure version */
+	uint32 token;
+} wl_roam_11kvr_dms_req_v1_t;
+
+#define WLC_WNM_DMS_RESP_V1	1u
+typedef struct wl_roam_11kvr_dms_resp_v1 {
+	uint32 type;		/* = WLC_WNM_DMS_RESP (6) */
+	uint32 ver;		/* structure version */
+	uint32 token;
+} wl_roam_11kvr_dms_resp_v1_t;
 
 /* Sub-block type for EVENT_LOG_TAG_AMPDU_DUMP */
 typedef enum {

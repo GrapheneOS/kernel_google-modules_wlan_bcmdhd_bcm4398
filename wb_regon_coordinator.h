@@ -79,15 +79,35 @@ typedef struct wbrc_ext_msg {
 
 #define WBRC_CMD_BT_RESET 0x43u
 #define WBRC_CMD_BT_FW_DWNLD 0x44u
+#ifdef WBRC_HW_QUIRKS
+#define WBRC_CMD_BT_BEFORE_REG_OFF 0x45u
+#define WBRC_CMD_BT_AFTER_REG_OFF 0x46u
+#define WBRC_CMD_BT_BEFORE_REG_ON 0x47u
+#define WBRC_CMD_BT_AFTER_REG_ON 0x48u
+
+#define MIN_REGOFF_TO_REGON_DELAY 20u /* 20ms */
+#define WBRC_ONOFF_WAIT_TIMEOUT 2000u /* 2s */
+#endif /* WBRC_HW_QUIRKS */
+
 #define WBRC_ACK_BT_RESET_COMPLETE 0x81u
 
 int wl2wbrc_wlan_on(void);		/* WL2WBRC - wlan ON start */
 void wl2wbrc_wlan_on_finished(void);	/* WL2WBRC - wlan FW downloaded */
 int wl2wbrc_wlan_off(void);		/* WL2WBRC - wlan OFF start */
 int wl2wbrc_wlan_off_finished(void);	/* WL2WBRC - wlan OFF complete */
+#ifdef WBRC_HW_QUIRKS
+void wl2wbrc_wlan_before_regoff(void);
+void wl2wbrc_wlan_after_regoff(void);
+void wl2wbrc_wlan_before_regon(void);
+void wl2wbrc_wlan_after_regon(void);
+#endif /* WBRC_HW_QUIRKS */
 /* WL2WBRC - request reset of BT stack and wait for ack, for fatal errors */
 int wl2wbrc_req_bt_reset(void);
-void wl2wbrc_wlan_init(void *wl_hdl);	/* WL2WBRC - wlan host driver init */
+#ifdef WBRC_HW_QUIRKS
+void wl2wbrc_wlan_init(void *wl_hdl, uint chipid); /* WL2WBRC - wlan host driver init */
+#else
+void wl2wbrc_wlan_init(void *wl_hdl);
+#endif /* WBRC_HW_QUIRKS */
 
 /* WBRC2WL - request wlan PCIE link to be up for BT FW download */
 int wbrc2wl_wlan_pcie_link_request(void *dhd_pub);

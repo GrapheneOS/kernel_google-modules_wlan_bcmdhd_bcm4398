@@ -157,10 +157,11 @@ exit:
 ssize_t
 dhd_ring_eventts_proc_read(struct file *file, char __user *usrbuf, size_t usrsz, loff_t *loff)
 {
-	char tmpbuf[TRACE_LOG_BUF_MAX_SIZE] = {0};
+	char *tmpbuf = NULL;
 	int ret = 0;
 	int rlen = 0;
 	dhd_dbg_ring_t *ring = NULL;
+	int buflen = TRACE_LOG_BUF_MAX_SIZE;
 
 	ring = (dhd_dbg_ring_t *)((struct seq_file *)(file->private_data))->private;
 	if (ring == NULL) {
@@ -168,30 +169,47 @@ dhd_ring_eventts_proc_read(struct file *file, char __user *usrbuf, size_t usrsz,
 		return -EFAULT;
 	}
 
-	rlen = dhd_dbg_ring_pull_single(ring, tmpbuf, sizeof(tmpbuf), TRUE);
+	tmpbuf = MALLOCZ(g_dhd_pub->osh, buflen);
+	if (!tmpbuf) {
+		DHD_ERROR(("Failed to alloc tmpbuf\n"));
+		return -ENOMEM;
+	}
+
+	rlen = dhd_dbg_ring_pull_single(ring, tmpbuf, buflen, TRUE);
 	if (!rlen) {
 		/* rlen can also be zero when there is no data in the ring */
 		DHD_INFO(("%s: dhd_dbg_ring_pull_single, rlen=%d, tmpbuf size=%lu\n",
 			__FUNCTION__, rlen, sizeof(tmpbuf)));
-		return -EAGAIN;
+		ret = -EAGAIN;
+		goto fail;
 	}
 
 	DHD_INFO(("%s: dhd_dbg_ring_pull_single rlen=%d , usrsz=%lu\n", __FUNCTION__, rlen, usrsz));
 	if (rlen > usrsz) {
 		DHD_ERROR(("%s: usr buf insufficient! rlen=%d, usrsz=%ld \n",
 			__FUNCTION__, rlen, usrsz));
-		return -EFAULT;
+		ret = -EFAULT;
+		goto fail;
 	}
 
 	ret = copy_to_user(usrbuf, (void*)tmpbuf, rlen);
 	if (ret) {
 		DHD_ERROR(("%s: copy_to_usr fails! rlen=%d, usrsz=%ld \n",
 			__FUNCTION__, rlen, usrsz));
-		return -EFAULT;
+		ret = -EFAULT;
+		goto fail;
 	}
 
 	*loff += rlen;
-	return rlen;
+
+fail:
+	MFREE(g_dhd_pub->osh, tmpbuf, buflen);
+
+	if (ret) {
+		return ret;
+	} else {
+		return rlen;
+	}
 }
 #endif /* EWP_EVENTTS_LOG */
 
@@ -785,19 +803,19 @@ set_sssr_enab(struct dhd_info *dev, const char *buf, size_t count)
 }
 
 static ssize_t
-show_fis_enab_always(struct dhd_info *dev, char *buf)
+show_fis_enab(struct dhd_info *dev, char *buf)
 {
 	ssize_t ret = 0;
 	unsigned long onoff;
 
-	onoff = fis_enab_always;
+	onoff = fis_enab;
 	ret = scnprintf(buf, PAGE_SIZE - 1, "%lu \n",
 		onoff);
 	return ret;
 }
 
 static ssize_t
-set_fis_enab_always(struct dhd_info *dev, const char *buf, size_t count)
+set_fis_enab(struct dhd_info *dev, const char *buf, size_t count)
 {
 	unsigned long onoff;
 
@@ -808,7 +826,7 @@ set_fis_enab_always(struct dhd_info *dev, const char *buf, size_t count)
 		return -EINVAL;
 	}
 
-	fis_enab_always = (uint)onoff;
+	fis_enab = (uint)onoff;
 
 	return count;
 }
@@ -1270,7 +1288,7 @@ set_tcm_test_mode(struct dhd_info *dev, const char *buf, size_t count)
  * Generic Attribute Structure for DHD.
  * If we have to add a new sysfs entry under /sys/bcm-dhd/, we have
  * to instantiate an object of type dhd_attr,  populate it with
- * the required show/store functions (ex:- dhd_attr_cpumask_primary)
+ * the required show/store functions (ex:- dhd_attr_cpumask_set4)
  * and add the object to default_attrs[] array, that gets registered
  * to the kobject of dhd (named bcm-dhd).
  */
@@ -1337,8 +1355,8 @@ static struct dhd_attr dhd_attr_sock_qos_unit_test =
 #ifdef DHD_SSSR_DUMP
 static struct dhd_attr dhd_attr_sssr_enab =
 	__ATTR(sssr_enab, 0660, show_sssr_enab, set_sssr_enab);
-static struct dhd_attr dhd_attr_fis_enab_always =
-	__ATTR(fis_enab_always, 0660, show_fis_enab_always, set_fis_enab_always);
+static struct dhd_attr dhd_attr_fis_enab =
+	__ATTR(fis_enab, 0660, show_fis_enab, set_fis_enab);
 #endif /* DHD_SSSR_DUMP */
 
 static struct dhd_attr dhd_attr_firmware_path =
@@ -2908,7 +2926,7 @@ static struct attribute *default_file_attrs[] = {
 #endif /* DHD_QOS_ON_SOCK_FLOW */
 #ifdef DHD_SSSR_DUMP
 	&dhd_attr_sssr_enab.attr,
-	&dhd_attr_fis_enab_always.attr,
+	&dhd_attr_fis_enab.attr,
 #endif /* DHD_SSSR_DUMP */
 	&dhd_attr_firmware_path.attr,
 	&dhd_attr_nvram_path.attr,
@@ -3240,92 +3258,112 @@ set_candidacy_override(struct dhd_info *dev, const char *buf, size_t count)
 static struct dhd_attr dhd_candidacy_override =
 __ATTR(candidacy_override, 0660, show_candidacy_override, set_candidacy_override);
 
+static int
+write_cpumask(struct dhd_info *dev, const char *buf, cpumask_var_t dhd_cpumask)
+{
+	int ret;
+
+	cpumask_var_t mask;
+
+	if (!alloc_cpumask_var(&mask, GFP_KERNEL)) {
+		DHD_ERROR(("%s:Can't allocate cpu mask vars\n", __FUNCTION__));
+		return -1;
+	}
+
+	cpumask_clear(mask);
+	ret = cpumask_parse(buf, mask);
+	if (ret < 0) {
+		DHD_ERROR(("%s: parsing input mask failed ret = %d\n",
+			__FUNCTION__, ret));
+		return ret;
+	}
+
+	cpumask_clear(dhd_cpumask);
+	cpumask_or(dhd_cpumask, dhd_cpumask, mask);
+
+	dhd_select_cpu_candidacy(dev);
+	free_cpumask_var(mask);
+	return 0;
+}
+
 static ssize_t
-show_primary_mask(struct dhd_info *dev, char *buf)
+read_cpumask_set8(struct dhd_info *dev, char *buf)
 {
 	ssize_t ret = 0;
 
 	ret = scnprintf(buf, PAGE_SIZE - 1,
-			"%02lx\n", *cpumask_bits(dev->cpumask_primary));
+			"%04lx\n", *cpumask_bits(dev->cpumask_set8));
 	return ret;
 }
 
 static ssize_t
-set_primary_mask(struct dhd_info *dev, const char *buf, size_t count)
+write_cpumask_set8(struct dhd_info *dev, const char *buf, size_t count)
 {
-	int ret;
-
-	cpumask_var_t primary_mask;
-
-	if (!alloc_cpumask_var(&primary_mask, GFP_KERNEL)) {
-		DHD_ERROR(("Can't allocate cpumask vars\n"));
+	if (write_cpumask(dev, buf, dev->cpumask_set8) < 0) {
 		return count;
 	}
 
-	cpumask_clear(primary_mask);
-	ret = cpumask_parse(buf, primary_mask);
-	if (ret < 0) {
-		DHD_ERROR(("Setting cpumask failed ret = %d\n", ret));
-		return count;
-	}
+	DHD_PRINT(("cpumask_set8 is now: 0x%4lx\n",
+		*cpumask_bits(dev->cpumask_set8)));
 
-	cpumask_clear(dev->cpumask_primary);
-	cpumask_or(dev->cpumask_primary, dev->cpumask_primary, primary_mask);
-
-	DHD_PRINT(("set cpumask results cpumask_primary 0x%2lx\n",
-		*cpumask_bits(dev->cpumask_primary)));
-
-	dhd_select_cpu_candidacy(dev);
 	return count;
 }
 
-static struct dhd_attr dhd_primary_mask =
-__ATTR(primary_mask, 0660, show_primary_mask, set_primary_mask);
+static struct dhd_attr dhd_cpumask_set8 =
+__ATTR(cpumask_set8, 0660, read_cpumask_set8, write_cpumask_set8);
+
 
 static ssize_t
-show_secondary_mask(struct dhd_info *dev, char *buf)
+read_cpumask_set4(struct dhd_info *dev, char *buf)
 {
 	ssize_t ret = 0;
 
 	ret = scnprintf(buf, PAGE_SIZE - 1,
-			"%02lx\n", *cpumask_bits(dev->cpumask_secondary));
+			"%04lx\n", *cpumask_bits(dev->cpumask_set4));
 	return ret;
 }
 
 static ssize_t
-set_secondary_mask(struct dhd_info *dev, const char *buf, size_t count)
+write_cpumask_set4(struct dhd_info *dev, const char *buf, size_t count)
 {
-	int ret;
-
-	cpumask_var_t secondary_mask;
-
-	if (!alloc_cpumask_var(&secondary_mask, GFP_KERNEL)) {
-		DHD_ERROR(("Can't allocate cpumask vars\n"));
+	if (write_cpumask(dev, buf, dev->cpumask_set4) < 0) {
 		return count;
 	}
 
-	cpumask_clear(secondary_mask);
-
-	ret = cpumask_parse(buf, secondary_mask);
-
-	if (ret < 0) {
-		DHD_ERROR(("Setting cpumask failed ret = %d\n", ret));
-		return count;
-	}
-
-	cpumask_clear(dev->cpumask_secondary);
-	cpumask_or(dev->cpumask_secondary, dev->cpumask_secondary, secondary_mask);
-
-	DHD_PRINT(("set cpumask results cpumask_secondary 0x%2lx\n",
-		*cpumask_bits(dev->cpumask_secondary)));
-
-	dhd_select_cpu_candidacy(dev);
+	DHD_PRINT(("cpumask_set4 is now: 0x%4lx\n",
+		*cpumask_bits(dev->cpumask_set4)));
 
 	return count;
 }
 
-static struct dhd_attr dhd_secondary_mask =
-__ATTR(secondary_mask, 0660, show_secondary_mask, set_secondary_mask);
+static struct dhd_attr dhd_cpumask_set4 =
+__ATTR(cpumask_set4, 0660, read_cpumask_set4, write_cpumask_set4);
+
+static ssize_t
+read_cpumask_set0(struct dhd_info *dev, char *buf)
+{
+	ssize_t ret = 0;
+
+	ret = scnprintf(buf, PAGE_SIZE - 1,
+			"%04lx\n", *cpumask_bits(dev->cpumask_set0));
+	return ret;
+}
+
+static ssize_t
+write_cpumask_set0(struct dhd_info *dev, const char *buf, size_t count)
+{
+	if (write_cpumask(dev, buf, dev->cpumask_set0) < 0) {
+		return count;
+	}
+
+	DHD_PRINT(("cpumask_set0 is now: 0x%4lx\n",
+		*cpumask_bits(dev->cpumask_set0)));
+
+	return count;
+}
+
+static struct dhd_attr dhd_cpumask_set0 =
+__ATTR(cpumask_set0, 0660, read_cpumask_set0, write_cpumask_set0);
 
 static ssize_t
 show_rx_cpu(struct dhd_info *dev, char *buf)
@@ -3408,8 +3446,9 @@ static struct attribute *debug_lb_attrs[] = {
 	&dhd_attr_lb_rxp_strt_thr.attr,
 #endif /* DHD_LB_RXP */
 	&dhd_candidacy_override.attr,
-	&dhd_primary_mask.attr,
-	&dhd_secondary_mask.attr,
+	&dhd_cpumask_set8.attr,
+	&dhd_cpumask_set4.attr,
+	&dhd_cpumask_set0.attr,
 	&dhd_rx_cpu.attr,
 	&dhd_tx_cpu.attr,
 	NULL
@@ -3897,7 +3936,8 @@ int dhd_sysfs_init(dhd_info_t *dhd)
 			&dhd_lb_ktype, &dhd->dhd_kobj, "lb");
 	if (ret) {
 		kobject_put(&dhd->dhd_lb_kobj);
-		DHD_ERROR(("%s(): Unable to allocate kobject for 'lb'\r\n", __FUNCTION__));
+		DHD_ERROR(("%s(): Unable to allocate kobject for 'lb' ret=%d\n",
+			__FUNCTION__, ret));
 		return ret;
 	}
 
@@ -3910,7 +3950,8 @@ int dhd_sysfs_init(dhd_info_t *dhd)
 			&dhd_dpc_bounds_ktype, &dhd->dhd_kobj, "dpc_bounds");
 	if (ret) {
 		kobject_put(&dhd->dhd_dpc_bounds_kobj);
-		DHD_ERROR(("%s(): Unable to allocate kobject for 'dpc_bounds'\r\n", __FUNCTION__));
+		DHD_ERROR(("%s(): Unable to allocate kobject for 'dpc_bounds' ret=%d\n",
+			__FUNCTION__, ret));
 		return ret;
 	}
 	kobject_uevent(&dhd->dhd_dpc_bounds_kobj, KOBJ_ADD);
@@ -3921,7 +3962,8 @@ int dhd_sysfs_init(dhd_info_t *dhd)
 			&dhd_logger_ktype, &dhd->dhd_kobj, "logger");
 	if (ret) {
 		kobject_put(&dhd->dhd_logger_kobj);
-		DHD_ERROR(("%s(): Unable to allocate kobject for 'logger'\r\n", __FUNCTION__));
+		DHD_ERROR(("%s(): Unable to allocate kobject for 'logger' ret=%d\n",
+			__FUNCTION__, ret));
 		return ret;
 	}
 	kobject_uevent(&dhd->dhd_logger_kobj, KOBJ_ADD);

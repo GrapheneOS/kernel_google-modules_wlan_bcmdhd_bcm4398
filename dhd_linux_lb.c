@@ -47,10 +47,12 @@ void
 dhd_cpumasks_deinit(dhd_info_t *dhd)
 {
 	free_cpumask_var(dhd->cpumask_curr_avail);
-	free_cpumask_var(dhd->cpumask_primary);
-	free_cpumask_var(dhd->cpumask_primary_new);
-	free_cpumask_var(dhd->cpumask_secondary);
-	free_cpumask_var(dhd->cpumask_secondary_new);
+	free_cpumask_var(dhd->cpumask_set8);
+	free_cpumask_var(dhd->cpumask_set8_new);
+	free_cpumask_var(dhd->cpumask_set4);
+	free_cpumask_var(dhd->cpumask_set4_new);
+	free_cpumask_var(dhd->cpumask_set0);
+	free_cpumask_var(dhd->cpumask_set0_new);
 }
 
 int
@@ -60,39 +62,47 @@ dhd_cpumasks_init(dhd_info_t *dhd)
 	uint32 cpus, num_cpus = num_possible_cpus();
 	int ret = 0;
 
-	DHD_PRINT(("%s CPU masks primary(big)=0x%x secondary(little)=0x%x\n", __FUNCTION__,
-		DHD_LB_PRIMARY_CPUS, DHD_LB_SECONDARY_CPUS));
+	DHD_PRINT(("%s CPU masks set8(bigger)=0x%x set4(big)=0x%x set0(little)=0x%x\n",
+		__FUNCTION__, DHD_LB_CPU_SET8, DHD_LB_CPU_SET4, DHD_LB_CPU_SET0));
 
 	/* FIXME: If one alloc fails we must free_cpumask_var the previous */
 	if (!alloc_cpumask_var(&dhd->cpumask_curr_avail, GFP_KERNEL) ||
-	    !alloc_cpumask_var(&dhd->cpumask_primary, GFP_KERNEL) ||
-	    !alloc_cpumask_var(&dhd->cpumask_primary_new, GFP_KERNEL) ||
-	    !alloc_cpumask_var(&dhd->cpumask_secondary, GFP_KERNEL) ||
-	    !alloc_cpumask_var(&dhd->cpumask_secondary_new, GFP_KERNEL)) {
+	    !alloc_cpumask_var(&dhd->cpumask_set8, GFP_KERNEL) ||
+	    !alloc_cpumask_var(&dhd->cpumask_set8_new, GFP_KERNEL) ||
+	    !alloc_cpumask_var(&dhd->cpumask_set4, GFP_KERNEL) ||
+	    !alloc_cpumask_var(&dhd->cpumask_set4_new, GFP_KERNEL) ||
+	    !alloc_cpumask_var(&dhd->cpumask_set0, GFP_KERNEL) ||
+	    !alloc_cpumask_var(&dhd->cpumask_set0_new, GFP_KERNEL)) {
 		DHD_ERROR(("%s Failed to init cpumasks\n", __FUNCTION__));
 		ret = -ENOMEM;
 		goto fail;
 	}
 
 	cpumask_copy(dhd->cpumask_curr_avail, cpu_online_mask);
-	cpumask_clear(dhd->cpumask_primary);
-	cpumask_clear(dhd->cpumask_secondary);
+	cpumask_clear(dhd->cpumask_set8);
+	cpumask_clear(dhd->cpumask_set4);
+	cpumask_clear(dhd->cpumask_set0);
 
 	if (num_cpus > 32) {
 		DHD_ERROR(("%s max cpus must be 32, %d too big\n", __FUNCTION__, num_cpus));
 		ASSERT(0);
 	}
 
-	cpus = DHD_LB_PRIMARY_CPUS;
+	cpus = DHD_LB_CPU_SET8;
 	for (id = 0; id < num_cpus; id++) {
 		if (isset(&cpus, id))
-			cpumask_set_cpu(id, dhd->cpumask_primary);
+			cpumask_set_cpu(id, dhd->cpumask_set8);
+	}
+	cpus = DHD_LB_CPU_SET4;
+	for (id = 0; id < num_cpus; id++) {
+		if (isset(&cpus, id))
+			cpumask_set_cpu(id, dhd->cpumask_set4);
 	}
 
-	cpus = DHD_LB_SECONDARY_CPUS;
+	cpus = DHD_LB_CPU_SET0;
 	for (id = 0; id < num_cpus; id++) {
 		if (isset(&cpus, id))
-			cpumask_set_cpu(id, dhd->cpumask_secondary);
+			cpumask_set_cpu(id, dhd->cpumask_set0);
 	}
 
 	return ret;
@@ -102,11 +112,69 @@ fail:
 }
 
 /*
+ * dhd_select_napi_tx_cpus - helper function which sets the napi and tx cpus
+ * from the given cpu set.
+ * cpumask_curr_avail - currently available cpus
+ * cpumask_set - subset of cpus from which to choose
+ * cpumask_set_new - subset of cpumask_set from which dpc and net_tx_cpu are removed
+ * net_tx_cpu - cpu on which DHD's xmit fn. is called
+ * napi_cpu - output param, if not null, will have the cpu on which napi should run
+ * tx_cpu - output param, if not null, will have the cpu on which tx should happen
+ */
+static void
+dhd_select_napi_tx_cpus(cpumask_var_t cpumask_curr_avail, cpumask_var_t cpumask_set,
+	cpumask_var_t cpumask_set_new, uint32 net_tx_cpu,
+	uint32 *napi_cpu, uint32 *tx_cpu)
+{
+	if (napi_cpu != NULL) {
+		*napi_cpu = cpumask_first(cpumask_set_new);
+	}
+
+	if (tx_cpu == NULL) {
+		return;
+	}
+
+	/* If no further CPU is available,
+	 * cpumask_next returns >= nr_cpu_ids
+	 */
+	if (napi_cpu != NULL) {
+		*tx_cpu = cpumask_next(*napi_cpu, cpumask_set_new);
+	} else {
+		/* if napi_cpu is null, it means that the
+		 * napi_cpu is already selected from a prev set,
+		 * so select first cpu from this set as tx_cpu
+		 */
+		*tx_cpu = cpumask_first(cpumask_set_new);
+	}
+	if (*tx_cpu >= nr_cpu_ids) {
+		/* If no CPU is available for tx processing in the set,
+		 * choose the same CPU with net_tx_cpu
+		 * in case net_tx_cpu is in the set.
+		 */
+		cpumask_and(cpumask_set_new, cpumask_set,
+				cpumask_curr_avail);
+
+		if (cpumask_test_cpu(net_tx_cpu, cpumask_set_new)) {
+			*tx_cpu = net_tx_cpu;
+			DHD_INFO(("%s If no CPU is for tx cpu, use net_tx_cpu %d\n",
+				__FUNCTION__, net_tx_cpu));
+		} else {
+			*tx_cpu = 0;
+		}
+	}
+}
+
+/*
  * The CPU Candidacy Algorithm
  * ~~~~~~~~~~~~~~~~~~~~~~~~~~~
- * The available CPUs for selection are divided into two groups
- *  Primary Set - A CPU mask that carries the First Choice CPUs
- *  Secondary Set - A CPU mask that carries the Second Choice CPUs.
+ * The available CPUs for selection are divided into 3 groups
+ * SET_0 --> CPUs 0-3
+ * SET_4 --> CPUs 4-7
+ * SET_8 --> CPUs 8-11
+ *
+ *  Set8 - A CPU mask that carries the First Choice CPUs
+ *  Set4 - A CPU mask that carries the Second Choice CPUs
+ *  Set0 - A CPU mask that carries the Last Choice CPUs.
  *
  * There are two types of Job, that needs to be assigned to
  * the CPUs, from one of the above mentioned CPU group. The Jobs are
@@ -119,92 +187,95 @@ fail:
  */
 void dhd_select_cpu_candidacy(dhd_info_t *dhd)
 {
-	uint32 primary_available_cpus; /* count of primary available cpus */
-	uint32 secondary_available_cpus; /* count of secondary available cpus */
+	uint32 set8_available_cpus; /* count of available cpus in 'bigger' set */
+	uint32 set4_available_cpus; /* count of available cpus in 'big' set */
+	uint32 set0_available_cpus; /* count of available cpus in 'little' set */
 	uint32 napi_cpu = 0; /* cpu selected for napi rx processing */
 	uint32 tx_cpu = 0; /* cpu selected for tx processing job */
 	uint32 dpc_cpu = atomic_read(&dhd->dpc_cpu);
 	uint32 net_tx_cpu = atomic_read(&dhd->net_tx_cpu);
 
-	cpumask_clear(dhd->cpumask_primary_new);
-	cpumask_clear(dhd->cpumask_secondary_new);
+	cpumask_clear(dhd->cpumask_set8_new);
+	cpumask_clear(dhd->cpumask_set4_new);
+	cpumask_clear(dhd->cpumask_set0_new);
 
 	/*
-	 * Now select from the primary mask. Even if a Job is
-	 * already running on a CPU in secondary group, we still move
-	 * to primary CPU. So no conditional checks.
+	 * Now select from the set4/8 mask. Even if a Job is
+	 * already running on a CPU in set0 group, we still move
+	 * to set4/8 CPU. So no conditional checks.
 	 */
-	cpumask_and(dhd->cpumask_primary_new, dhd->cpumask_primary,
+	cpumask_and(dhd->cpumask_set8_new, dhd->cpumask_set8,
 		dhd->cpumask_curr_avail);
 
-	cpumask_and(dhd->cpumask_secondary_new, dhd->cpumask_secondary,
+	cpumask_and(dhd->cpumask_set4_new, dhd->cpumask_set4,
+		dhd->cpumask_curr_avail);
+
+	cpumask_and(dhd->cpumask_set0_new, dhd->cpumask_set0,
 		dhd->cpumask_curr_avail);
 
 	/* Clear DPC cpu from new masks so that dpc cpu is not chosen for LB */
-	cpumask_clear_cpu(dpc_cpu, dhd->cpumask_primary_new);
-	cpumask_clear_cpu(dpc_cpu, dhd->cpumask_secondary_new);
+	cpumask_clear_cpu(dpc_cpu, dhd->cpumask_set8_new);
+	cpumask_clear_cpu(dpc_cpu, dhd->cpumask_set4_new);
+	cpumask_clear_cpu(dpc_cpu, dhd->cpumask_set0_new);
 
 	/* Clear net_tx_cpu from new masks so that same is not chosen for LB */
-	cpumask_clear_cpu(net_tx_cpu, dhd->cpumask_primary_new);
-	cpumask_clear_cpu(net_tx_cpu, dhd->cpumask_secondary_new);
+	cpumask_clear_cpu(net_tx_cpu, dhd->cpumask_set8_new);
+	cpumask_clear_cpu(net_tx_cpu, dhd->cpumask_set4_new);
+	cpumask_clear_cpu(net_tx_cpu, dhd->cpumask_set0_new);
 
-	primary_available_cpus = cpumask_weight(dhd->cpumask_primary_new);
+	set8_available_cpus = cpumask_weight(dhd->cpumask_set8_new);
+	set4_available_cpus = cpumask_weight(dhd->cpumask_set4_new);
 
+	DHD_INFO(("%s select cpu from set4/8\n", __FUNCTION__));
 #if defined(DHD_LB_HOST_CTRL)
-	/* Does not use promary cpus if DHD received affinity off cmd
+	/* Do not use set4/8 cpus if DHD received affinity off cmd
 	*  from framework
 	*/
-	if (primary_available_cpus > 0 && dhd->permitted_primary_cpu) {
-#else
-	if (primary_available_cpus > 0) {
+	if (dhd->permitted_primary_cpu)
 #endif /* DHD_LB_HOST_CTRL */
-		napi_cpu = cpumask_first(dhd->cpumask_primary_new);
-
-		/* If no further CPU is available,
-		 * cpumask_next returns >= nr_cpu_ids
-		 */
-		tx_cpu = cpumask_next(napi_cpu, dhd->cpumask_primary_new);
-		if (tx_cpu >= nr_cpu_ids) {
-			/* If no CPU is available for tx processing in primary CPUs,
-			 * choose the same CPU with net_tx_cpu
-			 * in case net_tx_cpu is in primary CPUs.
-			 */
-			cpumask_and(dhd->cpumask_primary_new, dhd->cpumask_primary,
-					dhd->cpumask_curr_avail);
-
-			if (cpumask_test_cpu(net_tx_cpu, dhd->cpumask_primary_new)) {
-				tx_cpu = net_tx_cpu;
-				DHD_INFO(("%s If no CPU is for tx cpu, use net_tx_cpu %d\n",
-					__FUNCTION__, net_tx_cpu));
-			} else {
-				tx_cpu = 0;
+	{
+		if (set8_available_cpus > 0) {
+			dhd_select_napi_tx_cpus(dhd->cpumask_curr_avail, dhd->cpumask_set8,
+				dhd->cpumask_set8_new, net_tx_cpu,
+				&napi_cpu, &tx_cpu);
+		}
+		DHD_INFO(("%s After set8 CPU check napi_cpu %d tx_cpu %d\n",
+			__FUNCTION__, napi_cpu, tx_cpu));
+		if (set4_available_cpus > 0) {
+			if (napi_cpu == 0) {
+				dhd_select_napi_tx_cpus(dhd->cpumask_curr_avail, dhd->cpumask_set4,
+					dhd->cpumask_set4_new, net_tx_cpu,
+					&napi_cpu, &tx_cpu);
+			} else if (tx_cpu == 0) {
+				dhd_select_napi_tx_cpus(dhd->cpumask_curr_avail, dhd->cpumask_set4,
+					dhd->cpumask_set4_new, net_tx_cpu,
+					NULL, &tx_cpu);
 			}
 		}
+		DHD_INFO(("%s After set4 CPU check napi_cpu %d tx_cpu %d\n",
+			__FUNCTION__, napi_cpu, tx_cpu));
 	}
 
-	DHD_INFO(("%s After primary CPU check napi_cpu %d tx_cpu %d\n",
-		__FUNCTION__, napi_cpu, tx_cpu));
+	/* -- Now check for the CPUs from set0 -- */
+	set0_available_cpus = cpumask_weight(dhd->cpumask_set0_new);
 
-	/* -- Now check for the CPUs from the secondary mask -- */
-	secondary_available_cpus = cpumask_weight(dhd->cpumask_secondary_new);
+	DHD_INFO(("%s Available set0 cpus %d nr_cpu_ids %d\n",
+		__FUNCTION__, set0_available_cpus, nr_cpu_ids));
 
-	DHD_INFO(("%s Available secondary cpus %d nr_cpu_ids %d\n",
-		__FUNCTION__, secondary_available_cpus, nr_cpu_ids));
-
-	if (secondary_available_cpus > 0) {
+	if (set0_available_cpus > 0) {
 		/* At this point if napi_cpu is unassigned it means no CPU
-		 * is online from Primary Group
+		 * is online from set4/8
 		 */
 		if (napi_cpu == 0) {
-			napi_cpu = cpumask_first(dhd->cpumask_secondary_new);
-			tx_cpu = cpumask_next(napi_cpu, dhd->cpumask_secondary_new);
+			napi_cpu = cpumask_first(dhd->cpumask_set0_new);
+			tx_cpu = cpumask_next(napi_cpu, dhd->cpumask_set0_new);
 		} else if (tx_cpu == 0) {
-			tx_cpu = cpumask_first(dhd->cpumask_secondary_new);
+			tx_cpu = cpumask_first(dhd->cpumask_set0_new);
 		}
 	}
 
-	if ((primary_available_cpus == 0) &&
-		(secondary_available_cpus == 0)) {
+	if ((set8_available_cpus == 0) && (set4_available_cpus == 0) &&
+		(set0_available_cpus == 0)) {
 		/* No CPUs available from primary or secondary mask */
 		tx_cpu = napi_cpu = nr_cpu_ids - 1;
 	}
@@ -217,7 +288,7 @@ void dhd_select_cpu_candidacy(dhd_info_t *dhd)
 	if (tx_cpu >= nr_cpu_ids)
 		tx_cpu = 0;
 
-	DHD_INFO(("%s After secondary CPU check napi_cpu %d tx_cpu %d nr cpu ids %d\n",
+	DHD_INFO(("%s After set0 CPU check napi_cpu %d tx_cpu %d nr cpu ids %d\n",
 		__FUNCTION__, napi_cpu, tx_cpu, nr_cpu_ids));
 
 	if (!cpu_online(napi_cpu)) {
@@ -734,6 +805,8 @@ void dhd_lb_stats_dump(dhd_pub_t *dhdp, struct bcmstrbuf *strbuf)
 	}
 
 	bcm_bprintf(strbuf, "\nLoad Balancing/NAPI stats:\n==========================\n");
+	bcm_bprintf(strbuf, "\nLB set8 cpu mask:0x%x, set4 cpu mask:0x%x, set0 cpu mask:0x%x\n",
+		DHD_LB_CPU_SET8, DHD_LB_CPU_SET4, DHD_LB_CPU_SET0);
 	bcm_bprintf(strbuf, "\ncpu_online_cnt:\n");
 	dhd_lb_stats_dump_cpu_array(strbuf, dhd->cpu_online_cnt);
 
@@ -1526,17 +1599,17 @@ dhd_set_irq_cpucore(dhd_pub_t *dhdp, int affinity_cmd)
 	switch (affinity_cmd) {
 		case DHD_AFFINITY_OFF:
 #if defined(DHD_LB) && defined(DHD_LB_HOST_CTRL)
-			dhd_irq_set_affinity(dhdp, dhdp->info->cpumask_secondary);
+			dhd_irq_set_affinity(dhdp, dhdp->info->cpumask_set0);
 #endif /* DHD_LB && DHD_LB_HOST_CTRL */
 			break;
 		case DHD_AFFINITY_TPUT_150MBPS:
-			dhd_irq_set_affinity(dhdp, dhdp->info->cpumask_primary);
+			dhd_irq_set_affinity(dhdp, dhdp->info->cpumask_set4);
 			break;
 		case DHD_AFFINITY_TPUT_300MBPS:
 #ifdef CONFIG_ARCH_EXYNOS
 			dhd_irq_set_affinity(dhdp, cpumask_of(PCIE_IRQ_CPU_CORE));
 #else
-			dhd_irq_set_affinity(dhdp, dhdp->info->cpumask_primary);
+			dhd_irq_set_affinity(dhdp, dhdp->info->cpumask_set4);
 #endif /* CONFIG_ARCH_EXYNOS */
 			break;
 		default:

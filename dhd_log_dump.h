@@ -56,6 +56,12 @@ typedef struct dbg_log_ts_s {
 #define	BCM_TRACE_RING_NAME "ewp_bcm_trace_ring"
 #endif /* EWP_BCM_TRACE */
 
+#ifdef EWP_CX_TIMELINE
+#define LOG_DUMP_CX_TIMELINE_BUFSIZE (1024 * 1024)
+#define CX_TIMELINE_RING_ID	0xC400
+#define CX_TIMELINE_RING_NAME	"ewp_cx_timeline_ring"
+#endif /* EWP_CX_TIMELINE */
+
 #define DHD_LOG_DUMP_MAX_TEMP_BUFFER_SIZE	512
 #define DHD_LOG_DUMP_MAX_TAIL_FLUSH_SIZE (80 * 1024)
 #define DHD_LOG_DUMP_TS_MULTIPLIER_VALUE    60
@@ -146,6 +152,7 @@ typedef struct dbg_log_ts_s {
 #endif /* DHD_STATUS_LOGGING */
 #define RTT_LOG_HDR "\n-------------------- RTT log --------------------------\n"
 #define BCM_TRACE_LOG_HDR "\n-------------------- BCM Trace log --------------------------\n"
+#define CX_TIMELINE_LOG_HDR "\n-------------------- Coex Timeline log --------------------------\n"
 #define COOKIE_LOG_HDR "\n-------------------- Cookie List ----------------------------\n"
 #define DHD_PKTID_MAP_LOG_HDR "\n---------------- PKTID MAP log -----------------------\n"
 #define DHD_PKTID_UNMAP_LOG_HDR "\n------------------ PKTID UNMAP log -----------------------\n"
@@ -255,6 +262,7 @@ typedef enum {
 	LOG_DUMP_SECTION_EWP_HW_MOD_DUMP,
 	LOG_DUMP_SECTION_EWP_HW_REG_DUMP,
 	LOG_DUMP_SECTION_WRAPPER_REG_DUMP,
+	LOG_DUMP_SECTION_COEX_TIMELINE,
 	LOG_DUMP_SECTION_MAX
 } log_dump_section_type_t;
 

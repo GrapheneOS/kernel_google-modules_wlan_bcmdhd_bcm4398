@@ -126,8 +126,8 @@ typedef enum {
 
 	WLFC_CTL_TYPE_LLW_OPEN			= 36, /* Open LLW interface */
 	WLFC_CTL_TYPE_LLW_CLOSE			= 37, /* Close LLW interface */
-	WLFC_CTL_TYPE_LLW_LATENCY		= 38, /* LLW latency TLV */
-	WLFC_CTL_TYPE_LLW_QUERY			= 39, /* Check if flowring with flowid is LLW */
+	WLFC_CTL_TYPE_LLW_QUERY			= 38, /* Check if flowring with flowid is LLW */
+	WLFC_CTL_TYPE_LLW_LATENCY		= 39, /* LLW latency TLV */
 
 	WLFC_CTL_TYPE_D2HQ_STATUS		= 40,
 
@@ -158,7 +158,7 @@ typedef enum {
 #define WLFC_CTL_EXT_TXSTATUS_PAYLOAD_LEN	8u	/* Payload legnth of extention tx status */
 
 #define WLFC_CTL_VALUE_LEN_LLW			8u	/** tid, ifindex, MAC */
-#define WLFC_CTL_VALUE_LEN_LLW_LATENCY		16u	/* Peer latency information */
+#define WLFC_CTL_VALUE_LEN_LLW_LATENCY		20u	/* Peer latency information */
 
 /* Reset the flags set for the corresponding flowring of the SCB which is de-inited */
 /* FLOW_RING_FLAG_LAST_TIM | FLOW_RING_FLAG_INFORM_PKTPEND | FLOW_RING_FLAG_PKT_REQ */

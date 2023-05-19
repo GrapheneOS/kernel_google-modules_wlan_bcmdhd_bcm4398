@@ -413,9 +413,10 @@ uint wf_chspec_first_20_sb(chanspec_t chspec);
 } while (0)
 
 /* given a chanspec of any bw, tests if primary20 SB is in lower 20, 40, 80 respectively */
-#define IS_CTL_IN_L20(chspec) !((chspec) & WL_CHANSPEC_CTL_SB_U) /* CTL SB is in low 20 of any 40 */
-#define IS_CTL_IN_L40(chspec) !((chspec) & WL_CHANSPEC_CTL_SB_UL)	/* in low 40 of any 80 */
-#define IS_CTL_IN_L80(chspec) !((chspec) & WL_CHANSPEC_CTL_SB_ULL)	/* in low 80 of 160 */
+#define IS_CTL_IN_L20(chspec)  !((chspec) & WL_CHANSPEC_CTL_SB_U)	/* in low 20 of any 40 */
+#define IS_CTL_IN_L40(chspec)  !((chspec) & WL_CHANSPEC_CTL_SB_UL)	/* in low 40 of any 80 */
+#define IS_CTL_IN_L80(chspec)  !((chspec) & WL_CHANSPEC_CTL_SB_ULL)	/* in low 80 of 160 */
+#define IS_CTL_IN_L160(chspec) !((chspec) & WL_CHANSPEC_CTL_SB_ULLL)	/* in low 160 of 320 */
 
 #define BW_LE40(bw)		((bw) == WL_CHANSPEC_BW_20 || ((bw) == WL_CHANSPEC_BW_40))
 #define BW_LE80(bw)		(BW_LE40(bw) || ((bw) == WL_CHANSPEC_BW_80))

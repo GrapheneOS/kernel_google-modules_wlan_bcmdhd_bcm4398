@@ -530,7 +530,7 @@ typedef BWL_PRE_PACKED_STRUCT struct multi_bssid_ie {
 	uint8 id;
 	uint8 len;
 	uint8 maxbssid_indicator;
-	nontrans_bssid_profile_subie_t profile[BCM_FLEX_ARRAY];
+	nontrans_bssid_profile_subie_t profile[1];
 } BWL_POST_PACKED_STRUCT multi_bssid_ie_t;
 typedef multi_bssid_ie_t multi_BSSID_ie_t;
 

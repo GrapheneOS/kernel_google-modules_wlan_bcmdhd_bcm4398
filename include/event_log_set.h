@@ -374,11 +374,7 @@
 #define EVENT_LOG_SET_COEX_SHADOW_ERR_BLOCK_SIZE	(EVENT_LOG_BLOCK_SIZE_512B)
 #endif
 
-/* TODO: Rename coex shadow set PRSRV to TIMELINE. The old name will be removed once changes in
- * all user components are submitted.
- */
 /* set 37 */
-#define EVENT_LOG_SET_COEX_SHADOW_PRSRV		(37u)
 #define EVENT_LOG_SET_COEX_SHADOW_TIMELINE	(37u)
 
 #ifndef EVENT_LOG_SET_COEX_SHADOW_TIMELINE_NUM_BLOCKS
@@ -410,6 +406,15 @@
 #define EVENT_LOG_SET_OBP_TRACE_LOG_BLOCK_SIZE	(EVENT_LOG_BLOCK_SIZE_1K)
 #endif
 
+/* set 40: For all MLO related logging. */
+#define EVENT_LOG_SET_MULTI_LINK	(40u)
+#ifndef EVENT_LOG_SET_MULTI_LINK_NUM_BLOCKS
+#define EVENT_LOG_SET_MULTI_LINK_NUM_BLOCKS	(2u)
+#endif
+
+#ifndef EVENT_LOG_SET_MULTI_LINK_BLOCK_SIZE
+#define EVENT_LOG_SET_MULTI_LINK_BLOCK_SIZE	(EVENT_LOG_BLOCK_SIZE_1K)
+#endif
 
 #ifndef NUM_EVENT_LOG_SETS
 /* Set a maximum number of sets here.  It is not dynamic for
@@ -419,9 +424,9 @@
  */
 #ifdef NUM_EVENT_LOG_SETS_V2
 /* for v2, everything has became unsigned */
-#define NUM_EVENT_LOG_SETS (40u)
+#define NUM_EVENT_LOG_SETS (41u)
 #else /* NUM_EVENT_LOG_SETS_V2 */
-#define NUM_EVENT_LOG_SETS (40)
+#define NUM_EVENT_LOG_SETS (41)
 #endif /* NUM_EVENT_LOG_SETS_V2 */
 #endif /* NUM_EVENT_LOG_SETS */
 

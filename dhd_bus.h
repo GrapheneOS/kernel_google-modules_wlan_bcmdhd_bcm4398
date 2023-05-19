@@ -386,6 +386,7 @@ extern bool dhd_bus_force_bt_quiesce_enabled(struct dhd_bus *bus);
 #ifdef DHD_SSSR_DUMP
 extern int dhd_bus_fis_trigger(dhd_pub_t *dhd);
 extern int dhd_bus_fis_dump(dhd_pub_t *dhd);
+extern bool dhd_bus_fis_fw_triggered_check(dhd_pub_t *dhd);
 #endif /* DHD_SSSR_DUMP */
 
 #ifdef PCIE_FULL_DONGLE

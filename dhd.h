@@ -1760,6 +1760,10 @@ typedef struct dhd_pub {
 	void *eventts_dbg_ring;
 	uint8 *eventts_buf;
 #endif /* EWP_EVENTTS_LOG */
+#ifdef EWP_CX_TIMELINE
+	void *cx_timeline_dbg_ring;
+	uint8 *cx_timeline_dbg_ring_buf;
+#endif /* EWP_CX_TIMELINE */
 #ifdef DNGL_EVENT_SUPPORT
 	uint8 health_chk_event_data[HEALTH_CHK_BUF_SIZE];
 #endif
@@ -1779,6 +1783,7 @@ typedef struct dhd_pub {
 	osl_atomic_t set_ssid_rcvd; /* to track if WLC_E_SET_SSID is received during join IOVAR */
 	/* to track if WLC_E_SET_SSID is received during join IOVAR with error */
 	osl_atomic_t set_ssid_err_rcvd;
+	osl_atomic_t psk_sup_rcvd; /* to track if WLC_E_PSK_SUP is received during join IOVAR */
 	bool secure_join; /* field to note that the join is secure or not */
 #endif /* REPORT_FATAL_TIMEOUTS */
 #ifdef CUSTOM_SET_ANTNPM
@@ -5044,7 +5049,7 @@ int dhd_get_reboot_status(struct dhd_pub *dhdp);
 static INLINE int dhd_get_reboot_status(struct dhd_pub *dhdp) { return 0; }
 #endif /* __linux__ */
 
-#ifdef WBRC
+#if defined(WBRC) && defined(BT_FW_DWNLD)
 int dhd_bt_fw_dwnld_blob(void *wl_hdl, char* buf, size_t len);
 #endif
 

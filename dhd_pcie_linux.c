@@ -1710,7 +1710,9 @@ dhdpcie_bus_unregister(void)
 		if (dhdp->dongle_isolation == FALSE)
 #endif /* OEM_ANDROID */
 		{
-			dhdpcie_pci_suspend_resume(dhdp->bus, FALSE);
+			dhd_bus_resume(dhdp, 1);
+			/* Do force devreset here, as F0 FLR is must before pulling WL_REG_ON low */
+			dhd_bus_devreset(dhdp, TRUE);
 		}
 	} else {
 		DHD_GENERAL_UNLOCK(dhdp, flags);
@@ -1806,6 +1808,10 @@ dhdpcie_pci_stop(struct pci_dev *pdev)
 		dhdpcie_bus_release(bus);
 	}
 
+#ifdef BOARD_STB
+	/* For STB, it is causing kernel panic during reboot when ep is accessed after devreset */
+	DHD_PRINT(("%s: Skip EP disable after devreset\n", __FUNCTION__));
+#else
 	/*
 	 * For module type driver,
 	 * it needs to back up configuration space before rmmod
@@ -1816,6 +1822,8 @@ dhdpcie_pci_stop(struct pci_dev *pdev)
 
 	if (pci_is_enabled(pdev))
 		pci_disable_device(pdev);
+#endif /* BOARD_STB */
+
 #ifdef BCMPCIE_OOB_HOST_WAKE
 	/* pcie os info detach */
 	MFREE(osh, pch->os_cxt, sizeof(dhdpcie_os_info_t));
@@ -2344,6 +2352,8 @@ int dhdpcie_init(struct pci_dev *pdev)
 			DHD_ERROR(("%s:dhdpcie_bus_attach() failed\n", __FUNCTION__));
 			break;
 		}
+
+		dhd_plat_get_rc_port_dev_details(bus->dhd->plat_info, pdev);
 
 		dhdpcie_info->bus = bus;
 		bus->bar1_size = dhdpcie_info->bar1_size;
@@ -3739,6 +3749,7 @@ dhd_bus_check_driver_up(void)
 #define BT_BASE 0x19000000u
 #define ADDR_SIZE 4u
 
+#ifdef BT_FW_DWNLD
 #ifdef WBRC_TEST
 static bool
 dhd_bt_fw_verify_read_back(dhd_pub_t *dhdp, const char* buf, size_t len)
@@ -3867,4 +3878,5 @@ dhd_bt_fw_dwnld_blob(void *wl_hdl, char* buf, size_t len)
 
 	return ret;
 }
+#endif /* BT_FW_DWNLD */
 #endif /* WBRC */

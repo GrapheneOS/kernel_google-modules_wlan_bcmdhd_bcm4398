@@ -297,7 +297,7 @@ typedef struct vht_features_ie_hdr vht_features_ie_hdr_t;
 typedef BWL_PRE_PACKED_STRUCT struct {
 	uint8	id;
 	uint8	len;
-	uint8	data[1];
+	uint8	data[];
 } BWL_POST_PACKED_STRUCT ftm_vs_tlv_t;
 
 BWL_PRE_PACKED_STRUCT struct dot11_ftm_vs_ie {
@@ -306,7 +306,7 @@ BWL_PRE_PACKED_STRUCT struct dot11_ftm_vs_ie {
 	uint8 oui[3];		/* BRCM_PROP_OUI (or Customer) */
 	uint8 sub_type;		/* BRCM_FTM_IE_TYPE (or Customer) */
 	uint8 version;
-	ftm_vs_tlv_t tlvs[BCM_FLEX_ARRAY];
+	uint8 tlvs[]; /* ftm_vs_tlv_t tlv */
 } BWL_POST_PACKED_STRUCT;
 typedef struct dot11_ftm_vs_ie dot11_ftm_vs_ie_t;
 
@@ -317,7 +317,7 @@ typedef struct dot11_ftm_vs_ie dot11_ftm_vs_ie_t;
 BWL_PRE_PACKED_STRUCT struct dot11_ftm_vs_ie_pyld {
 	uint8 sub_type;		/* BRCM_FTM_IE_TYPE (or Customer) */
 	uint8 version;
-	ftm_vs_tlv_t tlvs[BCM_FLEX_ARRAY];
+	uint8 tlvs[]; /* ftm_vs_tlv_t tlv */
 } BWL_POST_PACKED_STRUCT;
 typedef struct dot11_ftm_vs_ie_pyld dot11_ftm_vs_ie_pyld_t;
 

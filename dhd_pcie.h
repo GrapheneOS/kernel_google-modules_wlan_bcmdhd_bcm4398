@@ -469,6 +469,9 @@ typedef struct dhd_bus {
 	uint32 d3_inform_cnt;
 	uint32 d0_inform_cnt;
 	uint32 d0_inform_in_use_cnt;
+#ifdef DHD_TREAT_D3ACKTO_AS_LINKDWN
+	uint32 d3ackto_as_linkdwn_cnt;
+#endif
 	uint8 force_suspend;
 	uint8 is_linkdown;
 	uint8 no_bus_init;
@@ -856,7 +859,6 @@ extern bool dhdpcie_tcm_valid(dhd_bus_t *bus);
 extern void dhdpcie_pme_active(osl_t *osh, bool enable);
 extern bool dhdpcie_pme_cap(osl_t *osh);
 extern uint32 dhdpcie_lcreg(osl_t *osh, uint32 mask, uint32 val);
-extern void dhdpcie_set_pmu_min_res_mask(struct dhd_bus *bus, uint min_res_mask);
 extern uint8 dhdpcie_clkreq(osl_t *osh, uint32 mask, uint32 val);
 extern int dhdpcie_disable_irq(dhd_bus_t *bus);
 extern int dhdpcie_disable_irq_nosync(dhd_bus_t *bus);
@@ -1109,4 +1111,8 @@ void dhd_validate_pcie_link_cbp_wlbp(dhd_bus_t *bus);
 uint32 dhdpcie_cfg_indirect_bpaccess(struct dhd_bus *bus, uint32 addr, bool read, uint value);
 int dhdpcie_get_cbaon_coredumps(struct dhd_bus *bus);
 void dhd_dump_intr_counters(dhd_pub_t *dhd, struct bcmstrbuf *strbuf);
+
+/* Host Platform quirk callbacks */
+extern void dhdpcie_set_pmu_min_res_mask(void *bus, uint min_res_mask);
+extern int dhdpcie_skip_xorcsum_request(void *dhd_bus_p);
 #endif /* dhd_pcie_h */

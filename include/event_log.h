@@ -81,6 +81,9 @@
 #define EVENT_LOG_EXT_HDR_IND		(0x01)
 #define EVENT_LOG_EXT_HDR_BIN_DATA_IND	(0x01 << 1)
 
+/* Regualar event log header binary data indications bits, 2 LSB of fmt_num */
+#define EVENT_LOG_REG_HDR_BIN_DATA_IND	(0x3u)
+
 /* Actual format number for binary records with regular header */
 #define EVENT_LOG_ACTUAL_REG_BIN_FMT_NUM	(0x3FFFu)
 /* Actual format number for binary records with extended header */
@@ -306,6 +309,15 @@ typedef struct evt_log_tag_entry {
 	uint8	set; /* Set number. */
 	uint8	refcnt; /* Ref_count if sdc is used */
 } evt_log_tag_entry_t;
+
+/* Event log set init config table entry */
+typedef struct event_log_set_init_config_entry {
+	uint8 set;
+	event_log_set_destination_t destination;
+	event_log_set_sub_destination_t sub_destination;
+	uint16 num_blocks;
+	uint16 block_size;
+} event_log_set_init_config_entry_t;
 
 #ifdef BCMDRIVER
 /* !!! The following section is for kernel mode code only !!! */

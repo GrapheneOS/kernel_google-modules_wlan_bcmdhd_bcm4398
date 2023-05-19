@@ -98,7 +98,7 @@ typedef struct chip_rev_table {
 } chip_rev_table_t;
 
 chip_rev_table_t chip_revs[] = {
-	{0x4383, {"a0", "b0", "c0", "d0", "\0", "\0", "\0", "\0", "\0", "\0"}},
+	{0x4383, {"a0", "a1", "a3", "\0", "\0", "\0", "\0", "\0", "\0", "\0"}},
 	{0x4398, {"a0", "b0", "c0", "d0", "\0", "\0", "\0", "\0", "\0", "\0"}},
 	/* 4389 - not yet supported for now */
 	{0x4389, {"\0", "\0", "\0", "\0", "\0", "\0", "\0", "\0", "\0", "\0"}},
@@ -864,6 +864,9 @@ dhd_get_fw_nvram_names(dhd_pub_t *dhdp, uint chipid, uint chiprev,
 			memcpy_s(chip_revstr, MAX_REVSTRING,
 				chip_revs[i].chip_revstr[chiprev], MAX_REVSTRING);
 			chiprev_found = TRUE;
+			DHD_PRINT(("%s, chiprev string(%s) found for chipid:0x%x "
+				"chiprev:0x%x\n",
+				__FUNCTION__, chip_revstr, chipid, chiprev));
 			snprintf(nv_ext, MAX_EXTENSION, "_%x_%s", chipid, chip_revstr);
 			snprintf(fw_ext, MAX_EXTENSION, "_%x_%s", chipid, chip_revstr);
 			break;

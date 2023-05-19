@@ -247,6 +247,8 @@ nan_event_to_str(u16 cmd)
 		break;
 	C2S(WL_NAN_EVENT_SCHED_CHANGE);
 		break;
+	C2S(WL_NAN_EVENT_SUSPENSION_IND);
+		break;
 	C2S(WL_NAN_EVENT_INVALID);
 		break;
 
@@ -344,6 +346,10 @@ static int wl_cfgnan_execute_ioctl(struct net_device *ndev,
 	struct bcm_cfg80211 *cfg, bcm_iov_batch_buf_t *nan_buf,
 	uint16 nan_buf_size, uint32 *status, uint8 *resp_buf,
 	uint16 resp_buf_len);
+
+static int wl_cfgnan_build_execute_ioctl(struct net_device *ndev, struct bcm_cfg80211 *cfg,
+	uint8 *input_data, uint8 size_of_iov, uint16 cmd_type, uint32 *status);
+
 int
 wl_cfgnan_generate_inst_id(struct bcm_cfg80211 *cfg, uint8 *p_inst_id)
 {
@@ -1342,6 +1348,7 @@ wl_cfgnan_config_eventmask(struct net_device *ndev, struct bcm_cfg80211 *cfg,
 		setbit(event_mask, NAN_EVENT_MAP(WL_NAN_EVENT_RNG_REQ_IND));
 		setbit(event_mask, NAN_EVENT_MAP(WL_NAN_EVENT_RNG_TERM_IND));
 		setbit(event_mask, NAN_EVENT_MAP(WL_NAN_EVENT_DISC_CACHE_TIMEOUT));
+		setbit(event_mask, NAN_EVENT_MAP(WL_NAN_EVENT_SUSPENSION_IND));
 		/* Disable below events by default */
 		clrbit(event_mask, NAN_EVENT_MAP(WL_NAN_EVENT_PEER_SCHED_UPD_NOTIF));
 		clrbit(event_mask, NAN_EVENT_MAP(WL_NAN_EVENT_RNG_RPT_IND));
@@ -2967,6 +2974,108 @@ fail:
 }
 
 static int
+wl_cfgnan_build_execute_ioctl(struct net_device *ndev, struct bcm_cfg80211 *cfg,
+	uint8 *input_data, uint8 size_of_iov, uint16 cmd_type, uint32 *status)
+{
+	bcm_iov_batch_buf_t *nan_buf = NULL;
+	s32 ret = BCME_OK;
+	uint16 nan_iov_start, nan_iov_end;
+	uint16 nan_buf_size = NAN_IOCTL_BUF_SIZE;
+	uint16 subcmd_len;
+	bcm_iov_batch_subcmd_t *sub_cmd = NULL;
+	wl_nan_iov_t *nan_iov_data = NULL;
+	uint8 resp_buf[NAN_IOCTL_BUF_SIZE];
+
+
+	nan_buf = MALLOCZ(cfg->osh, nan_buf_size);
+	if (!nan_buf) {
+		WL_ERR(("%s: memory allocation failed\n", __func__));
+		ret = BCME_NOMEM;
+		goto fail;
+	}
+
+	nan_iov_data = MALLOCZ(cfg->osh, sizeof(*nan_iov_data));
+	if (!nan_iov_data) {
+		WL_ERR(("%s: memory allocation failed\n", __func__));
+		ret = BCME_NOMEM;
+		goto fail;
+	}
+
+	nan_iov_data->nan_iov_len = nan_iov_start = NAN_IOCTL_BUF_SIZE;
+	nan_buf->version = htol16(WL_NAN_IOV_BATCH_VERSION);
+	nan_buf->count = 0;
+	nan_iov_data->nan_iov_buf = (uint8 *)(&nan_buf->cmds[0]);
+	nan_iov_data->nan_iov_len -= OFFSETOF(bcm_iov_batch_buf_t, cmds[0]);
+	sub_cmd = (bcm_iov_batch_subcmd_t*)(nan_iov_data->nan_iov_buf);
+
+	ret = wl_cfg_nan_check_cmd_len(nan_iov_data->nan_iov_len,
+		size_of_iov, &subcmd_len);
+	if (unlikely(ret)) {
+		WL_ERR(("nan_sub_cmd check failed\n"));
+		goto fail;
+	}
+
+	sub_cmd->id = htod16(cmd_type);
+	sub_cmd->len = sizeof(sub_cmd->u.options) + size_of_iov;
+	sub_cmd->u.options = htol32(BCM_XTLV_OPTION_ALIGN32);
+
+	/* Reduce the iov_len size by subcmd_len */
+	nan_iov_data->nan_iov_len -= subcmd_len;
+	nan_iov_end = nan_iov_data->nan_iov_len;
+	nan_buf_size = (nan_iov_start - nan_iov_end);
+
+	(void)memcpy_s(sub_cmd->data, nan_iov_data->nan_iov_len,
+		input_data, size_of_iov);
+
+	nan_buf->is_set = true;
+	nan_buf->count++;
+	bzero(resp_buf, sizeof(resp_buf));
+
+	ret = wl_cfgnan_execute_ioctl(ndev, cfg, nan_buf, nan_buf_size, status,
+			(void*)resp_buf, NAN_IOCTL_BUF_SIZE);
+	if (unlikely(ret) || unlikely(*status)) {
+		WL_ERR(("IOVAR, failed ret %d status %d \n", ret, *status));
+		goto fail;
+	}
+fail:
+	if (nan_buf) {
+		MFREE(cfg->osh, nan_buf, NAN_IOCTL_BUF_SIZE);
+	}
+	if (nan_iov_data) {
+		MFREE(cfg->osh, nan_iov_data, sizeof(*nan_iov_data));
+	}
+	NAN_DBG_EXIT();
+	return ret;
+}
+
+int
+wl_cfgnan_suspend_resume_request(struct net_device *ndev, struct bcm_cfg80211 *cfg,
+	uint8 suspend, wl_nan_instance_id_t svc_id, uint32 *status)
+{
+	s32 ret = BCME_OK;
+	wl_nan_suspend_resume_req_t suspend_req;
+	uint8 size_of_iov;
+
+	NAN_DBG_ENTER();
+
+	suspend_req.service_id = svc_id;
+	suspend_req.suspend = suspend;
+
+	size_of_iov = sizeof(wl_nan_suspend_resume_req_t);
+
+	ret = wl_cfgnan_build_execute_ioctl(ndev, cfg, (uint8 *)&suspend_req, size_of_iov,
+			WL_NAN_CMD_SD_SUSPEND_RESUME, status);
+	if (unlikely(ret) || unlikely(*status)) {
+		WL_ERR(("Suspension request suspend %d  svc_id %d failed ret %d status %d \n",
+				suspend, svc_id, ret, *status));
+		goto fail;
+	}
+fail:
+	NAN_DBG_EXIT();
+	return ret;
+}
+
+static int
 wl_cfgnan_set_disc_beacon_interval_handler(struct net_device *ndev, struct bcm_cfg80211 *cfg,
 	wl_nan_disc_bcn_interval_t disc_beacon_interval)
 {
@@ -3223,19 +3332,13 @@ wl_cfgnan_start_handler(struct net_device *ndev, struct bcm_cfg80211 *cfg,
 	mutex_lock(&cfg->if_sync);
 	NAN_MUTEX_LOCK();
 
-#ifdef WL_IFACE_MGMT
-	cfg->wiphy_lock_held = true;
-	if ((ret = wl_cfg80211_handle_if_role_conflict(cfg, WL_IF_TYPE_NAN_NMI)) != BCME_OK) {
-		WL_ERR(("Conflicting iface is present, cant support nan\n"));
+	ret = wl_cfg80211_iface_state_ops(ndev->ieee80211_ptr, WL_IF_NAN_ENABLE,
+		WL_IF_TYPE_NAN_NMI, WL_MODE_NAN);
+	if (ret != BCME_OK) {
 		NAN_MUTEX_UNLOCK();
 		mutex_unlock(&cfg->if_sync);
 		goto fail;
 	}
-	cfg->wiphy_lock_held = false;
-#endif /* WL_IFACE_MGMT */
-
-	/* disable TDLS on NAN init  */
-	wl_cfg80211_tdls_config(cfg, TDLS_STATE_NMI_CREATE, false);
 
 	WL_INFORM_MEM(("Initializing NAN\n"));
 	ret = wl_cfgnan_init(cfg);
@@ -3686,6 +3789,8 @@ wl_cfgnan_disable(struct bcm_cfg80211 *cfg)
 		} else if (ret != BCME_OK) {
 			WL_ERR(("failed to stop nan, error[%d]\n", ret));
 		}
+		wl_cfg80211_iface_state_ops(ndev->ieee80211_ptr, WL_IF_NAN_DISABLE,
+			WL_IF_TYPE_NAN, WL_MODE_NAN);
 		ret = wl_cfgnan_deinit(cfg, dhdp->up);
 		if (ret == -ENODEV) {
 			WL_ERR(("Bus is down, proceed to cleanup\n"));
@@ -3865,8 +3970,6 @@ wl_cfgnan_stop_handler(struct net_device *ndev,
 			WL_ERR(("nan disable failed ret = %d status = %d\n", ret, status));
 			goto fail;
 		}
-		/* Enable back TDLS if connected interface is <= 1 */
-		wl_cfg80211_tdls_config(cfg, TDLS_STATE_IF_DELETE, false);
 	}
 
 	if (!nancfg->notify_user) {
@@ -5642,6 +5745,10 @@ wl_cfgnan_sd_params_handler(struct net_device *ndev,
 		goto fail;
 	}
 
+	if (cmd_data->svc_suspendable) {
+		sd_params->flags |= WL_NAN_SVC_CFG_SUSPENDABLE;
+	}
+
 	if ((cmd_data->svc_hash.dlen == WL_NAN_SVC_HASH_LEN) &&
 			(cmd_data->svc_hash.data)) {
 		ret = memcpy_s((uint8*)sd_params->svc_hash,
@@ -6758,6 +6865,10 @@ wl_cfgnan_get_capability(struct net_device *ndev,
 	if (fw_cap->flags1 & WL_NAN_FW_CAP_FLAG1_NDPE) {
 		capabilities->ndpe_attr_supported = true;
 	}
+	if (fw_cap->flags1 & WL_NAN_FW_CAP_FLAG1_SUSPENSION) {
+		capabilities->is_suspension_supported = true;
+		cfg->nancfg->is_suspension_supported = true;
+	}
 
 fail:
 	if (nan_buf) {
@@ -7048,7 +7159,7 @@ wl_cfgnan_data_path_iface_create_delete_handler(struct net_device *ndev,
 			 */
 			wl_cfgnan_add_ndi_data(cfg, idx, ifname, wdev);
 		} else if (type == NAN_WIFI_SUBCMD_DATA_PATH_IFACE_DELETE) {
-			ret = wl_cfg80211_del_if(cfg, ndev, NULL, ifname);
+			ret = wl_cfgvif_del_if(cfg, ndev, NULL, ifname);
 			if (ret == BCME_OK) {
 				/* handled the post del ndi ops in _wl_cfg80211_del_if */
 			} else if (ret == -ENODEV) {
@@ -7260,13 +7371,6 @@ wl_cfgnan_data_path_request_handler(struct net_device *ndev,
 
 	mutex_lock(&cfg->if_sync);
 	NAN_MUTEX_LOCK();
-#ifdef WL_IFACE_MGMT
-	if ((ret = wl_cfg80211_handle_if_role_conflict(cfg, WL_IF_TYPE_NAN)) < 0) {
-		WL_ERR(("Conflicting iface found to be active\n"));
-		ret = BCME_UNSUPPORTED;
-		goto fail;
-	}
-#endif /* WL_IFACE_MGMT */
 
 #ifdef RTT_SUPPORT
 	/* cancel any ongoing RTT session with peer
@@ -7402,6 +7506,16 @@ wl_cfgnan_data_path_request_handler(struct net_device *ndev,
 			}
 		}
 		datareq->flags |= WL_NAN_DP_FLAG_SVC_INFO;
+	}
+
+	if (cmd_data->service_instance_id) {
+		ret = bcm_pack_xtlv_entry(&pxtlv, &nan_buf_size,
+				WL_NAN_XTLV_SD_INSTANCE_ID, sizeof(wl_nan_instance_id_t),
+				(uint8*)&cmd_data->service_instance_id, BCM_XTLV_OPTION_ALIGN32);
+		if (unlikely(ret)) {
+			WL_ERR(("%s: fail to pack on service_instance_id \n", __FUNCTION__));
+			goto fail;
+		}
 	}
 
 	/* Security elements */
@@ -7562,13 +7676,6 @@ wl_cfgnan_data_path_response_handler(struct net_device *ndev,
 
 	mutex_lock(&cfg->if_sync);
 	NAN_MUTEX_LOCK();
-#ifdef WL_IFACE_MGMT
-	if ((ret = wl_cfg80211_handle_if_role_conflict(cfg, WL_IF_TYPE_NAN)) < 0) {
-		WL_ERR(("Conflicting iface found to be active\n"));
-		ret = BCME_UNSUPPORTED;
-		goto fail;
-	}
-#endif /* WL_IFACE_MGMT */
 
 	nan_buf = MALLOCZ(cfg->osh, data_size);
 	if (!nan_buf) {
@@ -7715,6 +7822,16 @@ wl_cfgnan_data_path_response_handler(struct net_device *ndev,
 			}
 		}
 		dataresp->flags |= WL_NAN_DP_FLAG_SVC_INFO;
+	}
+
+	if (cmd_data->service_instance_id) {
+		ret = bcm_pack_xtlv_entry(&pxtlv, &nan_buf_size,
+				WL_NAN_XTLV_SD_INSTANCE_ID, sizeof(wl_nan_instance_id_t),
+				(uint8*)&cmd_data->service_instance_id, BCM_XTLV_OPTION_ALIGN32);
+		if (unlikely(ret)) {
+			WL_ERR(("%s: fail to pack on service_instance_id \n", __FUNCTION__));
+			goto fail;
+		}
 	}
 
 	/* Security elements */
@@ -7888,6 +8005,7 @@ int wl_cfgnan_data_path_end_handler(struct net_device *ndev,
 	}
 	WL_INFORM_MEM(("[NAN] DP end successfull (ndp_id:%d)\n",
 		dataend->lndp_id));
+
 fail:
 	if (nan_buf) {
 		MFREE(cfg->osh, nan_buf, NAN_IOCTL_BUF_SIZE);
@@ -9106,6 +9224,24 @@ wl_cfgnan_notify_nan_status(struct bcm_cfg80211 *cfg,
 		break;
 	}
 
+	case WL_NAN_EVENT_SUSPENSION_IND: {
+		bcm_xtlv_t *xtlv = (bcm_xtlv_t *)event_data;
+		wl_nan_ev_suspension_t *suspension_ind = (wl_nan_ev_suspension_t *)xtlv->data;
+
+		nan_event_data->status = FALSE;
+		if (suspension_ind->status == WL_NAN_STATUS_SUSPENDED) {
+			nan_event_data->status = TRUE;
+		}
+		WL_DBG(("Suspension event status %d \n", nan_event_data->status));
+
+		if (ret != BCME_OK) {
+			WL_ERR(("Failed to copy nan_reason\n"));
+			goto exit;
+		}
+		hal_event_id = GOOGLE_NAN_EVENT_SUSPENSION_STATUS;
+		break;
+	}
+
 	case WL_NAN_EVENT_RECEIVE: {
 		nan_opts_len = data_len;
 		hal_event_id = GOOGLE_NAN_EVENT_FOLLOWUP;
@@ -10001,6 +10137,7 @@ wl_cfgnan_delete_ndp(struct bcm_cfg80211 *cfg,
 			}
 		}
 	}
+
 	return ret;
 }
 

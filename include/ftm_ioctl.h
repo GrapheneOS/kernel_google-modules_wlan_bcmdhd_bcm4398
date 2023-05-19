@@ -87,7 +87,7 @@ typedef uint32	wl_ftm_flags_t;
 #define WL_FTM_SESSION_FLAG_ASAP_CAPABLE	0x0000000000000800llu	/* ASAP-capable */
 #define WL_FTM_SESSION_FLAG_RANDMAC		0x0000000000001000llu	/* use random mac */
 #define WL_FTM_SESSION_FLAG_REPORT_FAILURE	0x0000000000002000llu	/* failure to target */
-#define WL_FTM_SESSION_FLAG_INITIATOR_RPT	0x0000000000004000llu	/* distance to target */
+#define WL_FTM_SESSION_FLAG_INITIATOR_RPT	0x0000000000004000llu	/* ISTA to RSTA report */
 #define WL_FTM_SESSION_FLAG_NOCHANSWT		0x0000000000008000llu	/* reserved in comp ? */
 #define WL_FTM_SESSION_FLAG_RSVD1		0x0000000000010000llu	/* reserved */
 #define WL_FTM_SESSION_FLAG_SEQ_EN		0x0000000000020000llu	/* Toast */
@@ -130,13 +130,10 @@ typedef uint32	wl_ftm_flags_t;
 									 */
 #define WL_FTM_SESSION_FLAG_PASSIVE_TB_RANGING	0x0000800000000000llu	/* Passive TB ranging */
 #define WL_FTM_SESSION_FLAG_ONE_WAY		0x0001000000000000llu	/* ONE_WAY RTT */
+#define WL_FTM_SESSION_FLAG_PASSIVE_STA		0x0002000000000000llu	/* Passive STA */
 
 #define WL_FTM_SESSION_FLAG_ALL			0xffffffffffffffffllu
-
 typedef uint64 wl_ftm_session_flags_t;
-
-/* alias */
-#define WL_FTM_SESSION_FLAG_I2R_RPT WL_FTM_SESSION_FLAG_INITIATOR_RPT
 
 /* flags common across mc/ntb/tb.
  * Explicit for the ones that are currently used.
@@ -193,11 +190,12 @@ typedef uint64 wl_ftm_session_flags_t;
 #define FTM_NTB_CONFIG_MASK	FTM_TB_NTB_COMMON_CONFIG_MASK
 
 /* flags relevant to TB sessions. */
-#define FTM_TB_CONFIG_MASK \
-	(FTM_TB_NTB_COMMON_CONFIG_MASK \
-	| WL_FTM_SESSION_FLAG_FULL_BW \
+#define FTM_TB_SPECIFIC_CONFIG_MASK \
+	(WL_FTM_SESSION_FLAG_FULL_BW \
 	| WL_FTM_SESSION_FLAG_DEV_CLASS_A \
-	| WL_FTM_SESSION_FLAG_PASSIVE_TB_RANGING)
+	| WL_FTM_SESSION_FLAG_PASSIVE_TB_RANGING \
+	| WL_FTM_SESSION_FLAG_PASSIVE_STA)
+#define FTM_TB_CONFIG_MASK	(FTM_TB_NTB_COMMON_CONFIG_MASK | FTM_TB_SPECIFIC_CONFIG_MASK)
 
 typedef uint64 wl_ftm_session_mask_t;
 
@@ -286,10 +284,13 @@ enum wl_ftm_event_type {
 };
 typedef uint16 wl_ftm_event_type_t;
 
+/* up to 32 events */
+typedef uint32 wl_ftm_event_mask_t;
 
 #define WL_FTM_EVENT_MASK_ALL			0xfffffffe
-#define WL_FTM_EVENT_ENABLED(_mask, _event_type) \
-	(((_mask) & (1u << (_event_type))) != 0)
+#define WL_FTM_EVENT_TYPE2MASK(_evt_type)	(1u << (_evt_type))
+#define WL_FTM_EVENT_ENABLED(_evt_mask, _evt_type) \
+	(((_evt_mask) & WL_FTM_EVENT_TYPE2MASK(_evt_type)) != 0)
 
 /** FTM session states */
 enum wl_ftm_session_state {
@@ -486,8 +487,12 @@ typedef struct wl_ftm_tb_ista_aw {
 
 /* WL_FTM_TLV_ID_CSI_DUMP */
 enum wl_ftm_csi_dump_flags {
-	CSI_DUMP_FLAG_RX_CSI_DATA	= 0x01,	/* RX CSI data */
-	CSI_DUMP_FLAG_START		= 0x80	/* start of CSI data */
+	CSI_DUMP_FLAG_NONE		= 0x00, /* None */
+	CSI_DUMP_FLAG_RX_CSI_DATA	= 0x01, /* RX CSI data */
+	CSI_DUMP_FLAG_I2R_NDP		= 0x02, /* I2R NDP CSI data */
+	CSI_DUMP_FLAG_R2I_NDP		= 0x04, /* R2I NDP CSI data */
+	CSI_DUMP_FLAG_PASSIVE_STA	= 0x08, /* dump CSI data as passive device */
+	CSI_DUMP_FLAG_START		= 0x80  /* start of CSI data */
 };
 typedef uint8 wl_ftm_csi_dump_flags_t;
 
