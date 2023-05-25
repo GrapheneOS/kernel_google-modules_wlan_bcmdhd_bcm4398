@@ -437,16 +437,26 @@ static s32
 wldev_per_link_ioctl_set(
 	struct net_device *dev, u8 link_idx, u32 cmd, const void *arg, u32 len)
 {
-	s8 iovar_buf[WLC_IOCTL_SMLEN];
+	s8 *iovar_buf = NULL;
 	s32 ret = 0;
 	s32 iovar_len;
+	s32 alloc_len = 0;
 
-	iovar_len = wldev_link_mkioctl(cmd, link_idx, arg, len, iovar_buf, sizeof(iovar_buf));
+	alloc_len = WLC_IOCTL_SMLEN + len;
+	iovar_buf = (s8 *)kzalloc(alloc_len, GFP_KERNEL);
+	if (unlikely(!iovar_buf)) {
+		WL_ERR(("iovar_buf alloc failed\n"));
+		return BCME_NOMEM;
+	}
+
+	iovar_len = wldev_link_mkioctl(cmd, link_idx, arg, len, iovar_buf, alloc_len);
 	if (iovar_len > 0) {
 		ret = wldev_ioctl_set(dev, WLC_SET_VAR, iovar_buf, iovar_len);
 	} else {
 		ret = BCME_BUFTOOSHORT;
 	}
+
+	kfree(iovar_buf);
 
 	return ret;
 }
@@ -454,11 +464,19 @@ wldev_per_link_ioctl_set(
 static s32
 wldev_per_link_ioctl_get(struct net_device *dev, u8 link_idx, u32 cmd, void *arg, u32 len)
 {
-	s8 iovar_buf[WLC_IOCTL_SMLEN];
+	s8 *iovar_buf = NULL;
 	s32 ret = 0;
 	s32 iovar_len;
+	s32 alloc_len = 0;
 
-	iovar_len = wldev_link_mkioctl(cmd, link_idx, arg, len, iovar_buf, sizeof(iovar_buf));
+	alloc_len = WLC_IOCTL_SMLEN + len;
+	iovar_buf = (s8 *)kzalloc(alloc_len, GFP_KERNEL);
+	if (unlikely(!iovar_buf)) {
+		WL_ERR(("iovar_buf alloc failed\n"));
+		return BCME_NOMEM;
+	}
+
+	iovar_len = wldev_link_mkioctl(cmd, link_idx, arg, len, iovar_buf, alloc_len);
 	if (iovar_len > 0) {
 		ret = wldev_ioctl_get(dev, WLC_GET_VAR, iovar_buf, iovar_len);
 		if (ret == 0) {
@@ -467,6 +485,8 @@ wldev_per_link_ioctl_get(struct net_device *dev, u8 link_idx, u32 cmd, void *arg
 	} else {
 		ret = BCME_BUFTOOSHORT;
 	}
+
+	kfree(iovar_buf);
 
 	return ret;
 }

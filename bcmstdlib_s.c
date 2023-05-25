@@ -287,7 +287,7 @@ strlcat_s(char *dest, const char *src, size_t size)
 		if (n != 0) {
 			/* copy relevant chars (until end of src buf or given size is reached) */
 			bytes_to_copy = MIN(slen - (size_t)(s - src), n - 1);
-			(void)memcpy(d, s, bytes_to_copy);
+			(void)memcpy_s(d, bytes_to_copy, s, bytes_to_copy);
 			d += bytes_to_copy;
 		}
 	}

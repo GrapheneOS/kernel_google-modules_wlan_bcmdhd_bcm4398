@@ -902,6 +902,7 @@ xor_128bit_block(const uint8 *src1, const uint8 *src2, uint8 *dst)
 /* crc */
 uint8 hndcrc8(const uint8 *p, uint nbytes, uint8 crc);
 uint16 hndcrc16(const uint8 *p, uint nbytes, uint16 crc);
+uint16 hndcrc16ansi(const uint8 *p, uint nbytes, uint16 crc);
 uint32 hndcrc32(const uint8 *p, uint nbytes, uint32 crc);
 
 /* format/print */
@@ -1017,7 +1018,7 @@ typedef struct {
 
 extern void pktlist_add(pktlist_info_t *pktlist, void *p, int len, char *file);
 extern void pktlist_remove(pktlist_info_t *pktlist, void *p);
-extern char* pktlist_dump(pktlist_info_t *pktlist, char *buf);
+extern char* pktlist_dump(pktlist_info_t *pktlist, char *buf, uint bufsz);
 #ifdef BCMDBG_PTRACE
 extern void pktlist_trace(pktlist_info_t *pktlist, void *pkt, uint16 bit);
 #endif /* BCMDBG_PTRACE */

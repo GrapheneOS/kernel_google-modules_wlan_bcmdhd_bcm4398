@@ -1082,6 +1082,8 @@ typedef enum wl_nan_events {
 	WL_NAN_EVENT_OOB_AF_RXTIMEOUT		= 54,	/* OOB AF rx timeout */
 	WL_NAN_EVENT_DW_DWELL_BCN_LOST		= 55,	/* DW Dwell bcn rx fail */
 	WL_NAN_EVENT_SUSPENSION_IND		= 56,	/* Suspension Start/Stop status Indicatin */
+	WL_NAN_EVENT_TETHER_PEER_ADD		= 57,	/* NAN Tether client added on peer side */
+	WL_NAN_EVENT_TETHER_PEER_DEL		= 58,	/* NAN Tether client deleted on peer side */
 	/* keep WL_NAN_EVENT_INVALID as the last element */
 	WL_NAN_EVENT_INVALID				/* delimiter for max value */
 } nan_app_events_e;
@@ -1844,4 +1846,13 @@ typedef BWL_PRE_PACKED_STRUCT struct sup_wpa_timing_prop_ie {
 } BWL_POST_PACKED_STRUCT sup_wpa_timing_prop_ie_t;
 #include <packed_section_end.h>
 
+
+/* NAN tether event structure
+* It is sent to the host encapsulated within xtlv WL_NAN_XTLV_TETHER.
+*/
+typedef struct nan_tether_event_s {
+	uint8	if_idx;				/* iface index of NDI suporting tether peer */
+	uint8   num_clients;			/* num of end clients below */
+	uint8   end_clients[];			/* SA of end clients:  n*ETHER_ADDR_LEN */
+} nan_tether_event_t;
 #endif /* _BCMEVENT_H_ */

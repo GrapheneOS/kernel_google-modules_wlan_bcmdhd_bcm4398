@@ -416,6 +416,16 @@
 #define EVENT_LOG_SET_MULTI_LINK_BLOCK_SIZE	(EVENT_LOG_BLOCK_SIZE_1K)
 #endif
 
+/* set 41: For all rate/rate selection related logging. */
+#define EVENT_LOG_SET_RATE_LOG		(41u)
+#ifndef EVENT_LOG_SET_RATE_LOG_NUM_BLOCKS
+#define EVENT_LOG_SET_RATE_LOG_NUM_BLOCKS	(2u)
+#endif
+
+#ifndef EVENT_LOG_SET_RATE_LOG_BLOCK_SIZE
+#define EVENT_LOG_SET_RATE_LOG_BLOCK_SIZE	(EVENT_LOG_BLOCK_SIZE_1K)
+#endif
+
 #ifndef NUM_EVENT_LOG_SETS
 /* Set a maximum number of sets here.  It is not dynamic for
  * efficiency of the EVENT_LOG calls. Old branches could define
@@ -424,9 +434,9 @@
  */
 #ifdef NUM_EVENT_LOG_SETS_V2
 /* for v2, everything has became unsigned */
-#define NUM_EVENT_LOG_SETS (41u)
+#define NUM_EVENT_LOG_SETS (42u)
 #else /* NUM_EVENT_LOG_SETS_V2 */
-#define NUM_EVENT_LOG_SETS (41)
+#define NUM_EVENT_LOG_SETS (42)
 #endif /* NUM_EVENT_LOG_SETS_V2 */
 #endif /* NUM_EVENT_LOG_SETS */
 

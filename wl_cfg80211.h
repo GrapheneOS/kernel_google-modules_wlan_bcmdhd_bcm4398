@@ -3448,9 +3448,9 @@ extern s32 wl_cfg80211_pause_sdo(struct net_device *dev, struct bcm_cfg80211 *cf
 extern s32 wl_cfg80211_resume_sdo(struct net_device *dev, struct bcm_cfg80211 *cfg);
 
 #endif
+#define CHANINFO_LIST_BUF_SIZE     (1024 * 4)
 #ifdef WL_SUPPORT_AUTO_CHANNEL
 #define CHANSPEC_BUF_SIZE	2048
-#define CHANINFO_LIST_BUF_SIZE     (1024 * 4)
 #define CHAN_SEL_IOCTL_DELAY	300
 #define CHAN_SEL_RETRY_COUNT	15
 #define CHANNEL_IS_RADAR(channel)	(((channel & WL_CHAN_RADAR) || \

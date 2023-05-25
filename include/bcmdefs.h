@@ -877,6 +877,19 @@ extern uint32 gFWID;
 	#define URB_ENAB() (FALSE)
 #endif /* URB */
 
+#ifdef UDCC /* UDCC support enab macros  */
+	extern bool _udcc_enab;
+#if defined(ROM_ENAB_RUNTIME_CHECK) || !defined(DONGLEBUILD)
+	#define UDCC_ENAB() (_udcc_enab)
+#elif defined(UDCC_DISABLED)
+	#define UDCC_ENAB() (FALSE)
+#else
+	#define UDCC_ENAB() (TRUE)
+#endif
+#else
+	#define UDCC_ENAB() (FALSE)
+#endif /* UDCC */
+
 #ifdef TX_HISTOGRAM
 extern bool _tx_histogram_enabled;
 #if defined(ROM_ENAB_RUNTIME_CHECK)

@@ -87,9 +87,9 @@
 
 #include <dhd_plat.h>
 
-#if defined(WBRC) && defined(WBRC_TEST)
+#if defined(WBRC)
 #include <wb_regon_coordinator.h>
-#endif /* WBRC && WBRC_TEST */
+#endif /* WBRC */
 
 #define PCI_CFG_RETRY		10		/* PR15065: retry count for pci cfg accesses */
 #define OS_HANDLE_MAGIC		0x1234abcd	/* Magic # to recognize osh */
@@ -2244,6 +2244,10 @@ int dhdpcie_init(struct pci_dev *pdev)
 	dhdpcie_smmu_info_t	*dhdpcie_smmu_info = NULL;
 #endif /* USE_SMMU_ARCH_MSM */
 	int ret = 0;
+#if defined(WBRC) && defined(BCMDHD_MODULAR)
+	int wbrc_ret = 0;
+	uint16 chipid = 0;
+#endif /* WBRC && BCMDHD_MODULAR */
 
 	do {
 		/* osl attach */
@@ -2450,12 +2454,28 @@ int dhdpcie_init(struct pci_dev *pdev)
 			bus->dhd->mac.octet[2] = 0x4C;
 		}
 
+#if defined(WBRC) && defined(BCMDHD_MODULAR)
+		wbrc_ret = wbrc_init();
+		chipid = dhd_get_chipid(bus);
+		BCM_REFERENCE(chipid);
+#endif /* WBRC && BCMDHD_MODULAR */
+
 		/* Attach to the OS network interface */
 		DHD_TRACE(("%s(): Calling dhd_register_if() \n", __FUNCTION__));
 		if (dhd_attach_net(bus->dhd, TRUE)) {
 			DHD_ERROR(("%s(): ERROR.. dhd_register_if() failed\n", __FUNCTION__));
 			break;
 		}
+
+#if defined(WBRC) && defined(BCMDHD_MODULAR)
+		if (!wbrc_ret) {
+#ifdef WBRC_HW_QUIRKS
+			wl2wbrc_wlan_init(bus->dhd, chipid);
+#else
+			wl2wbrc_wlan_init(bus->dhd);
+#endif /* WBRC_HW_QUIRKS */
+		}
+#endif /* WBRC && BCMDHD_MODULAR */
 
 		dhdpcie_init_succeeded = TRUE;
 #if defined(CONFIG_ARCH_MSM) && defined(CONFIG_SEC_PCIE_L1SS)

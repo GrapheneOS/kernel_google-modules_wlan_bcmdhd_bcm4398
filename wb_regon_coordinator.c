@@ -45,6 +45,10 @@
 #define DEVICE_NAME "wbrc"
 #define CLASS_NAME "bcm"
 
+#ifndef BCM_REFERENCE
+#define BCM_REFERENCE(data)	((void)(data))
+#endif
+
 #if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 16, 0))
 typedef unsigned int __poll_t;
 #endif
@@ -217,6 +221,7 @@ wbrc_bt_dev_write(struct file *filep, const char *buffer,
 	}
 
 #ifdef WBRC_TEST
+	BCM_REFERENCE(stub_msg);
 	if (offset && *offset == 0xDEADFACE) {
 		memcpy(&msg, buffer, WBRC_MSG_LEN);
 		pr_err("%s: msg from wbrc stub: %x %x %x %x \n", __func__,
@@ -374,6 +379,12 @@ wbrc_bt_dev_open(struct inode *inodep, struct file *filep)
 	wbrc_data = g_wbrc_data;
 	if (!wbrc_data) {
 		pr_err("%s: wbrc not inited !\n", __func__);
+		WBRC_UNLOCK(wbrc_mutex);
+		return -EFAULT;
+	}
+
+	if (!wbrc_data->wl_hdl) {
+		pr_err("%s: wl not inited !\n", __func__);
 		WBRC_UNLOCK(wbrc_mutex);
 		return -EFAULT;
 	}

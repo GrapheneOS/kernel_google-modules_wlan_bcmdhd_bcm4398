@@ -297,6 +297,9 @@ typedef uint32 ratespec_t;
 						 * enable LISTEN along with PASSIVE flag
 						 */
 
+/* WL_SCANFLAGS_EXT_ flags */
+#define WL_SCANFLAGS_EXT_LOWPOWER_PARALLEL_2G_SCAN	0x1U	/* Lowpower parallel 2G scan */
+
 /* BIT MASK for 6G_SCAN_TYPE  */
 #define WL_SCAN_SSIDFLAGS_SHORT_SSID		0x01U /* include short ssid */
 #define WL_SCAN_INC_RNR				0x02U /* Include RNR channels for scan */
@@ -465,6 +468,7 @@ typedef uint32 ratespec_t;
 #define WL_BSS2_FLAGS_RNR_MATCH		0x10	/* To report original BSS that has RNR match */
 #define WL_BSS2_FLAGS_HE_BCN_PRBRSP	0x20	/* BSS update to indiacte HE bcn or prb rsp. */
 #define WL_BSS2_FLAGS_HE_6G_DUP		0x40	/* non-HT dup'ed beacon indicator */
+#define WL_BSS2_FLAGS_FROM_SS		0x80	/* bss_info from results on slim scan */
 
 /* bit definitions for bcnflags in wl_bss_info */
 #define WL_BSS_BCNFLAGS_INTERWORK_PRESENT	0x01 /* beacon had IE, accessnet valid */
@@ -1475,6 +1479,8 @@ typedef uint32 ratespec_t;
 #define WL_WBUS_VAL		0x00000008
 #define WL_DTPC_DBG_VAL		0x00000010
 #define WL_DYNBW_DBG_VAL	0x00000020
+#define WL_RATE_INFO_VAL	0x00000040
+#define WL_RATE_TRACE_VAL	0x00000080
 
 /* number of bytes needed to define a proper bit mask for MAC event reporting */
 #define BCMIO_ROUNDUP(x, y)	((((x) + ((y) - 1)) / (y)) * (y))
@@ -2170,6 +2176,7 @@ typedef uint32 ratespec_t;
 /* report found/lost events for SSID and BSSID networks seperately */
 #define REPORT_SEPERATELY_BIT		11
 #define BESTN_BSSID_ONLY_BIT		12
+#define BESTN_BSSID_ASSOC_BIT		13
 
 #define SORT_CRITERIA_MASK		0x0001
 #define AUTO_NET_SWITCH_MASK		0x0002
@@ -2186,6 +2193,7 @@ typedef uint32 ratespec_t;
 #define REPORT_SEPARATELY_MASK	0x0800
 #define REPORT_SEPERATELY_MASK	REPORT_SEPARATELY_MASK  // Legacy typo
 #define BESTN_BSSID_ONLY_MASK		0x1000
+#define BESTN_BSSID_ASSOC_MASK		0x2000
 
 #ifdef PFN_SCANRESULT_2
 #define PFN_SCANRESULT_VERSION		2
@@ -2204,8 +2212,11 @@ typedef uint32 ratespec_t;
 #define DEFAULT_REPEAT			10
 #define DEFAULT_EXP				2
 
-#define PFN_PARTIAL_SCAN_BIT		0
-#define PFN_PARTIAL_SCAN_MASK		1
+/* Results flags for pfn scan history */
+#define PFN_PARTIAL_SCAN_BIT		0u
+#define PFN_PARTIAL_SCAN_MASK		0x1u
+#define PFN_ASSOCIATED_AP_BIT		1u
+#define PFN_ASSOCIATED_AP_MASK		0x2u
 
 #define WL_PFN_SUPPRESSFOUND_MASK	0x08
 #define WL_PFN_SUPPRESSLOST_MASK	0x10
@@ -2697,7 +2708,7 @@ enum {
 #define WLC_WITH_XTLV_CNT
 
 /* Number of xtlv info as required to calculate subcounter offsets */
-#define WL_CNT_XTLV_ID_NUM	12
+#define WL_CNT_XTLV_ID_NUM	13
 #define WL_TLV_IOV_VERSION_1	1u
 #define WL_TLV_IOV_VERSION_2	2u
 
@@ -2756,6 +2767,7 @@ enum wl_cnt_xtlv_id {
 	WL_CNT_XTLV_GE88_UCODE_RX_U32_V2 = 0x100a,	/* corerev >= 88 ucode macstats V2 - rx */
 	WL_CNT_XTLV_DYN_BW_STATS_V1 = 0x100b,		/* Deprecated */
 	WL_CNT_XTLV_DYN_BW_STATS = 0x100c,		/* corerev >= 88 DynBW stats */
+	WL_CNT_XTLV_SLIM_SCAN_STATS = 0x100d		/* Slim Scan stats */
 };
 
 /* bitmap for clm_flags iovar */
@@ -3311,6 +3323,7 @@ enum wlc_capext_feature_bitpos {
 	WLC_CAPEXT_FEATURE_BITPOS_OCV_AP		= 125,
 	WLC_CAPEXT_FEATURE_BITPOS_WIFI_BT5G		= 126,
 	WLC_CAPEXT_FEATURE_BITPOS_SAE_EXT		= 127,
+	WLC_CAPEXT_FEATURE_BITPOS_11AZ			= 128,
 
 	WLC_CAPEXT_FEATURE_BITPOS_MAX
 };

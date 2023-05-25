@@ -226,8 +226,10 @@ extern void dhd_lb_rx_process_handler(unsigned long data);
 extern int dhd_prot_h2d_mbdata_send_ctrlmsg(dhd_pub_t *dhd, uint32 mb_data);
 
 #ifdef BCMPCIE
+#ifdef DHD_TIMESYNC
 extern int dhd_prot_send_host_timestamp(dhd_pub_t *dhdp, uchar *tlv, uint16 tlv_len,
 	uint16 seq, uint16 xt_id);
+#endif /* DHD_TIMESYNC */
 extern bool dhd_prot_data_path_tx_timestamp_logging(dhd_pub_t *dhd,  bool enable, bool set);
 extern bool dhd_prot_data_path_rx_timestamp_logging(dhd_pub_t *dhd,  bool enable, bool set);
 extern bool dhd_prot_pkt_noretry(dhd_pub_t *dhd, bool enable, bool set);
@@ -235,7 +237,9 @@ extern bool dhd_prot_pkt_noaggr(dhd_pub_t *dhd, bool enable, bool set);
 extern bool dhd_prot_pkt_fixed_rate(dhd_pub_t *dhd, bool enable, bool set);
 extern bool dhd_prot_pkt_rts_protect(dhd_pub_t *dhd, bool enable, bool set);
 #else /* BCMPCIE */
+#ifdef DHD_TIMESYNC
 #define dhd_prot_send_host_timestamp(a, b, c, d, e)		0
+#endif /* DHD_TIMESYNC */
 #define dhd_prot_data_path_tx_timestamp_logging(a, b, c)	0
 #define dhd_prot_data_path_rx_timestamp_logging(a, b, c)	0
 #endif /* BCMPCIE */

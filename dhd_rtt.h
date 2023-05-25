@@ -121,7 +121,8 @@ typedef enum rtt_reason {
 	RTT_STATUS_INVALID_REQ         = 13,    // bad request args
 	RTT_STATUS_NO_WIFI             = 14,    // WiFi not enabled Responder overrides param info
 						// cannot range with new params
-	RTT_STATUS_FAIL_FTM_PARAM_OVERRIDE = 15
+	RTT_STATUS_FAIL_FTM_PARAM_OVERRIDE = 15,
+	RTT_STATUS_FAIL_CHANSW	       = 16     // failed due to channel switch
 } rtt_reason_t;
 
 enum {

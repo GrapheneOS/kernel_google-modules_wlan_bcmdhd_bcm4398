@@ -30,6 +30,7 @@
 
 #include <osl.h>
 #include <bcmutils.h>
+#include <bcmstdlib_s.h>
 #include <pcicfg.h>
 
 #if defined(BCMASSERT_LOG) && !defined(OEM_ANDROID)
@@ -112,8 +113,13 @@ int osl_static_mem_init(osl_t *osh, void *adapter)
 				return -ENOMEM;
 			}
 
-			bcopy(skb_buff_ptr, bcm_static_skb, sizeof(struct sk_buff *) *
-				(STATIC_PKT_MAX_NUM));
+			if (memcpy_s(bcm_static_skb,
+				STATIC_BUF_TOTAL_LEN,
+				skb_buff_ptr,
+				sizeof(struct sk_buff *) * (STATIC_PKT_MAX_NUM))) {
+				BCM_PRINT(("static buf too small!\n"));
+				return -ENOMEM;
+			}
 			for (i = 0; i < STATIC_PKT_MAX_NUM; i++) {
 				bcm_static_skb->pkt_use[i] = 0;
 			}
@@ -735,9 +741,9 @@ osl_pkttrace(osl_t *osh, void *pkt, uint16 bit)
 #endif /* BCMDBG_PTRACE */
 
 char *
-osl_pktlist_dump(osl_t *osh, char *buf)
+osl_pktlist_dump(osl_t *osh, char *buf, uint bufsz)
 {
-	pktlist_dump(&(osh->cmn->pktlist), buf);
+	pktlist_dump(&(osh->cmn->pktlist), buf, bufsz);
 	return buf;
 }
 
