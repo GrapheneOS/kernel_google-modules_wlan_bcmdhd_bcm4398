@@ -3947,7 +3947,7 @@ extern s32 wl_cfg80211_ml_link_add(struct bcm_cfg80211 *cfg, struct wireless_dev
 	const wl_event_msg_t *e, void *data);
 extern s32 _wl_cfg80211_ml_link_add(struct bcm_cfg80211 *cfg, struct net_info *mld_netinfo,
 		void *data);
-extern wl_mlo_link_t *wl_cfg80211_get_ml_linkinfo_by_index(struct bcm_cfg80211 *cfg,
+extern wl_mlo_link_t *wl_cfg80211_get_ml_linkinfo_by_linkid(struct bcm_cfg80211 *cfg,
 		struct net_info *mld_netinfo, u8 index);
 
 #ifdef WL_BSS_STA_INFO
