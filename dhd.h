@@ -2071,6 +2071,13 @@ typedef struct dhd_pub {
 #ifdef DHD_SDTC_ETB_DUMP
 	bool etb_dump_inited;
 #endif /* DHD_SDTC_ETB_DUMP */
+#if defined(DHD_TIMESYNC)
+	void *ts_lock;
+#endif /* DHD_TIMESYNC */
+#ifdef DHD_SSSR_DUMP_BEFORE_SR
+	uint *sssr_saqm_buf_before;
+#endif /* DHD_SSSR_DUMP_BEFORE_SR */
+	uint *sssr_saqm_buf_after;
 } dhd_pub_t;
 
 #if defined(__linux__)
@@ -3951,6 +3958,14 @@ extern void dhd_os_general_spin_unlock(dhd_pub_t *pub, unsigned long flags);
 #define DHD_LINUX_GENERAL_UNLOCK(dhdp, flags)	do {BCM_REFERENCE(flags);} while (0)
 #endif
 
+#if defined(DHD_TIMESYNC)
+#define DHD_TIMESYNC_LOCK(lock, flags)		(flags) = osl_spin_lock(lock)
+#define DHD_TIMESYNC_UNLOCK(lock, flags)	osl_spin_unlock(lock, (flags))
+#else
+#define DHD_TIMESYNC_LOCK(lock, flags)		do {BCM_REFERENCE(flags);} while (0)
+#define DHD_TIMESYNC_UNLOCK(lock, flags)	do {BCM_REFERENCE(flags);} while (0)
+#endif /* DHD_TIMESYNC */
+
 #define DHD_BUS_INB_DW_LOCK(lock, flags)	(flags) = osl_spin_lock(lock)
 #define DHD_BUS_INB_DW_UNLOCK(lock, flags)	osl_spin_unlock((lock), (flags))
 
@@ -4202,6 +4217,32 @@ extern void dhd_schedule_macdbg_dump(dhd_pub_t *dhdp);
 #define SSSR_DUMP_MODE_SSSR	0	/* dump both *before* and *after* files */
 #define SSSR_DUMP_MODE_FIS	1	/* dump *after* files only */
 
+typedef struct sssr_header {
+	uint32 magic; /* should be 53535352 = 'SSSR' */
+	uint16 header_version; /* version number of this SSSR header */
+	uint16 sr_version; /* version of SR version. This is to differentiate changes in SR ASM. */
+	/*
+	 * Header length from the next field ?data_len? and upto the start of
+	 * binary_data[]. This is 20 bytes for version 0
+	 */
+	uint32 header_len;
+	uint32 data_len;  /* number of bytes in binary_data[] */
+	uint16 chipid;     /* chipid */
+	uint16 chiprev;    /* chiprev */
+	/*
+	 * For D11 MAC/sAQM cores, the coreid, coreunit &  WAR_signature in the dump belong
+	 * to respective cores. For the DIG SSSR dump these fields are extracted from the ARM core.
+	 */
+	uint16 coreid;
+	uint16 coreunit;
+
+	uint32 war_reg; /* Value of WAR register */
+	uint32 flags;	/* For future use */
+
+	uint8  binary_data[];
+} sssr_header_t;
+#define SSSR_HEADER_MAGIC 0x53535352u /* SSSR */
+
 extern int dhd_sssr_mempool_init(dhd_pub_t *dhd);
 extern void dhd_sssr_mempool_deinit(dhd_pub_t *dhd);
 extern int dhd_sssr_dump_init(dhd_pub_t *dhd, bool fis_dump);
@@ -4215,6 +4256,12 @@ extern uint dhd_sssr_dig_buf_addr(dhd_pub_t *dhdp);
 extern uint dhd_sssr_mac_buf_size(dhd_pub_t *dhdp, uint8 core_idx);
 extern uint dhd_sssr_mac_xmtaddress(dhd_pub_t *dhdp, uint8 core_idx);
 extern uint dhd_sssr_mac_xmtdata(dhd_pub_t *dhdp, uint8 core_idx);
+extern int dhd_sssr_mac_war_reg(dhd_pub_t *dhdp, uint8 core_idx, uint32 *war_reg);
+extern int dhd_sssr_arm_war_reg(dhd_pub_t *dhdp, uint32 *war_reg);
+extern int dhd_sssr_saqm_war_reg(dhd_pub_t *dhdp, uint32 *war_reg);
+extern int dhd_sssr_sr_asm_version(dhd_pub_t *dhdp, uint16 *sr_asm_version);
+extern uint dhd_sssr_saqm_buf_size(dhd_pub_t *dhdp);
+extern uint dhd_sssr_saqm_buf_addr(dhd_pub_t *dhdp);
 
 #define DHD_SSSR_MEMPOOL_INIT(dhdp)	dhd_sssr_mempool_init(dhdp)
 #define DHD_SSSR_MEMPOOL_DEINIT(dhdp) dhd_sssr_mempool_deinit(dhdp)
@@ -4256,6 +4303,7 @@ extern int dhd_coredump_mempool_init(dhd_pub_t *dhd);
 extern void dhd_coredump_mempool_deinit(dhd_pub_t *dhd);
 #define DHD_COREDUMP_MEMPOOL_INIT(dhdp)		dhd_coredump_mempool_init(dhdp)
 #define DHD_COREDUMP_MEMPOOL_DEINIT(dhdp)	dhd_coredump_mempool_deinit(dhdp)
+#define DHD_COREDUMP_IGNORE_TRAP_SIG "host_wake_asserted_for_too_long"
 #else
 #define DHD_COREDUMP_MEMPOOL_INIT(dhdp)		do { /* noop */ } while (0)
 #define DHD_COREDUMP_MEMPOOL_DEINIT(dhdp)	do { /* noop */ } while (0)

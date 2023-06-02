@@ -777,6 +777,8 @@ typedef struct dhd_prot {
 	uint16 max_rxbufpost;
 	uint32 tot_rxbufpost;
 	uint32 tot_rxcpl;
+	void *rxp_bufinfo_pool;		/* Scratch buffer pool to hold va, pa and pktlens */
+	uint16 rxp_bufinfo_pool_size;	/* scartch buffer pool length */
 	uint16 max_eventbufpost;
 	uint16 max_ioctlrespbufpost;
 	uint16 max_tsbufpost;
@@ -1080,7 +1082,7 @@ static void dhd_msgbuf_rxbuf_post_ioctlresp_bufs(dhd_pub_t *pub);
 static void dhd_msgbuf_rxbuf_post_event_bufs(dhd_pub_t *pub);
 static void dhd_msgbuf_rxbuf_post(dhd_pub_t *dhd, bool use_rsv_pktid);
 static int dhd_prot_rxbuf_post(dhd_pub_t *dhd, uint16 count, bool use_rsv_pktid);
-static int dhd_msgbuf_rxbuf_post_ts_bufs(dhd_pub_t *pub);
+static int __dhd_msgbuf_rxbuf_post_ts_bufs(dhd_pub_t *pub);
 
 static void dhd_prot_return_rxbuf(dhd_pub_t *dhd, msgbuf_ring_t *ring, uint32 pktid, uint32 rxcnt);
 
@@ -4604,6 +4606,15 @@ dhd_prot_init(dhd_pub_t *dhd)
 		prot->max_rxbufpost = LEGACY_MAX_RXBUFPOST;
 	}
 	prot->rx_buf_burst = (uint16)rx_buf_burst;
+
+	/* allocate a local buffer to store pkt buffer va, pa and length */
+	prot->rxp_bufinfo_pool_size = (sizeof(void *) + sizeof(dmaaddr_t) + sizeof(uint32)) *
+		prot->rx_buf_burst;
+	prot->rxp_bufinfo_pool = VMALLOC(dhd->osh, prot->rxp_bufinfo_pool_size);
+	if (!prot->rxp_bufinfo_pool) {
+		DHD_ERROR(("%s: local scratch buffer allocation failed\n", __FUNCTION__));
+		return BCME_ERROR;
+	}
 	/*
 	 * Rollback rx-buf_burst to RX_BUF_BURST_V1,
 	 * if the dongle dictated max_rxbufpost is lesser than MIN_HTPUT_H2DRING_RXPOST_SIZE.
@@ -5256,6 +5267,9 @@ dhd_prot_reset(dhd_pub_t *dhd)
 	dhd_msgbuf_agg_h2d_db_timer_reset(dhd);
 #endif /* AGG_H2D_DB */
 
+	if (prot->rxp_bufinfo_pool) {
+		VMFREE(dhd->osh, prot->rxp_bufinfo_pool, prot->rxp_bufinfo_pool_size);
+	}
 } /* dhd_prot_reset */
 
 #if defined(DHD_LB_RXP)
@@ -6076,7 +6090,7 @@ int dhd_sync_with_dongle(dhd_pub_t *dhd)
 	dhd_os_set_ioctl_resp_timeout(IOCTL_RESP_TIMEOUT);
 
 	/* Post ts buffer after shim layer is attached */
-	ret = dhd_msgbuf_rxbuf_post_ts_bufs(dhd);
+	ret = __dhd_msgbuf_rxbuf_post_ts_bufs(dhd);
 
 	/* query for 'wlc_ver' to get version info from firmware */
 	/* set the buf to zero */
@@ -6727,8 +6741,6 @@ BCMFASTPATH(dhd_prot_rxbuf_post)(dhd_pub_t *dhd, uint16 count, bool use_rsv_pkti
 	uint32 pktid;
 	dhd_prot_t *prot = dhd->prot;
 	msgbuf_ring_t *ring = &prot->h2dring_rxp_subn;
-	void *lcl_buf;
-	uint16 lcl_buf_size;
 
 #ifdef BCM_ROUTER_DHD
 	prot->rxbufpost_sz = DHD_FLOWRING_RX_BUFPOST_PKTSZ + BCMEXTRAHDROOM;
@@ -6739,18 +6751,9 @@ BCMFASTPATH(dhd_prot_rxbuf_post)(dhd_pub_t *dhd, uint16 count, bool use_rsv_pkti
 	if (dhd_prot_inc_hostactive_devwake_assert(dhd->bus, __FUNCTION__) != BCME_OK)
 		return BCME_ERROR;
 #endif /* PCIE_INB_DW */
-	/* allocate a local buffer to store pkt buffer va, pa and length */
-	lcl_buf_size = (sizeof(void *) + sizeof(dmaaddr_t) + sizeof(uint32)) *
-		prot->rx_buf_burst;
-	lcl_buf = MALLOC(dhd->osh, lcl_buf_size);
-	if (!lcl_buf) {
-		DHD_ERROR(("%s: local scratch buffer allocation failed\n", __FUNCTION__));
-#ifdef PCIE_INB_DW
-		dhd_prot_dec_hostactive_ack_pending_dsreq(dhd->bus, __FUNCTION__);
-#endif
-		return 0;
-	}
-	pktbuf = lcl_buf;
+
+	/* Use the rxp buffer info pool to store pa, va and pktlen of allocated buffers */
+	pktbuf = prot->rxp_bufinfo_pool;
 	pktbuf_pa = (dmaaddr_t *)((uint8 *)pktbuf + sizeof(void *) * prot->rx_buf_burst);
 	pktlen = (uint32 *)((uint8 *)pktbuf_pa + sizeof(dmaaddr_t) * prot->rx_buf_burst);
 
@@ -6939,7 +6942,9 @@ cleanup:
 		PKTFREE(dhd->osh, p, FALSE);
 	}
 
-	MFREE(dhd->osh, lcl_buf, lcl_buf_size);
+	/* Zero out memory to prevent any stale access */
+	bzero(prot->rxp_bufinfo_pool, prot->rxp_bufinfo_pool_size);
+
 #ifdef PCIE_INB_DW
 	dhd_prot_dec_hostactive_ack_pending_dsreq(dhd->bus, __FUNCTION__);
 #endif
@@ -7456,8 +7461,9 @@ dhd_msgbuf_rxbuf_post_event_bufs(dhd_pub_t *dhd)
 		MSG_TYPE_EVENT_BUF_POST, max_to_post);
 }
 
+/* caller should take the lock */
 static int
-dhd_msgbuf_rxbuf_post_ts_bufs(dhd_pub_t *dhd)
+__dhd_msgbuf_rxbuf_post_ts_bufs(dhd_pub_t *dhd)
 {
 #ifdef DHD_TIMESYNC
 	dhd_prot_t *prot = dhd->prot;
@@ -8330,7 +8336,6 @@ BCMFASTPATH(dhd_prot_process_msgbuf_rxcpl)(dhd_pub_t *dhd, int ringtype, uint32 
 					}
 				}
 #endif /* DHD_HP2P */
-
 #ifdef DHD_TIMESYNC
 				if (prot->rx_ts_log_enabled) {
 					dhd_pkt_parse_t parse;
@@ -9554,7 +9559,6 @@ BCMFASTPATH(dhd_prot_txstatus_process)(dhd_pub_t *dhd, void *msg)
 	txcpl_info->tx_history[txcpl_info->txcpl_hist_count].flowid = flowid;
 	txcpl_info->txcpl_hist_count =
 		(txcpl_info->txcpl_hist_count +1) % MAX_TXCPL_HISTORY;
-
 #ifdef DHD_TIMESYNC
 	if (dhd->prot->tx_ts_log_enabled) {
 		dhd_pkt_parse_t parse;
@@ -9569,7 +9573,6 @@ BCMFASTPATH(dhd_prot_txstatus_process)(dhd_pub_t *dhd, void *msg)
 				ts->low, ts->high, &parse);
 	}
 #endif /* DHD_TIMESYNC */
-
 #ifdef DHD_LBUF_AUDIT
 	PKTAUDIT(dhd->osh, pkt);
 #endif
@@ -14599,25 +14602,28 @@ dhd_prot_process_d2h_host_ts_complete(dhd_pub_t *dhd, void* buf)
 #ifdef DHD_TIMESYNC
 	host_timestamp_msg_cpl_t  *host_ts_cpl;
 	uint32 pktid;
+	unsigned long flags = 0;
 	dhd_prot_t *prot = dhd->prot;
 
 	host_ts_cpl = (host_timestamp_msg_cpl_t *)buf;
 	DHD_INFO(("%s host TS cpl: status %d, req_ID: 0x%04x, xt_id %d \n", __FUNCTION__,
 		host_ts_cpl->cmplt.status, host_ts_cpl->msg.request_id, host_ts_cpl->xt_id));
-
 	pktid = ltoh32(host_ts_cpl->msg.request_id);
+	DHD_TIMESYNC_LOCK(dhd->ts_lock, flags);
 	if (prot->hostts_req_buf_inuse == FALSE) {
 		DHD_ERROR(("No Pending Host TS req, but completion\n"));
-		return;
+		goto exit;
 	}
 	prot->hostts_req_buf_inuse = FALSE;
 	if (pktid != DHD_H2D_HOSTTS_REQ_PKTID) {
 		DHD_ERROR(("Host TS req CPL, but req ID different 0x%04x, exp 0x%04x\n",
 			pktid, DHD_H2D_HOSTTS_REQ_PKTID));
-		return;
+		goto exit;
 	}
-	dhd_timesync_handle_host_ts_complete(dhd->ts, host_ts_cpl->xt_id,
+	__dhd_timesync_handle_host_ts_complete(dhd->ts, host_ts_cpl->xt_id,
 		host_ts_cpl->cmplt.status);
+exit:
+	DHD_TIMESYNC_UNLOCK(dhd->ts_lock, flags);
 #else /* DHD_TIMESYNC */
 	DHD_ERROR(("Timesunc feature not compiled in but GOT HOST_TS_COMPLETE\n"));
 #endif /* DHD_TIMESYNC */
@@ -16876,6 +16882,7 @@ int dhd_prot_dump_extended_trap(dhd_pub_t *dhdp, struct bcmstrbuf *b, bool raw)
 }
 
 #ifdef BCMPCIE
+#if defined(DHD_TIMESYNC)
 int
 dhd_prot_send_host_timestamp(dhd_pub_t *dhdp, uchar *tlvs, uint16 tlv_len,
 	uint16 seqnum, uint16 xt_id)
@@ -16886,7 +16893,7 @@ dhd_prot_send_host_timestamp(dhd_pub_t *dhdp, uchar *tlvs, uint16 tlv_len,
 	uint16 alloced = 0;
 	uchar *ts_tlv_buf;
 	msgbuf_ring_t *ctrl_ring = &prot->h2dring_ctrl_subn;
-	int ret;
+	int ret = 0;
 
 	if ((tlvs == NULL) || (tlv_len == 0)) {
 		DHD_ERROR(("%s: argument error tlv: %p, tlv_len %d\n",
@@ -16904,11 +16911,8 @@ dhd_prot_send_host_timestamp(dhd_pub_t *dhdp, uchar *tlvs, uint16 tlv_len,
 	/* if Host TS req already pending go away */
 	if (prot->hostts_req_buf_inuse == TRUE) {
 		DHD_ERROR(("one host TS request already pending at device\n"));
-		DHD_RING_UNLOCK(ctrl_ring->ring_lock, flags);
-#ifdef PCIE_INB_DW
-		dhd_prot_dec_hostactive_ack_pending_dsreq(dhdp->bus, __FUNCTION__);
-#endif
-		return -1;
+		ret = -1;
+		goto exit;
 	}
 
 	/* Request for cbuf space */
@@ -16916,11 +16920,8 @@ dhd_prot_send_host_timestamp(dhd_pub_t *dhdp, uchar *tlvs, uint16 tlv_len,
 		DHD_FLOWRING_DEFAULT_NITEMS_POSTED_H2D,	&alloced, FALSE);
 	if (ts_req == NULL) {
 		DHD_ERROR(("couldn't allocate space on msgring to send host TS request\n"));
-		DHD_RING_UNLOCK(ctrl_ring->ring_lock, flags);
-#ifdef PCIE_INB_DW
-		dhd_prot_dec_hostactive_ack_pending_dsreq(dhdp->bus, __FUNCTION__);
-#endif
-		return -1;
+		ret = -1;
+		goto exit;
 	}
 
 	/* Common msg buf hdr */
@@ -16945,7 +16946,8 @@ dhd_prot_send_host_timestamp(dhd_pub_t *dhdp, uchar *tlvs, uint16 tlv_len,
 	if (ret) {
 		DHD_ERROR(("copy ioct payload failed:%d, destsz:%d, n:%d\n",
 			ret, prot->hostts_req_buf.len, tlv_len));
-		return BCME_ERROR;
+		ret = BCME_ERROR;
+		goto exit;
 	}
 
 	OSL_CACHE_FLUSH((void *) prot->hostts_req_buf.va, tlv_len);
@@ -16961,15 +16963,15 @@ dhd_prot_send_host_timestamp(dhd_pub_t *dhdp, uchar *tlvs, uint16 tlv_len,
 	/* upd wrt ptr and raise interrupt */
 	dhd_prot_ring_write_complete(dhdp, ctrl_ring, ts_req,
 		DHD_FLOWRING_DEFAULT_NITEMS_POSTED_H2D);
-
+exit:
 	DHD_RING_UNLOCK(ctrl_ring->ring_lock, flags);
 
 #ifdef PCIE_INB_DW
 	dhd_prot_dec_hostactive_ack_pending_dsreq(dhdp->bus, __FUNCTION__);
 #endif
-	return 0;
+	return ret;
 } /* dhd_prot_send_host_timestamp */
-
+#endif /* DHD_TIMESYNC */
 
 bool
 dhd_prot_data_path_tx_timestamp_logging(dhd_pub_t *dhd,  bool enable, bool set)
@@ -17036,10 +17038,10 @@ dhd_prot_dma_indx_free(dhd_pub_t *dhd)
 }
 
 void
-dhd_msgbuf_delay_post_ts_bufs(dhd_pub_t *dhd)
+__dhd_msgbuf_delay_post_ts_bufs(dhd_pub_t *dhd)
 {
 	if (dhd->prot->max_tsbufpost > 0)
-		dhd_msgbuf_rxbuf_post_ts_bufs(dhd);
+		__dhd_msgbuf_rxbuf_post_ts_bufs(dhd);
 }
 
 static void
@@ -17047,9 +17049,10 @@ BCMFASTPATH(dhd_prot_process_fw_timestamp)(dhd_pub_t *dhd, void* buf)
 {
 #ifdef DHD_TIMESYNC
 	fw_timestamp_event_msg_t *resp;
+	void * pkt;
 	uint32 pktid;
 	uint16 buflen, seqnum;
-	void * pkt;
+	unsigned long flags = 0;
 
 	resp = (fw_timestamp_event_msg_t *)buf;
 	pktid = ltoh32(resp->msg.request_id);
@@ -17060,20 +17063,20 @@ BCMFASTPATH(dhd_prot_process_fw_timestamp)(dhd_pub_t *dhd, void* buf)
 	DHD_PKTID_AUDIT(dhd, dhd->prot->pktid_ctrl_map, pktid,
 		DHD_DUPLICATE_FREE);
 #endif /* DHD_PKTID_AUDIT_RING */
-
 	DHD_INFO(("id 0x%04x, len %d, phase 0x%02x, seqnum %d\n",
 		pktid, buflen, resp->msg.flags, ltoh16(resp->seqnum)));
 
+	DHD_TIMESYNC_LOCK(dhd->ts_lock, flags);
 	if (!dhd->prot->cur_ts_bufs_posted) {
 		DHD_ERROR(("tsbuf posted are zero, but there is a completion\n"));
-		return;
+		goto exit;
 	}
 
 	dhd->prot->cur_ts_bufs_posted--;
 
 	if (!dhd_timesync_delay_post_bufs(dhd)) {
 		if (dhd->prot->max_tsbufpost > 0) {
-			dhd_msgbuf_rxbuf_post_ts_bufs(dhd);
+			__dhd_msgbuf_rxbuf_post_ts_bufs(dhd);
 		}
 	}
 
@@ -17081,12 +17084,14 @@ BCMFASTPATH(dhd_prot_process_fw_timestamp)(dhd_pub_t *dhd, void* buf)
 
 	if (!pkt) {
 		DHD_ERROR(("no ts buffer associated with pktid 0x%04x\n", pktid));
-		return;
+		goto exit;
 	}
 
 	PKTSETLEN(dhd->osh, pkt, buflen);
-	dhd_timesync_handle_fw_timestamp(dhd->ts, PKTDATA(dhd->osh, pkt), buflen, seqnum);
+	__dhd_timesync_handle_fw_timestamp(dhd->ts, PKTDATA(dhd->osh, pkt), buflen, seqnum);
 	PKTFREE_CTRLBUF(dhd->osh, pkt, TRUE);
+exit:
+	DHD_TIMESYNC_UNLOCK(dhd->ts_lock, flags);
 #else /* DHD_TIMESYNC */
 	DHD_ERROR(("Timesunc feature not compiled in but GOT FW TS message\n"));
 #endif /* DHD_TIMESYNC */

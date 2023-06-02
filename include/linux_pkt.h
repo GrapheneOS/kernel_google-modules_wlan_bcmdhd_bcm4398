@@ -57,12 +57,12 @@
 #define	PKTDUP(osh, skb)		osl_pktdup((osh), (skb))
 #endif /* BCM_OBJECT_TRACE */
 #endif /* BCMDBG_CTRACE */
-#define PKTLIST_DUMP(osh, buf)		BCM_REFERENCE(osh)
+#define PKTLIST_DUMP(osh, buf, bufsz)		BCM_REFERENCE(osh)
 #define PKTDBG_TRACE(osh, pkt, bit)	BCM_REFERENCE(osh)
 #else /* BCMDBG_PKT pkt logging for debugging */
 #define	PKTGET(osh, len, send)		linux_pktget((osh), (len), __LINE__, __FILE__)
 #define	PKTDUP(osh, skb)		osl_pktdup((osh), (skb), __LINE__, __FILE__)
-#define PKTLIST_DUMP(osh, buf) 		osl_pktlist_dump(osh, buf)
+#define PKTLIST_DUMP(osh, buf, bufsz)		osl_pktlist_dump(osh, buf, bufsz)
 #define BCMDBG_PTRACE
 #define PKTLIST_IDX(skb)		((uint16 *)((char *)PKTTAG(skb) + \
 					sizeof(((struct sk_buff*)(skb))->cb) - sizeof(uint16)))
@@ -268,7 +268,7 @@ extern void *osl_pkt_frmnative(osl_t *osh, void *skb, int line, char *file);
 extern void *osl_pktdup(osl_t *osh, void *skb, int line, char *file);
 extern void osl_pktlist_add(osl_t *osh, void *p, int line, char *file);
 extern void osl_pktlist_remove(osl_t *osh, void *p);
-extern char *osl_pktlist_dump(osl_t *osh, char *buf);
+extern char *osl_pktlist_dump(osl_t *osh, char *buf, uint bufsz);
 #ifdef BCMDBG_PTRACE
 extern void osl_pkttrace(osl_t *osh, void *pkt, uint16 bit);
 #endif /* BCMDBG_PTRACE */
@@ -340,7 +340,7 @@ extern struct sk_buff *osl_pkt_tonative(osl_t *osh, void *pkt);
 #define	PKTGET(osh, len, send)		linux_pktget((osh), (len), __LINE__, __FILE__)
 #define	PKTDUP(osh, skb)		osl_pktdup((osh), (skb), __LINE__, __FILE__)
 #define PKTFRMNATIVE(osh, skb)		osl_pkt_frmnative((osh), (skb), __LINE__, __FILE__)
-#define PKTLIST_DUMP(osh, buf) 		osl_pktlist_dump(osh, buf)
+#define PKTLIST_DUMP(osh, buf, bufsz)		osl_pktlist_dump(osh, buf, bufsz)
 #define PKTDBG_TRACE(osh, pkt, bit)	BCM_REFERENCE(osh)
 #else /* BCMDBG_PKT */
 #ifdef BCMDBG_CTRACE
@@ -357,7 +357,7 @@ extern struct sk_buff *osl_pkt_tonative(osl_t *osh, void *pkt);
 #endif /* BCM_OBJECT_TRACE */
 #define PKTFRMNATIVE(osh, skb)		osl_pkt_frmnative((osh), (skb))
 #endif /* BCMDBG_CTRACE */
-#define PKTLIST_DUMP(osh, buf)		({BCM_REFERENCE(osh); BCM_REFERENCE(buf);})
+#define PKTLIST_DUMP(osh, buf, bufsz)		({BCM_REFERENCE(osh); BCM_REFERENCE(buf);})
 #define PKTDBG_TRACE(osh, pkt, bit)	({BCM_REFERENCE(osh); BCM_REFERENCE(pkt);})
 #endif /* BCMDBG_PKT */
 #if defined(BCM_OBJECT_TRACE)
@@ -427,7 +427,7 @@ extern struct sk_buff *osl_pkt_tonative(osl_t *osh, void *pkt);
 extern bool osl_pktshared(void *skb);
 
 #ifdef BCMDBG_PKT /* pkt logging for debugging */
-extern char *osl_pktlist_dump(osl_t *osh, char *buf);
+extern char *osl_pktlist_dump(osl_t *osh, char *buf, uint bufsz);
 extern void osl_pktlist_add(osl_t *osh, void *p, int line, char *file);
 extern void osl_pktlist_remove(osl_t *osh, void *p);
 #endif /* BCMDBG_PKT */

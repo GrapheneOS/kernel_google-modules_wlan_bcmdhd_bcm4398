@@ -15628,4 +15628,49 @@ wl_cfgvendor_custom_advlog_disconn(struct bcm_cfg80211 *cfg, wl_assoc_status_t *
 	return;
 }
 
+void
+wl_cfgvendor_advlog_disassoc_tx(struct bcm_cfg80211 *cfg, struct net_device *ndev,
+	uint32 reason, int rssi)
+{
+	dhd_pub_t *dhdp = (dhd_pub_t *)(cfg->pub);
+	wl_assoc_status_t as;
+	s32 ifidx = DHD_BAD_IF;
+	u8 *curbssid = wl_read_prof(cfg, ndev, WL_PROF_BSSID);
+	struct ether_addr fw_bssid;
+	int err;
+
+	/* In DEAUTH_IND or Beacon loss cases, we already lost contact */
+	bzero(&fw_bssid, sizeof(fw_bssid));
+	err = wldev_ioctl_get(ndev, WLC_GET_BSSID, &fw_bssid, ETHER_ADDR_LEN);
+	if (err) {
+		WL_ERR(("not inform disassoc for already disconnected\n"));
+		return;
+	}
+
+	if (!curbssid) {
+		WL_ERR(("No bssid found\n"));
+		return;
+	}
+
+	ifidx = dhd_net2idx(dhdp->info, ndev);
+	/* Advanced Logging supports only STA mode */
+	if (!DHD_IF_ROLE_STA(dhdp, ifidx)) {
+		return;
+	}
+
+	bzero(&as, sizeof(wl_assoc_status_t));
+	as.ndev = ndev;
+	if (memcpy_s(as.addr, ETH_ALEN, curbssid, ETH_ALEN)) {
+		WL_ERR(("failed to memcpy bssid\n"));
+		return;
+	}
+
+	/* Nomally, FW sends WLC_E_DISASSOC event twice
+	 * to avoid printing twice, move it in WLC_DISASSOC sending path
+	 * Set WLC_E_DISASSOC forcely instead of WLC_DISASSOC
+	 */
+	as.event_type = WLC_E_DISASSOC;
+	as.reason = reason;
+	wl_cfgvendor_advlog_connect_event(&as, FALSE, rssi);
+}
 #endif /* WL_CFGVENDOR_CUST_ADVLOG */

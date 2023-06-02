@@ -616,8 +616,23 @@
 /* Additional RRM logs for 802.11k/v/r */
 #define EVENT_LOG_TAG_RRM_11KVR_RPT		466
 
+/* Tx power mitigation */
+#define EVENT_LOG_TAG_TXPWR_MITIGATION		467
+
+#define EVENT_LOG_TAG_PHY_AZ_INFO_BASIC		468
+#define EVENT_LOG_TAG_PHY_AZ_INFO_MIMO		469
+#define EVENT_LOG_TAG_PHY_AZ_INFO_PT		470
+#define EVENT_LOG_TAG_PHY_AZ_INFO_OUTLIER	471
+
+/* Rate and rate selection (for both TX/RX) tags */
+#define EVENT_LOG_TAG_RATE_ERROR		472
+#define EVENT_LOG_TAG_RATE			473
+#define EVENT_LOG_TAG_RATE_INFO			474
+#define EVENT_LOG_TAG_RATE_TRACE		475
+
+
 /* EVENT_LOG_TAG_MAX	= Set to the same value of last tag, not last tag + 1 */
-#define EVENT_LOG_TAG_MAX			466
+#define EVENT_LOG_TAG_MAX			475
 
 typedef enum wl_el_set_type_def {
 	EVENT_LOG_SET_TYPE_DEFAULT = 0, /* flush the log buffer when it is full - Default option */

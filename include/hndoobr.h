@@ -86,8 +86,9 @@ typedef volatile struct hndoobr_percore_reg {
 #define OOBR_PERCORE_CORENCONFIG_INTOUTPUTS_SHIFT	8u
 
 typedef volatile struct hndoobr_reg {
-	uint32 capability;                      /* 0x00 */
-	uint32 reserved[3];
+	uint32 capability;                      /* 0x00 - 0x03 */
+	uint32 capability2;                     /* 0x04 - 0x07 */
+	uint32 reserved[2];
 	uint32 intstatus[4];                    /* 0x10 - 0x1c */
 	uint32 reserved1[4];                    /* 0x20 - 0x2c */
 	uint32 topintdestsel[4];                /* 0x30 - 0x3c */

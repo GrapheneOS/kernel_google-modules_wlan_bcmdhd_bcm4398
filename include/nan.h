@@ -285,6 +285,17 @@ typedef BWL_PRE_PACKED_STRUCT struct wifi_nan_svc_descriptor_attr_s {
 	/* Optional fields follow */
 } BWL_POST_PACKED_STRUCT wifi_nan_svc_descriptor_attr_t;
 
+#define NAN_SVC_INFO_TYPE_RSVD		0u
+#define NAN_SVC_INFO_TYPE_BONJOUR	1u
+#define NAN_SVC_INFO_TYPE_GENERIC	2u
+
+/* Service info field */
+typedef BWL_PRE_PACKED_STRUCT struct wifi_nan_svc_info_field_s {
+	uint8 oui[DOT11_OUI_LEN];	/* 0x50-6F-9A */
+	uint8 svc_protocol;
+	uint8 svc_spec_info[];
+} BWL_POST_PACKED_STRUCT wifi_nan_svc_info_field_t;
+
 /* IBSS attribute */
 typedef BWL_PRE_PACKED_STRUCT struct wifi_nan_ibss_attr_s {
 	/* Attribute ID - 0x07. */

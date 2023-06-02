@@ -727,8 +727,35 @@ typedef enum {
 	WL_AMPDU_STATS_TYPE_TXHEx1		= 50,	/* TX HE rate (Nss = 1) */
 	WL_AMPDU_STATS_TYPE_TXHEx2		= 51,
 	WL_AMPDU_STATS_TYPE_TXHEx3		= 52,
-	WL_AMPDU_STATS_TYPE_TXHEx4		= 53
+	WL_AMPDU_STATS_TYPE_TXHEx4		= 53,
+
+	WL_AMPDU_STATS_TYPE_RXEHTx1		= 54,	/* RX EHT rate (Nss = 1) */
+	WL_AMPDU_STATS_TYPE_RXEHTx2		= 55,
+	WL_AMPDU_STATS_TYPE_RXEHTx3		= 56,
+	WL_AMPDU_STATS_TYPE_RXEHTx4		= 57,
+	WL_AMPDU_STATS_TYPE_TXEHTx1		= 58,	/* TX EHT rate (Nss = 1) */
+	WL_AMPDU_STATS_TYPE_TXEHTx2		= 59,
+	WL_AMPDU_STATS_TYPE_TXEHTx3		= 60,
+	WL_AMPDU_STATS_TYPE_TXEHTx4		= 61,
+
+	WL_AMPDU_STATS_TYPE_RX_EHT_SUOK		= 62,
+	WL_AMPDU_STATS_TYPE_RX_EHT_SU_DENS	= 63,
+	WL_AMPDU_STATS_TYPE_RX_EHT_MUMIMOOK	= 64,
+	WL_AMPDU_STATS_TYPE_RX_EHT_MUMIMO_DENS	= 65,
+	WL_AMPDU_STATS_TYPE_RX_EHT_DLOFDMA_OK	= 66,
+	WL_AMPDU_STATS_TYPE_RX_EHT_DLOFDMA_DENS	= 67,
+	WL_AMPDU_STATS_TYPE_RX_EHT_DLOFDMA_HIST	= 68,
+
+	WL_AMPDU_STATS_TYPE_TX_EHT_MCSALL	= 69,
+	WL_AMPDU_STATS_TYPE_TX_EHT_MCSOK	= 70,
+	WL_AMPDU_STATS_TYPE_TX_EHT_MUALL	= 71,
+	WL_AMPDU_STATS_TYPE_TX_EHT_MUOK		= 72,
+	WL_AMPDU_STATS_TYPE_TX_EHT_RUBW		= 73,
+	WL_AMPDU_STATS_TYPE_TX_EHT_EHT_PADDING	= 74,
+
+	WL_AMPDU_STATS_TYPE_MLO_LINK_INFO	= 75
 } wl_ampdu_stat_enum_t;
+
 #define	WL_AMPDU_STATS_MAX_CNTS	(64)	/* Possible max number of counters in any sub-categary */
 
 typedef struct {
@@ -1555,6 +1582,8 @@ typedef struct pciedev_htod_rx_ring_info_v1 {
 	uint16 htod_rx_buf_pool_item_cnt;
 	uint16 htod_rx_buf_pool_availcnt;
 	uint16 htod_rx_buf_pool_pend_item_cnt;
+	uint16 htod_rx_inuse_pool_r_ptr;
+	uint16 htod_rx_inuse_pool_w_ptr;
 } pciedev_htod_rx_ring_info_v1_t;
 
 /* WL RX fifo overflow info. Sent in triggered log events container above */
@@ -1592,6 +1621,7 @@ typedef struct wlc_rx_fifo_overflow_info_v1 {
 	uint64 rx_dma_posts_success_time[WLC_RX_FIFO_DMA_NUM];	/* in ns */
 
 	uint32 rx_dma_desc_count[WLC_RX_FIFO_DMA_NUM];
+	uint64 rx_sample_ts; /* Time in ns when sample taken */
 } wlc_rx_fifo_overflow_info_v1_t;
 
 /* Data structures for transferring channel switch histogram data to host */

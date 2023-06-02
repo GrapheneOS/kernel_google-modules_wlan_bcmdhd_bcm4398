@@ -1986,23 +1986,25 @@ dhd_update_mlo_peer_info(void *pub, int ifidx, const uint8 *ea, dhd_mlo_peer_inf
 	if (sta) {
 		if (peer_info) {
 			if (sta->peer_info) {
-				ret = memset_s(sta->peer_info, sizeof(sta->peer_info), 0,
+				ret = memset_s(sta->peer_info, sizeof(dhd_mlo_peer_info_t), 0,
 					sizeof(dhd_mlo_peer_info_t));
 				if (ret) {
 					DHD_ERROR(("%s: sta peer info clear failed\n",
 						__FUNCTION__));
 					goto exit;
 				}
-				DHD_PRINT(("%s: peer info entry is present already for:"
+				DHD_INFO(("%s: peer info entry is present already for:"
 					"" MACDBG "\n", __FUNCTION__, MAC2STRDBG(sta->ea.octet)));
 			} else {
 				sta->peer_info = MALLOCZ(((dhd_pub_t *)pub)->osh,
 					sizeof(dhd_mlo_peer_info_t));
 				if (sta->peer_info == NULL) {
+					DHD_ERROR(("%s: sta peer info allocation failed\n",
+						__FUNCTION__));
 					goto exit;
 				}
 			}
-			ret = memcpy_s(sta->peer_info, sizeof(sta->peer_info),
+			ret = memcpy_s(sta->peer_info, sizeof(dhd_mlo_peer_info_t),
 				peer_info, sizeof(dhd_mlo_peer_info_t));
 			if (ret) {
 				DHD_ERROR(("%s: sta peer info copying failed\n", __FUNCTION__));
@@ -3405,8 +3407,8 @@ dhd_ndev_upd_features_handler(void *handle, void *event_info, u8 event)
 			return;
 		}
 		/* wait for 20msec and retry rtnl_lock */
-		DHD_PRINT(("%s: rtnl_lock held, wait\n", __FUNCTION__));
-		OSL_SLEEP(20);
+		DHD_PRINT(("%s: rtnl_lock held mostly by dhd_open, wait\n", __FUNCTION__));
+		OSL_SLEEP(50);
 	}
 	DHD_PRINT(("%s: netdev_update_features\n", __FUNCTION__));
 	netdev_update_features(net);
@@ -7178,9 +7180,6 @@ dhd_open(struct net_device *net)
 		}
 #endif /* TOE */
 
-		/* enable network offload features like CSO RCO */
-		dhd_enable_net_offloads(dhd, net);
-
 #ifdef DHD_LB
 #if defined(DHD_LB_RXP)
 		__skb_queue_head_init(&dhd->rx_pend_queue);
@@ -7279,6 +7278,9 @@ dhd_open(struct net_device *net)
 #ifdef BCMDBGFS
 	dhd_dbgfs_init(&dhd->pub);
 #endif
+
+	/* enable network offload features like CSO RCO */
+	dhd_enable_net_offloads(dhd, net);
 
 exit:
 	mutex_unlock(&dhd->pub.ndev_op_sync);
@@ -9224,16 +9226,6 @@ dhd_attach(osl_t *osh, struct dhd_bus *bus, uint bus_hdrlen)
 #endif /* CHECK_TRAP_ROT */
 
 #if defined(WBRC)
-#if defined(BCMDHD_MODULAR)
-	if (!wbrc_init()) {
-#ifdef WBRC_HW_QUIRKS
-		uint chipid = dhd_get_chipid(bus);
-		wl2wbrc_wlan_init(&dhd->pub, chipid);
-#else
-		wl2wbrc_wlan_init(&dhd->pub);
-#endif /* WBRC_HW_QUIRKS */
-	}
-#endif /* BCMDHD_MODULAR */
 	dhd->pub.chip_bighammer_count = 0;
 #endif /* WBRC */
 
@@ -9362,6 +9354,7 @@ dhd_attach(osl_t *osh, struct dhd_bus *bus, uint bus_hdrlen)
 	dhd_state |= DHD_ATTACH_STATE_PROT_ATTACH;
 
 #ifdef DHD_TIMESYNC
+	dhd->pub.ts_lock = osl_spin_lock_init(dhd->pub.osh);
 	/* attach the timesync module */
 	if (dhd_timesync_attach(&dhd->pub) != 0) {
 		DHD_ERROR(("dhd_timesync_attach failed\n"));
@@ -11516,14 +11509,6 @@ dhd_optimised_preinit_ioctls(dhd_pub_t * dhd)
 		dhd->wlc_ver_major = wlc_ver.wlc_ver_major;
 		dhd->wlc_ver_minor = wlc_ver.wlc_ver_minor;
 	}
-#if defined(BOARD_HIKEY) || defined (BOARD_STB)
-	/* Set op_mode as MFG_MODE if WLTEST is present in "wl ver" */
-	if (strstr(fw_version, "WLTEST") != NULL) {
-		DHD_PRINT(("%s: wl ver has WLTEST, setting op_mode as DHD_FLAG_MFG_MODE\n",
-			__FUNCTION__));
-		op_mode = DHD_FLAG_MFG_MODE;
-	}
-#endif /* BOARD_HIKEY || BOARD_STB */
 
 	/* get a capabilities from firmware */
 	ret = dhd_get_fw_capabilities(dhd);
@@ -14828,12 +14813,6 @@ void dhd_detach(dhd_pub_t *dhdp)
 #endif /* DHD_WLFC_THREAD */
 #endif /* PROP_TXSTATUS */
 
-#ifdef DHD_TIMESYNC
-	if (dhd->dhd_state & DHD_ATTACH_TIMESYNC_ATTACH_DONE) {
-		dhd_timesync_detach(dhdp);
-	}
-#endif /* DHD_TIMESYNC */
-
 	if (dhd->dhd_state & DHD_ATTACH_STATE_PROT_ATTACH) {
 
 #if defined(OEM_ANDROID) || !defined(BCMSDIO)
@@ -15188,6 +15167,13 @@ void dhd_detach(dhd_pub_t *dhdp)
 		dhdp->pom_func_deregister(&dhdp->pom_wlan_handler);
 	}
 #endif /* DHD_ERPOM */
+#ifdef DHD_TIMESYNC
+	if (dhd->dhd_state & DHD_ATTACH_TIMESYNC_ATTACH_DONE) {
+		dhd_timesync_detach(dhdp);
+	}
+	osl_spin_lock_deinit(dhd->pub.osh, dhd->pub.ts_lock);
+#endif /* DHD_TIMESYNC */
+
 
 #if defined(OEM_ANDROID)
 	dhd_cancel_work_sync(&dhd->dhd_hang_process_work);
@@ -20179,6 +20165,20 @@ char map_path[PATH_MAX] = VENDOR_PATH CONFIG_BCMDHD_MAP_PATH;
 extern int dhd_collect_coredump(dhd_pub_t *dhdp, dhd_dump_t *dump);
 #endif /* DHD_COREDUMP */
 
+#ifdef DHD_SSSR_COREDUMP
+static bool
+dhd_is_coredump_reqd(char *trapstr, uint str_len)
+{
+#ifdef DHD_SKIP_COREDUMP_ON_HC
+	if (trapstr && str_len &&
+		strnstr(trapstr, DHD_COREDUMP_IGNORE_TRAP_SIG, str_len)) {
+		return FALSE;
+	}
+#endif /* DHD_SKIP_COREDUMP_ON_HC */
+	return TRUE;
+}
+#endif /* DHD_SSSR_COREDUMP */
+
 static void
 dhd_mem_dump(void *handle, void *event_info, u8 event)
 {
@@ -20200,6 +20200,7 @@ dhd_mem_dump(void *handle, void *event_info, u8 event)
 	char pc_fn[DHD_FUNC_STR_LEN] = "\0";
 	char lr_fn[DHD_FUNC_STR_LEN] = "\0";
 	trap_t *tr;
+	bool collect_coredump = FALSE;
 #endif /* DHD_COREDUMP */
 	uint32 memdump_type;
 	bool set_linkdwn_cto = FALSE;
@@ -20259,6 +20260,9 @@ dhd_mem_dump(void *handle, void *event_info, u8 event)
 			dhdp->dongle_fis_enab = FALSE;
 
 			switch (dhdp->sssr_reg_info->rev2.version) {
+				case SSSR_REG_INFO_VER_5 :
+					dhdp->dongle_fis_enab = dhdp->sssr_reg_info->rev5.fis_enab;
+					break;
 				case SSSR_REG_INFO_VER_4 :
 					dhdp->dongle_fis_enab = dhdp->sssr_reg_info->rev4.fis_enab;
 					break;
@@ -20386,19 +20390,27 @@ dhd_mem_dump(void *handle, void *event_info, u8 event)
 	DHD_PRINT(("%s: dump reason: %s\n", __FUNCTION__, dhdp->memdump_str));
 
 #ifdef DHD_SSSR_COREDUMP
-	ret = dhd_collect_coredump(dhdp, dump);
-	if (ret == BCME_ERROR) {
-		DHD_ERROR(("%s: dhd_collect_coredump() failed.\n", __FUNCTION__));
-		goto exit;
-	} else if (ret == BCME_UNSUPPORTED) {
-		DHD_LOG_MEM(("%s: Unable to collect SSSR dumps. Skip it.\n",
+	if (dhd_is_coredump_reqd(dhdp->memdump_str,
+		strnlen(dhdp->memdump_str, DHD_MEMDUMP_LONGSTR_LEN))) {
+		ret = dhd_collect_coredump(dhdp, dump);
+		if (ret == BCME_ERROR) {
+			DHD_ERROR(("%s: dhd_collect_coredump() failed.\n",
+				__FUNCTION__));
+			goto exit;
+		} else if (ret == BCME_UNSUPPORTED) {
+			DHD_LOG_MEM(("%s: Unable to collect SSSR dumps. Skip it.\n",
+				__FUNCTION__));
+		}
+		collect_coredump = TRUE;
+	} else {
+		DHD_PRINT(("%s: coredump not collected, dhd_is_coredump_reqd returns false\n",
 			__FUNCTION__));
 	}
 #endif /* DHD_SSSR_COREDUMP */
 	if (memdump_type == DUMP_TYPE_BY_SYSDUMP) {
 		DHD_LOG_MEM(("%s: coredump is not supported for BY_SYSDUMP/non trap cases\n",
 			__FUNCTION__));
-	} else {
+	} else if (collect_coredump) {
 		DHD_ERROR(("%s: writing SoC_RAM dump\n", __FUNCTION__));
 		if (wifi_platform_set_coredump(dhd->adapter, dump->buf,
 			dump->bufsize, dhdp->memdump_str)) {
@@ -20605,6 +20617,14 @@ dhd_sssr_dig_buf_size(dhd_pub_t *dhdp)
 
 	/* SSSR register information structure v0 and v1 shares most except dig_mem */
 	switch (dhdp->sssr_reg_info->rev2.version) {
+		case SSSR_REG_INFO_VER_5:
+			if ((dhdp->sssr_reg_info->rev5.length >
+			 OFFSETOF(sssr_reg_info_v5_t, sssr_all_mem_info)) &&
+			 dhdp->sssr_reg_info->rev5.sssr_all_mem_info.sysmem_sssr_size) {
+				dig_buf_size =
+				dhdp->sssr_reg_info->rev5.sssr_all_mem_info.sysmem_sssr_size;
+			}
+			break;
 		case SSSR_REG_INFO_VER_4:
 			/* for v4 need to use sssr_all_mem_info instead of dig_mem_info */
 			if ((dhdp->sssr_reg_info->rev4.length >
@@ -20652,6 +20672,14 @@ dhd_sssr_dig_buf_addr(dhd_pub_t *dhdp)
 
 	/* SSSR register information structure v0 and v1 shares most except dig_mem */
 	switch (dhdp->sssr_reg_info->rev2.version) {
+		case SSSR_REG_INFO_VER_5 :
+			if ((dhdp->sssr_reg_info->rev5.length >
+			 OFFSETOF(sssr_reg_info_v5_t, sssr_all_mem_info)) &&
+			 dhdp->sssr_reg_info->rev5.sssr_all_mem_info.sysmem_sssr_size) {
+				dig_buf_addr =
+				dhdp->sssr_reg_info->rev5.sssr_all_mem_info.sysmem_sssr_addr;
+			}
+			break;
 		case SSSR_REG_INFO_VER_4 :
 			/* for v4 need to use sssr_all_mem_info instead of dig_mem_info */
 			if ((dhdp->sssr_reg_info->rev4.length >
@@ -20703,6 +20731,9 @@ dhd_sssr_mac_buf_size(dhd_pub_t *dhdp, uint8 core_idx)
 	/* SSSR register information structure v0 and v1 shares most except dig_mem */
 	if (core_idx < num_d11cores) {
 		switch (dhdp->sssr_reg_info->rev2.version) {
+			case SSSR_REG_INFO_VER_5 :
+				mac_buf_size = dhdp->sssr_reg_info->rev5.mac_regs[core_idx].sr_size;
+				break;
 			case SSSR_REG_INFO_VER_4 :
 				mac_buf_size = dhdp->sssr_reg_info->rev4.mac_regs[core_idx].sr_size;
 				break;
@@ -20737,6 +20768,10 @@ dhd_sssr_mac_xmtaddress(dhd_pub_t *dhdp, uint8 core_idx)
 	/* SSSR register information structure v0 and v1 shares most except dig_mem */
 	if (core_idx < num_d11cores) {
 		switch (dhdp->sssr_reg_info->rev2.version) {
+			case SSSR_REG_INFO_VER_5 :
+				xmtaddress = dhdp->sssr_reg_info->rev5.
+					mac_regs[core_idx].base_regs.xmtaddress;
+				break;
 			case SSSR_REG_INFO_VER_4 :
 				xmtaddress = dhdp->sssr_reg_info->rev4.
 					mac_regs[core_idx].base_regs.xmtaddress;
@@ -20775,6 +20810,10 @@ dhd_sssr_mac_xmtdata(dhd_pub_t *dhdp, uint8 core_idx)
 	/* SSSR register information structure v0 and v1 shares most except dig_mem */
 	if (core_idx < num_d11cores) {
 		switch (dhdp->sssr_reg_info->rev2.version) {
+			case SSSR_REG_INFO_VER_5 :
+				xmtdata = dhdp->sssr_reg_info->rev5.
+					mac_regs[core_idx].base_regs.xmtdata;
+				break;
 			case SSSR_REG_INFO_VER_4 :
 				xmtdata = dhdp->sssr_reg_info->rev4.
 					mac_regs[core_idx].base_regs.xmtdata;
@@ -20800,6 +20839,153 @@ dhd_sssr_mac_xmtdata(dhd_pub_t *dhdp, uint8 core_idx)
 	}
 
 	return xmtdata;
+}
+
+int
+dhd_sssr_sr_asm_version(dhd_pub_t *dhdp, uint16 *sr_asm_version)
+{
+
+	switch (dhdp->sssr_reg_info->rev2.version) {
+		case SSSR_REG_INFO_VER_5:
+			*sr_asm_version = dhdp->sssr_reg_info->rev5.sr_asm_version;
+			break;
+		case SSSR_REG_INFO_VER_4:
+		case SSSR_REG_INFO_VER_3:
+		case SSSR_REG_INFO_VER_2:
+		case SSSR_REG_INFO_VER_1:
+		case SSSR_REG_INFO_VER_0:
+			break;
+		default :
+			DHD_ERROR(("%s invalid sssr_reg_ver", __FUNCTION__));
+			return BCME_UNSUPPORTED;
+	}
+
+	return BCME_OK;
+}
+
+int
+dhd_sssr_mac_war_reg(dhd_pub_t *dhdp, uint8 core_idx, uint32 *war_reg)
+{
+	uint8 num_d11cores;
+
+	num_d11cores = dhd_d11_slices_num_get(dhdp);
+
+	if (core_idx < num_d11cores) {
+		switch (dhdp->sssr_reg_info->rev2.version) {
+			case SSSR_REG_INFO_VER_5:
+				*war_reg = dhdp->sssr_reg_info->rev5.mac_regs[core_idx].war_reg;
+				break;
+			case SSSR_REG_INFO_VER_4:
+			case SSSR_REG_INFO_VER_3:
+			case SSSR_REG_INFO_VER_2:
+			case SSSR_REG_INFO_VER_1:
+			case SSSR_REG_INFO_VER_0:
+				break;
+			default :
+				DHD_ERROR(("%s invalid sssr_reg_ver", __FUNCTION__));
+				return BCME_UNSUPPORTED;
+		}
+	}
+
+	return BCME_OK;
+}
+
+int
+dhd_sssr_arm_war_reg(dhd_pub_t *dhdp, uint32 *war_reg)
+{
+
+	switch (dhdp->sssr_reg_info->rev2.version) {
+		case SSSR_REG_INFO_VER_5:
+			*war_reg = dhdp->sssr_reg_info->rev5.arm_regs.war_reg;
+			break;
+		case SSSR_REG_INFO_VER_4:
+		case SSSR_REG_INFO_VER_3:
+		case SSSR_REG_INFO_VER_2:
+		case SSSR_REG_INFO_VER_1:
+		case SSSR_REG_INFO_VER_0:
+			break;
+		default :
+			DHD_ERROR(("%s invalid sssr_reg_ver", __FUNCTION__));
+			return BCME_UNSUPPORTED;
+	}
+
+	return BCME_OK;
+}
+
+int
+dhd_sssr_saqm_war_reg(dhd_pub_t *dhdp, uint32 *war_reg)
+{
+
+	switch (dhdp->sssr_reg_info->rev2.version) {
+		case SSSR_REG_INFO_VER_5:
+			*war_reg = dhdp->sssr_reg_info->rev5.saqm_sssr_info.war_reg;
+			break;
+		case SSSR_REG_INFO_VER_4:
+		case SSSR_REG_INFO_VER_3:
+		case SSSR_REG_INFO_VER_2:
+		case SSSR_REG_INFO_VER_1:
+		case SSSR_REG_INFO_VER_0:
+			break;
+		default :
+			DHD_ERROR(("%s invalid sssr_reg_ver", __FUNCTION__));
+			return BCME_UNSUPPORTED;
+	}
+
+	return BCME_OK;
+}
+
+uint
+dhd_sssr_saqm_buf_size(dhd_pub_t *dhdp)
+{
+	uint saqm_buf_size = 0;
+
+	/* SSSR register information structure v0 and v1 shares most except dig_mem */
+	switch (dhdp->sssr_reg_info->rev2.version) {
+		case SSSR_REG_INFO_VER_5:
+			if (dhdp->sssr_reg_info->rev5.saqm_sssr_info.saqm_sssr_size > 0) {
+				saqm_buf_size =
+					dhdp->sssr_reg_info->rev5.saqm_sssr_info.saqm_sssr_size;
+			}
+			break;
+		case SSSR_REG_INFO_VER_4:
+		case SSSR_REG_INFO_VER_3:
+		case SSSR_REG_INFO_VER_2:
+		case SSSR_REG_INFO_VER_1:
+		case SSSR_REG_INFO_VER_0:
+			break;
+		default:
+			DHD_ERROR(("invalid sssr_reg_ver"));
+			return BCME_UNSUPPORTED;
+	}
+
+	return saqm_buf_size;
+}
+
+uint
+dhd_sssr_saqm_buf_addr(dhd_pub_t *dhdp)
+{
+	uint saqm_buf_addr = 0;
+
+	/* SSSR register information structure v0 and v1 shares most except dig_mem */
+	switch (dhdp->sssr_reg_info->rev2.version) {
+		case SSSR_REG_INFO_VER_5:
+			if (dhdp->sssr_reg_info->rev5.saqm_sssr_info.saqm_sssr_size > 0) {
+				saqm_buf_addr =
+					dhdp->sssr_reg_info->rev5.saqm_sssr_info.saqm_sssr_addr;
+			}
+			break;
+		case SSSR_REG_INFO_VER_4:
+		case SSSR_REG_INFO_VER_3:
+		case SSSR_REG_INFO_VER_2:
+		case SSSR_REG_INFO_VER_1:
+		case SSSR_REG_INFO_VER_0:
+			break;
+		default:
+			DHD_ERROR(("invalid sssr_reg_ver"));
+			return BCME_UNSUPPORTED;
+	}
+
+	return saqm_buf_addr;
 }
 
 #ifdef DHD_SSSR_DUMP_BEFORE_SR
@@ -20884,6 +21070,7 @@ dhd_sssr_dump_to_file(dhd_info_t* dhdinfo)
 	uint dig_buf_size = 0;
 	uint8 num_d11cores = 0;
 	uint d11_buf_size = 0;
+	uint saqm_buf_size = 0;
 
 	DHD_PRINT(("%s: ENTER \n", __FUNCTION__));
 
@@ -20971,6 +21158,36 @@ dhd_sssr_dump_to_file(dhd_info_t* dhdinfo)
 		if (write_dump_to_file(dhdp, (uint8 *)dhdp->sssr_dig_buf_after,
 			dig_buf_size, after_sr_dump)) {
 			DHD_ERROR(("%s: writing SSSR Dig VASIP dump after to the file failed\n",
+			 __FUNCTION__));
+		}
+	}
+
+	saqm_buf_size = dhd_sssr_saqm_buf_size(dhdp);
+
+#ifdef DHD_SSSR_DUMP_BEFORE_SR
+	if ((saqm_buf_size > 0) && dhdp->sssr_saqm_buf_before &&
+	 (dhdp->sssr_dump_mode == SSSR_DUMP_MODE_SSSR)) {
+		if (write_dump_to_file(dhdp, (uint8 *)dhdp->sssr_saqm_buf_before,
+			saqm_buf_size, "sssr_dump_saqm_before_SR")) {
+			DHD_ERROR(("%s: writing SSSR SAQM dump before to the file failed\n",
+				__FUNCTION__));
+		}
+	}
+#endif /* DHD_SSSR_DUMP_BEFORE_SR */
+
+	bzero(after_sr_dump, sizeof(after_sr_dump));
+	if (dhdp->sssr_dump_mode == SSSR_DUMP_MODE_FIS) {
+		snprintf(after_sr_dump, sizeof(after_sr_dump), "%s_%s",
+			"sssr_dump_fis_saqm", "after_SR");
+	} else {
+		snprintf(after_sr_dump, sizeof(after_sr_dump), "%s_%s",
+			"sssr_dump_saqm", "after_SR");
+	}
+
+	if ((saqm_buf_size > 0) && dhdp->sssr_saqm_buf_after) {
+		if (write_dump_to_file(dhdp, (uint8 *)dhdp->sssr_saqm_buf_after,
+			saqm_buf_size, after_sr_dump)) {
+			DHD_ERROR(("%s: writing SSSR SAQM dump after to the file failed\n",
 			 __FUNCTION__));
 		}
 	}

@@ -278,6 +278,7 @@ static const int burst_duration_idx[]  = {0, 0, 1, 2, 4, 8, 16, 32, 64, 128, 0, 
 
 /* ftm status mapping to host status */
 static const ftm_status_map_host_entry_t ftm_status_map_info[] = {
+	{WL_PROXD_E_CHANSW, RTT_STATUS_FAIL_CHANSW},
 	{WL_PROXD_E_INCOMPLETE, RTT_STATUS_FAILURE},
 	{WL_PROXD_E_OVERRIDDEN, RTT_STATUS_FAILURE},
 	{WL_PROXD_E_ASAP_FAILED, RTT_STATUS_FAILURE},

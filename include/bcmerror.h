@@ -241,7 +241,9 @@ typedef int bcmerror_t;
 
 /* FTM error codes [-1024, -2047] */
 enum {
-	WL_FTM_E_LAST			= -1092,
+	WL_FTM_E_LAST			= -1094,
+	WL_FTM_E_SUPPRESS		= -1094,
+	WL_FTM_E_NO_CSI_DATA		= -1093,
 	WL_FTM_E_PHY_CSI_FATAL_ERR	= -1092,
 	WL_FTM_E_FORCE_DELETED		= -1091,
 	WL_FTM_E_ONE_WAY_RTT		= -1090,
@@ -319,7 +321,8 @@ typedef int32 wl_ftm_status_t;
 #ifdef BCMUTILS_ERR_CODES
 /* begin proxd codes compatible w/ ftm above - obsolete  DO NOT extend */
 enum {
-	WL_PROXD_E_LAST			= -1058,
+	WL_PROXD_E_LAST			= -1059,
+	WL_PROXD_E_CHANSW		= -1059,
 	WL_PROXD_E_PKTFREED		= -1058,
 	WL_PROXD_E_ASSOC_INPROG		= -1057,
 	WL_PROXD_E_NOAVAIL		= -1056,

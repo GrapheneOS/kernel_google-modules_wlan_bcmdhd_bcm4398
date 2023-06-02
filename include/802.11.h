@@ -1632,8 +1632,13 @@ enum dot11_tag_ids {
 #define EXT_MNG_AKM_SUITE_SELECTOR_ID		114u	/* AKM Suite Selector */
 #define DOT11_MNG_AKM_SUITE_SELECTOR_ID		(DOT11_MNG_ID_EXT_ID + \
 						 EXT_MNG_AKM_SUITE_SELECTOR_ID)
+/* Draft 802.11be D3.0 Table 9-128 Element IDs */
+#define EXT_MNG_MLO_LINK_INFO_ID		133u	/* MLO Link Information */
+#define DOT11_MNG_MLO_LINK_INFO_ID		(DOT11_MNG_ID_EXT_ID + EXT_MNG_MLO_LINK_INFO_ID)
 #define EXT_MNG_AID_BITMAP_ID			134u	/* AID Bitmap */
 #define DOT11_MNG_AID_BITMAP_ID			(DOT11_MNG_ID_EXT_ID + EXT_MNG_AID_BITMAP_ID)
+#define EXT_MNG_BW_IND_ID			135u	/* Bandwidth Indication */
+#define DOT11_MNG_BW_IND_ID			(DOT11_MNG_ID_EXT_ID + EXT_MNG_BW_IND_ID)
 
 /* deprecated definitions, do not use, to be deleted later */
 #define FILS_HLP_CONTAINER_EXT_ID		FILS_EXTID_MNG_HLP_CONTAINER_ID
