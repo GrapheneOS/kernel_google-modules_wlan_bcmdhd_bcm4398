@@ -77,6 +77,7 @@ static int resched_streak = 0;
 static int resched_streak_max = 0;
 static uint64 last_resched_cnt_check_time_ns = 0;
 static uint64 last_affinity_update_time_ns = 0;
+static uint hw_stage_val = 0;
 /* force to switch to small core at beginning */
 static bool is_irq_on_big_core = TRUE;
 
@@ -394,6 +395,11 @@ dhd_get_platform_naming_for_nvram_clmblob_file(download_type_t component, char *
 		return BCME_ERROR;
 	}
 
+	if(hw_stage_val < EVT) {
+		DHD_ERROR(("No multi-NVRAM/CLM support on Proto/Dev device\n"));
+		return BCME_ERROR;
+	}
+
 	if (component == NVRAM) {
 #ifdef DHD_LINUX_STD_FW_API
 		nvram_clmblob_file = DHD_NVRAM_NAME;
@@ -464,7 +470,7 @@ dhd_wlan_init_hardware_info(void)
 			DHD_ERROR(("%s: Failed to get hw minor\n", __FUNCTION__));
 			goto exit;
 		}
-
+		hw_stage_val = hw_stage;
 		switch (hw_stage) {
 			case DEV:
 				snprintf(val_revision, MAX_HW_INFO_LEN, "DEV%d.%d",
