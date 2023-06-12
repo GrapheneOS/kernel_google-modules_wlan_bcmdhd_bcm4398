@@ -28,9 +28,6 @@ ifeq ($(KERNEL_SRC),)
   else
     BCMDHD_ROOT=$(srctree)/$(src)
   endif
-  $(warning : ** Regular in-tree build BCMDHD_ROOT=$(BCMDHD_ROOT)**)
-else
-  $(warning : ** out-of-tree Kbuild BCMDHD_ROOT=$(BCMDHD_ROOT)**)
 endif
 
 #####################
@@ -342,7 +339,7 @@ ifneq ($(CONFIG_SOC_GOOGLE),)
 	# Tx/Rx tasklet bounds
 	DHDCFLAGS += -DDHD_TX_CPL_BOUND=64
 	DHDCFLAGS += -DDHD_TX_POST_BOUND=128
-	DHDCFLAGS += -DDHD_RX_CPL_POST_BOUND=156
+	DHDCFLAGS += -DDHD_RX_CPL_POST_BOUND=96
 	DHDCFLAGS += -DDHD_CTRL_CPL_POST_BOUND=8
 	DHDCFLAGS += -DDHD_LB_TXBOUND=32
 	# Detect NON DMA M2M corruption (MFG only)
@@ -610,7 +607,7 @@ ifneq ($(CONFIG_BCMDHD_PCIE),)
 	DHDCFLAGS += -DDHD_USE_COHERENT_MEM_FOR_RING
 	DHDCFLAGS += -DDHD_ALLOC_COHERENT_MEM_FROM_ATOMIC_POOL
     # Runtime PM feature
-	DHDCFLAGS += -DDHD_PCIE_RUNTIMEPM -DMAX_IDLE_COUNT=5
+    #   DHDCFLAGS += -DDHD_PCIE_RUNTIMEPM -DMAX_IDLE_COUNT=5
 
     #AXI error logging
     DHDCFLAGS += -DDNGL_AXI_ERROR_LOGGING
