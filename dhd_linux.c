@@ -530,11 +530,6 @@ struct semaphore dhd_registration_sem;
 
 void dhd_generate_rand_mac_addr(struct ether_addr *ea_addr);
 
-#ifdef EWP_EDL
-int host_edl_support = TRUE;
-module_param(host_edl_support, int, 0644);
-#endif
-
 /* deferred handlers */
 static void dhd_ifadd_event_handler(void *handle, void *event_info, u8 event);
 static void dhd_ifdel_event_handler(void *handle, void *event_info, u8 event);
@@ -9726,10 +9721,8 @@ dhd_attach(osl_t *osh, struct dhd_bus *bus, uint bus_hdrlen)
 #endif /* DHD_SDTC_ETB_DUMP */
 
 #ifdef EWP_EDL
-	if (host_edl_support) {
-		if (DHD_EDL_MEM_INIT(&dhd->pub) != BCME_OK) {
-			host_edl_support = FALSE;
-		}
+	if (DHD_EDL_MEM_INIT(&dhd->pub) != BCME_OK) {
+		DHD_ERROR(("%s: EDL memory allocation failed\n", __FUNCTION__));
 	}
 #endif /* EWP_EDL */
 
@@ -15119,10 +15112,7 @@ void dhd_detach(dhd_pub_t *dhdp)
 #endif
 
 #ifdef EWP_EDL
-	if (host_edl_support) {
-		DHD_EDL_MEM_DEINIT(dhdp);
-		host_edl_support = FALSE;
-	}
+	DHD_EDL_MEM_DEINIT(dhdp);
 #endif /* EWP_EDL */
 
 #if defined(WLTDLS) && defined(PCIE_FULL_DONGLE)
