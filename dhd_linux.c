@@ -20157,14 +20157,26 @@ extern int dhd_collect_coredump(dhd_pub_t *dhdp, dhd_dump_t *dump);
 
 #ifdef DHD_SSSR_COREDUMP
 static bool
-dhd_is_coredump_reqd(char *trapstr, uint str_len)
+dhd_is_coredump_reqd(char *trapstr, uint str_len, dhd_pub_t *dhdp)
 {
+	uint16 chipid = dhd_get_chipid(dhdp->bus);
+
+	BCM_REFERENCE(chipid);
+
 #ifdef DHD_SKIP_COREDUMP_ON_HC
 	if (trapstr && str_len &&
 		strnstr(trapstr, DHD_COREDUMP_IGNORE_TRAP_SIG, str_len)) {
 		return FALSE;
 	}
 #endif /* DHD_SKIP_COREDUMP_ON_HC */
+
+#ifdef DHD_SKIP_COREDUMP_OLDER_CHIPS
+	/* customer ask to skip coredump collection for older chip revs */
+	if (BCM4397_CHIP(chipid) && (dhd_get_chiprev(dhdp->bus) <= 2)) {
+		return FALSE;
+	}
+#endif /* DHD_SKIP_COREDUMP_OLDER_CHIPS */
+
 	return TRUE;
 }
 #endif /* DHD_SSSR_COREDUMP */
@@ -20381,7 +20393,7 @@ dhd_mem_dump(void *handle, void *event_info, u8 event)
 
 #ifdef DHD_SSSR_COREDUMP
 	if (dhd_is_coredump_reqd(dhdp->memdump_str,
-		strnlen(dhdp->memdump_str, DHD_MEMDUMP_LONGSTR_LEN))) {
+		strnlen(dhdp->memdump_str, DHD_MEMDUMP_LONGSTR_LEN), dhdp)) {
 		ret = dhd_collect_coredump(dhdp, dump);
 		if (ret == BCME_ERROR) {
 			DHD_ERROR(("%s: dhd_collect_coredump() failed.\n",
