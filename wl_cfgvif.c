@@ -8981,3 +8981,73 @@ exit:
 	WL_CFG_NET_LIST_SYNC_UNLOCK(&cfg->net_list_sync, flags);
 	return found;
 }
+
+s32
+wl_cfgvif_clone_bss_info(struct bcm_cfg80211 *cfg, struct net_device *ndev,
+	u8 *src_bssid, u8 *target_bssid)
+{
+	struct cfg80211_bss *src_bss, *bss, *target_bss;
+	struct wiphy *wiphy;
+	s32 err = 0;
+	struct wlc_ssid *ssid;
+	u32 ftype;
+
+	wiphy = bcmcfg_to_wiphy(cfg);
+
+	if (!src_bssid || !target_bssid) {
+		WL_ERR(("invalid arg\n"));
+		return BCME_ERROR;
+	}
+
+	ssid = (struct wlc_ssid *)wl_read_prof(cfg, ndev, WL_PROF_SSID);
+	if (!ssid) {
+		WL_ERR(("connection ssid null\n"));
+		return BCME_ERROR;
+	}
+
+	target_bss = CFG80211_GET_BSS(wiphy, NULL, target_bssid,
+		NULL, 0);
+	if (target_bss) {
+		/* Entry already present for target bssid */
+		WL_INFORM(("target bss found for bssid" MACDBG "\n",
+				MAC2STRDBG(target_bssid)));
+		CFG80211_PUT_BSS(wiphy, target_bss);
+		return BCME_OK;
+	}
+
+	src_bss = CFG80211_GET_BSS(wiphy, NULL, src_bssid,
+		ssid->SSID, ssid->SSID_len);
+	if (!src_bss) {
+		WL_ERR(("No src bss found for bssid" MACDBG "\n",
+				MAC2STRDBG(src_bssid)));
+		return BCME_ERROR;
+	}
+
+
+	if (!src_bss->ies || !src_bss->ies->len) {
+		WL_ERR(("empty bss ies\n"));
+		err = BCME_NOMEM;
+		goto exit;
+	}
+
+	ftype = src_bss->proberesp_ies ?
+		CFG80211_BSS_FTYPE_PRESP : CFG80211_BSS_FTYPE_BEACON;
+
+	/* use same info to create a clone with the target bssid */
+	bss = cfg80211_inform_bss(wiphy, src_bss->channel,
+		ftype, target_bssid, src_bss->ies->tsf, src_bss->capability,
+		src_bss->beacon_interval, (const u8 *)src_bss->ies->data, src_bss->ies->len,
+		src_bss->signal, GFP_KERNEL);
+	if (!bss) {
+		WL_ERR(("cfg8011_inform_bss failed\n"));
+		err = BCME_NOMEM;
+		goto exit;
+	}
+	CFG80211_PUT_BSS(wiphy, bss);
+
+	WL_INFORM_MEM(("bss entry created for address:" MACDBG " freq:%d\n",
+		MAC2STRDBG(target_bssid), src_bss->channel->center_freq));
+exit:
+	CFG80211_PUT_BSS(wiphy, src_bss);
+	return err;
+}
