@@ -1023,6 +1023,13 @@ uint16 dhd_plat_align_rxbuf_size(uint16 rxbufpost_sz)
 #endif
 }
 
+extern void exynos_pcie_set_skip_config(int ch_num, bool val);
+void dhd_plat_pcie_skip_config_set(bool val)
+{
+	DHD_PRINT(("%s: set skip config\n", __FUNCTION__));
+	exynos_pcie_set_skip_config(pcie_ch_num, val);
+}
+
 #ifndef BCMDHD_MODULAR
 /* Required only for Built-in DHD */
 device_initcall(dhd_wlan_init);

@@ -52,6 +52,7 @@
 #include <pcie_core.h>
 #include <bcmpcie.h>
 #include <dhd_pcie.h>
+#include <dhd_plat.h>
 #ifdef DHD_TIMESYNC
 #include <dhd_timesync.h>
 #endif /* DHD_TIMESYNC */
@@ -1282,7 +1283,6 @@ static void dhd_prot_h2d_sync_init(dhd_pub_t *dhd);
 void dhd_fill_cso_info(dhd_pub_t *dhd, void *pktbuf, void *txdesc, uint32 item_len);
 #endif
 
-extern void exynos_pcie_d3_ack_timeout_set(bool val);
 
 uint
 dhd_get_ring_size_from_version_array(uint cursize, uint* size_array, int version)
@@ -11712,7 +11712,7 @@ dhd_msgbuf_wait_ioctl_cmplt(dhd_pub_t *dhd, uint32 len, void *buf)
 #ifdef DHD_TREAT_D3ACKTO_AS_LINKDWN
 	if ((prot->ioctl_received == 0) && (timeleft == 0)) {
 		DHD_ERROR(("%s: Treating IOVAR timeout as PCIe linkdown !\n", __FUNCTION__));
-		exynos_pcie_d3_ack_timeout_set(1);
+		dhd_plat_pcie_skip_config_set(TRUE);
 		dhd->bus->is_linkdown = 1;
 		dhd->bus->iovarto_as_linkdwn_cnt++;
 		dhd->hang_reason = HANG_REASON_PCIE_LINK_DOWN_RC_DETECT;
