@@ -189,10 +189,6 @@ int cc_wd_reset = FALSE;
 extern unsigned int system_rev;
 #endif /* SUPPORT_MULTIPLE_BOARD_REV */
 
-#ifdef EWP_EDL
-extern int host_edl_support;
-#endif
-
 #ifdef BCMQT_HW
 extern int qt_dngl_timeout;
 #endif /* BCMQT_HW */
@@ -787,6 +783,7 @@ const bcm_iovar_t dhdpcie_iovars[] = {
 	{NULL, 0, 0, 0, 0, 0 }
 };
 
+extern void exynos_pcie_d3_ack_timeout_set(bool val);
 
 #ifdef BCMQT_HW
 #define MAX_READ_TIMEOUT	200 * 1000	/* 200 ms in dongle time */
@@ -8889,7 +8886,19 @@ dhd_bus_devreset(dhd_pub_t *dhdp, uint8 flag)
 			if (bcmerror) {
 				DHD_ERROR(("%s: dhd_bus_start: %d\n",
 					__FUNCTION__, bcmerror));
-				bcmerror = BCME_NOTUP;
+				/* NORESOURCE means oob irq init failed
+				 * NOMEM means host memory alloc failed
+				 * in these cases retain the error code
+				 * so that caller can take decision based
+				 * on it to not collect debug_dump
+				 * Because in such a case prot_init etc would
+				 * not have happened and iovars/ioctls to FW
+				 * should be avoided.
+				 */
+				if ((bcmerror != BCME_NORESOURCE) &&
+					(bcmerror != BCME_NOMEM)) {
+					bcmerror = BCME_NOTUP;
+				}
 				goto done;
 			}
 
@@ -11355,11 +11364,11 @@ dhdpcie_bus_suspend(struct dhd_bus *bus, bool state)
 		if ((bus->wait_for_d3_ack == 0) && (timeleft == 0)) {
 			DHD_ERROR(("%s: Treating D3 ack timeout during"
 				" suspend-resume as PCIe linkdown !\n", __FUNCTION__));
+			exynos_pcie_d3_ack_timeout_set(1);
 			bus->is_linkdown = 1;
 			bus->d3ackto_as_linkdwn_cnt++;
 			bus->dhd->hang_reason = HANG_REASON_PCIE_LINK_DOWN_RC_DETECT;
 			dhd_os_send_hang_message(bus->dhd);
-
 		}
 #endif /* DHD_TREAT_D3ACKTO_AS_LINKDWN */
 
@@ -16460,9 +16469,16 @@ dhdpcie_readshared(dhd_bus_t *bus)
 		(sh->flags2 & PCIE_SHARED2_HSCB) == PCIE_SHARED2_HSCB;
 
 #ifdef EWP_EDL
-	if (host_edl_support) {
-		bus->dhd->dongle_edl_support = (sh->flags2 & PCIE_SHARED2_EDL_RING) ? TRUE : FALSE;
-		DHD_PRINT(("Dongle EDL support: %u\n", bus->dhd->dongle_edl_support));
+	bus->dhd->dongle_edl_support = (sh->flags2 & PCIE_SHARED2_EDL_RING) ? TRUE : FALSE;
+	DHD_PRINT(("host_edl_mem_inited:%u Dongle EDL support: %u\n", bus->dhd->host_edl_mem_inited,
+		bus->dhd->dongle_edl_support));
+	if (bus->dhd->dongle_edl_support && !bus->dhd->host_edl_mem_inited) {
+		DHD_ERROR(("Dongle supports EDL but host allocation failed during module init\n"));
+		DHD_PRINT(("Retry Allocating EDL buffer\n"));
+		if (DHD_EDL_MEM_INIT(bus->dhd) != BCME_OK) {
+			DHD_ERROR(("EDL Alloc failed. Abort!!\n"));
+			return BCME_NOMEM;
+		}
 	}
 #endif /* EWP_EDL */
 
@@ -17316,8 +17332,7 @@ int dhd_bus_init(dhd_pub_t *dhdp, bool enforce_mutex)
 	 * reason, collect ewp init dumps
 	*/
 	if (ret == BCME_OK || ret == BCME_BADADDR ||
-		ret == BCME_NOMEM || ret == BCME_DATA_NOTFOUND ||
-		ret == BCME_UNSUPPORTED) {
+		ret == BCME_DATA_NOTFOUND || ret == BCME_UNSUPPORTED) {
 		if (bus->api.fw_rev >= PCIE_SHARED_VERSION_9) {
 		/* ewp hw new init sequence and ewp hw log collection
 		 * is supported only above ipc rev 9

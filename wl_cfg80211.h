@@ -405,6 +405,17 @@ extern char *dhd_log_dump_get_timestamp(void);
 #define WL_GCMP
 #endif /* (LINUX_VERSION > KERNEL_VERSION(4, 0, 0) && WL_GCMP_SUPPORT */
 
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 1, 0)) || \
+	   (defined(CONFIG_ARCH_MSM) && defined(CFG80211_DISCONNECTED_V2))
+#define CFG80211_GET_BSS(wiphy, channel, bssid, ssid, ssid_len) \
+	cfg80211_get_bss(wiphy, channel, bssid, ssid, ssid_len,	\
+			IEEE80211_BSS_TYPE_ANY, IEEE80211_PRIVACY_ANY);
+#else
+#define CFG80211_GET_BSS(wiphy, channel, bssid, ssid, ssid_len) \
+	cfg80211_get_bss(wiphy, channel, bssid, ssid, ssid_len,	\
+			WLAN_CAPABILITY_ESS, WLAN_CAPABILITY_ESS);
+#endif /* (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 1, 0)) */
+
 #ifndef IBSS_COALESCE_ALLOWED
 #define IBSS_COALESCE_ALLOWED IBSS_COALESCE_DEFAULT
 #endif

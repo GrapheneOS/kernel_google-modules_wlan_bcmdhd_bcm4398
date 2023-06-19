@@ -313,4 +313,8 @@ extern s32 wl_cfgvif_set_multi_link(struct bcm_cfg80211 *cfg, u8 enable);
 extern s32 wl_cfgvif_get_multilink_status(struct bcm_cfg80211 *cfg,
 		struct net_device *dev, u8 *status);
 bool wl_cfgvif_bssid_match_found(struct bcm_cfg80211 *cfg, struct wireless_dev *wdev, u8 *mac_addr);
+s32 wl_cfgvif_clone_bss_info(struct bcm_cfg80211 *cfg,
+	struct net_device *ndev, u8 *src_bssid, u8 *target_bssid);
+extern s32 wl_filter_restricted_subbands(struct bcm_cfg80211 *cfg, struct net_device *dev,
+	chanspec_t *cur_chspec);
 #endif /* _wl_cfgvif_h_ */
