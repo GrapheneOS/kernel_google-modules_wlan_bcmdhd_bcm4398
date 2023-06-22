@@ -1848,6 +1848,7 @@ typedef struct dhd_pub {
 #ifdef EWP_EDL
 	bool dongle_edl_support;
 	dhd_dma_buf_t edl_ring_mem;
+	bool host_edl_mem_inited;
 #endif /* EWP_EDL */
 #if defined(__linux__)
 	struct mutex ndev_op_sync;

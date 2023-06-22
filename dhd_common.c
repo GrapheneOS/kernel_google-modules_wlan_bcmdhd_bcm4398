@@ -11297,10 +11297,13 @@ dhd_edl_mem_init(dhd_pub_t *dhd)
 	bzero(&dhd->edl_ring_mem, sizeof(dhd->edl_ring_mem));
 	ret = dhd_dma_buf_alloc(dhd, &dhd->edl_ring_mem, DHD_EDL_RING_SIZE);
 	if (ret != BCME_OK) {
-		DHD_ERROR(("%s: alloc of edl_ring_mem failed\n",
-			__FUNCTION__));
+		DHD_ERROR(("%s: alloc of edl_ring_mem size(%u) failed \n",
+			__FUNCTION__, DHD_EDL_RING_SIZE));
+		dhd->host_edl_mem_inited = FALSE;
 		return BCME_ERROR;
 	}
+	DHD_PRINT(("%s: EDL buffer allocated of size %u\n", __FUNCTION__, DHD_EDL_RING_SIZE));
+	dhd->host_edl_mem_inited = TRUE;
 	return BCME_OK;
 }
 
@@ -11311,8 +11314,11 @@ dhd_edl_mem_init(dhd_pub_t *dhd)
 void
 dhd_edl_mem_deinit(dhd_pub_t *dhd)
 {
-	if (dhd->edl_ring_mem.va != NULL)
+	if (dhd->host_edl_mem_inited && dhd->edl_ring_mem.va) {
 		dhd_dma_buf_free(dhd, &dhd->edl_ring_mem);
+		dhd->host_edl_mem_inited = FALSE;
+		DHD_PRINT(("%s: EDL buffer freed\n", __FUNCTION__));
+	}
 }
 
 int

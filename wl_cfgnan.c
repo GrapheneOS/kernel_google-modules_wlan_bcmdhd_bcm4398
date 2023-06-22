@@ -3312,7 +3312,6 @@ wl_cfgnan_start_handler(struct net_device *ndev, struct bcm_cfg80211 *cfg,
 	uint8 resp_buf[NAN_IOCTL_BUF_SIZE];
 	int i;
 	s32 timeout = 0;
-	nan_hal_capabilities_t capabilities;
 	uint32 status;
 	wl_nancfg_t *nancfg = cfg->nancfg;
 	uint32 cfg_ctrl1_flags;
@@ -3668,9 +3667,9 @@ wl_cfgnan_start_handler(struct net_device *ndev, struct bcm_cfg80211 *cfg,
 	/* TODO: For now enabling NDPE by default as framework is not setting use_ndpe_attr
 	 * When (cmd_data->use_ndpe_attr) is set by framework, Add additional check for
 	 * (cmd_data->use_ndpe_attr) as below
-	 * if (capabilities.ndpe_attr_supported && cmd_data->use_ndpe_attr)
+	 * if (nancfg->capabilities.ndpe_attr_supported && cmd_data->use_ndpe_attr)
 	 */
-	if (capabilities.ndpe_attr_supported)
+	if (nancfg->capabilities.ndpe_attr_supported)
 	{
 		cfg_ctrl2_flags1 |= WL_NAN_CTRL2_FLAG1_NDPE_CAP;
 		nancfg->ndpe_enabled = true;
@@ -6098,7 +6097,21 @@ wl_cfgnan_aligned_data_size_of_opt_dp_params(struct bcm_cfg80211 *cfg, uint16 *d
 		*data_size += ALIGN_SIZE(cmd_data->scid.dlen + NAN_XTLV_ID_LEN_SIZE, 4);
 	}
 
-	*data_size += ALIGN_SIZE(WL_NAN_SVC_HASH_LEN + NAN_XTLV_ID_LEN_SIZE, 4);
+	if (cmd_data->ndp_cfg.security_cfg) {
+		if ((cmd_data->svc_hash.dlen == WL_NAN_SVC_HASH_LEN) && (cmd_data->svc_hash.data)) {
+			*data_size += ALIGN_SIZE(WL_NAN_SVC_HASH_LEN + NAN_XTLV_ID_LEN_SIZE, 4);
+		} else {
+#ifdef WL_NAN_DISC_CACHE
+			*data_size += ALIGN_SIZE(WL_NAN_SVC_HASH_LEN + NAN_XTLV_ID_LEN_SIZE, 4);
+#endif /* WL_NAN_DISC_CACHE */
+		}
+	}
+
+	if (cmd_data->service_instance_id) {
+		/* Account for instance id */
+		*data_size += ALIGN_SIZE(sizeof(wl_nan_instance_id_t) + NAN_XTLV_ID_LEN_SIZE, 4);
+	}
+
 	return ret;
 }
 
