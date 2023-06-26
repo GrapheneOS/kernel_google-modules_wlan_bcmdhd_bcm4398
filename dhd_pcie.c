@@ -7820,6 +7820,7 @@ dhd_bus_clearcounts(dhd_pub_t *dhdp)
 
 #ifdef DHD_TREAT_D3ACKTO_AS_LINKDWN
 	bus->d3ackto_as_linkdwn_cnt = 0;
+	bus->iovarto_as_linkdwn_cnt = 0;
 #endif
 	dhdp->rx_pktgetpool_fail = 0;
 
@@ -13775,6 +13776,7 @@ void dhd_bus_dump(dhd_pub_t *dhdp, struct bcmstrbuf *strbuf)
 	}
 #ifdef DHD_TREAT_D3ACKTO_AS_LINKDWN
 	bcm_bprintf(strbuf, "d3ackto_as_linkdwn_cnt: %d\n", dhdp->bus->d3ackto_as_linkdwn_cnt);
+	bcm_bprintf(strbuf, "iovarto_as_linkdwn_cnt: %d\n", dhdp->bus->iovarto_as_linkdwn_cnt);
 #endif
 
 #ifdef PCIE_INB_DW
