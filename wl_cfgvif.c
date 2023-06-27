@@ -1854,7 +1854,6 @@ wl_get_lower_bw_chspec(chanspec_t *chspec)
 	return BCME_OK;
 }
 
-#define MAX_20MHZ_CHANNELS 16u
 static s32
 wl_get_overlapping_chspecs(chanspec_t sel_chspec,
 		wl_chanspec_attr_v1_t *overlap, u32 *arr_idx)
@@ -1911,7 +1910,7 @@ wl_get_overlapping_chspecs(chanspec_t sel_chspec,
 	return BCME_OK;
 }
 
-static s32
+s32
 wl_filter_restricted_subbands(struct bcm_cfg80211 *cfg,
 	struct net_device *dev, chanspec_t *cur_chspec)
 {

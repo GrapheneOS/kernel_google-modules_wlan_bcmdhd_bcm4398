@@ -19510,6 +19510,8 @@ static s32 wl_update_chan_param(struct net_device *dev, u32 cur_chspec, u32 chan
 		channel = chaninfo;
 	}
 
+	WL_TRACE(("channel:%d chaninfo:%x chspec:%x flags:%x\n",
+			cur_channel, channel, cur_chspec, band_chan->flags));
 	if (!err) {
 		if (channel & WL_CHAN_RADAR) {
 #if (LINUX_VERSION_CODE < KERNEL_VERSION(3, 14, 0))
@@ -19518,7 +19520,7 @@ static s32 wl_update_chan_param(struct net_device *dev, u32 cur_chspec, u32 chan
 #else
 			band_chan->flags |= IEEE80211_CHAN_RADAR;
 #endif
-			WL_DBG(("DFS channel:%d chaninfo:%x chspec:%x flags:%x\n",
+			WL_TRACE(("DFS channel:%d chaninfo:%x chspec:%x flags:%x\n",
 				cur_channel, channel, cur_chspec, band_chan->flags));
 			*dfs_radar_disabled = TRUE;
 		}
@@ -19532,7 +19534,7 @@ static s32 wl_update_chan_param(struct net_device *dev, u32 cur_chspec, u32 chan
 			band_chan->flags |= IEEE80211_CHAN_NO_IR;
 #endif /* USE_INDOOR_CHAN_FLAG */
 #endif /* LINUX_VER >= 5.4 */
-			WL_DBG(("indoor channel:%d chaninfo:%x chspec:%x flags:%x\n",
+			WL_TRACE(("indoor channel:%d chaninfo:%x chspec:%x flags:%x\n",
 				cur_channel, channel, cur_chspec, band_chan->flags));
 		}
 
@@ -19543,6 +19545,8 @@ static s32 wl_update_chan_param(struct net_device *dev, u32 cur_chspec, u32 chan
 #else
 			band_chan->flags |= IEEE80211_CHAN_NO_IR;
 #endif
+			WL_TRACE(("passive/restricted channel:%d chaninfo:%x chspec:%x flags:%x\n",
+				cur_channel, channel, cur_chspec, band_chan->flags));
 			}
 
 	} else if (err == BCME_UNSUPPORTED) {
