@@ -783,8 +783,6 @@ const bcm_iovar_t dhdpcie_iovars[] = {
 	{NULL, 0, 0, 0, 0, 0 }
 };
 
-extern void exynos_pcie_d3_ack_timeout_set(bool val);
-
 #ifdef BCMQT_HW
 #define MAX_READ_TIMEOUT	200 * 1000	/* 200 ms in dongle time */
 #elif defined(NDIS)
@@ -11380,9 +11378,9 @@ dhdpcie_bus_suspend(struct dhd_bus *bus, bool state)
 
 #ifdef DHD_TREAT_D3ACKTO_AS_LINKDWN
 		if ((bus->wait_for_d3_ack == 0) && (timeleft == 0)) {
+			dhd_plat_pcie_skip_config_set(TRUE);
 			DHD_ERROR(("%s: Treating D3 ack timeout during"
 				" suspend-resume as PCIe linkdown !\n", __FUNCTION__));
-			exynos_pcie_d3_ack_timeout_set(1);
 			bus->is_linkdown = 1;
 			bus->d3ackto_as_linkdwn_cnt++;
 			bus->dhd->hang_reason = HANG_REASON_PCIE_LINK_DOWN_RC_DETECT;
