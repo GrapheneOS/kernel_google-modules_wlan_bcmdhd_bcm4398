@@ -6839,6 +6839,7 @@ dhd_force_collect_init_fail_dumps(dhd_pub_t *dhdp)
 #ifdef OEM_ANDROID
 	int cur_busstate = dhdp->busstate;
 
+	DHD_PRINT(("%s\n", __FUNCTION__));
 #if defined(CUSTOMER_HW4_DEBUG)
 #ifdef DEBUG_DNGL_INIT_FAIL
 	/* As HAL is not inited, do force crash and collect from host dram */
@@ -6853,7 +6854,9 @@ dhd_force_collect_init_fail_dumps(dhd_pub_t *dhdp)
 	/* for android force collect socram for FW init failures
 	 * by putting bus state to LOAD
 	 */
-	dhdp->memdump_enabled = DUMP_MEMFILE;
+	if (dhdp->memdump_enabled == DUMP_DISABLED) {
+		dhdp->memdump_enabled = DUMP_MEMFILE;
+	}
 	if (dhdp->busstate == DHD_BUS_DOWN) {
 		dhdp->busstate = DHD_BUS_LOAD;
 	}
@@ -7011,8 +7014,7 @@ dhd_open(struct net_device *net)
 #endif /* DHD_GRO_ENABLE_HOST_CTRL */
 #ifdef DHD_SSSR_DUMP
 	dhd->pub.collect_sssr = FALSE;
-	dhd->pub.fis_enab_no_db7ack = FALSE;
-	dhd->pub.fis_enab_cto = FALSE;
+	dhd->pub.collect_fis = FALSE;
 #endif /* DHD_SSSR_DUMP */
 #ifdef DHD_SDTC_ETB_DUMP
 	dhd->pub.collect_sdtc = FALSE;
@@ -10205,8 +10207,7 @@ dhd_bus_start(dhd_pub_t *dhdp)
 
 #ifdef DHD_SSSR_DUMP
 	dhdp->collect_sssr = FALSE;
-	dhdp->fis_enab_no_db7ack = FALSE;
-	dhdp->fis_enab_cto = FALSE;
+	dhdp->collect_fis = FALSE;
 #endif /* DHD_SSSR_DUMP */
 #ifdef DHD_SDTC_ETB_DUMP
 	dhdp->collect_sdtc = FALSE;
@@ -10302,7 +10303,7 @@ dhd_bus_start(dhd_pub_t *dhdp)
 
 		DHD_ERROR(("%s Host failed to register for OOB\n", __FUNCTION__));
 		DHD_OS_WD_WAKE_UNLOCK(&dhd->pub);
-		return -ENODEV;
+		return BCME_NORESOURCE;
 	}
 
 #if defined(BCMPCIE_OOB_HOST_WAKE)
@@ -14839,6 +14840,17 @@ void dhd_detach(dhd_pub_t *dhdp)
 	}
 #endif /* CONFIG_HAS_EARLYSUSPEND && DHD_USE_EARLYSUSPEND */
 
+	if (dhdp->dbg) {
+#ifdef DEBUGABILITY
+#ifdef DBG_PKT_MON
+		dhd_os_dbg_detach_pkt_monitor(dhdp);
+		osl_spin_lock_deinit(dhd->pub.osh, dhd->pub.dbg->pkt_mon_lock);
+#endif /* DBG_PKT_MON */
+#endif /* DEBUGABILITY */
+
+		/* dbg->private and dbg freed after calling below */
+		dhd_os_dbg_detach(dhdp);
+	}
 
 	/* delete all interfaces, start with virtual  */
 	if (dhd->dhd_state & DHD_ATTACH_STATE_ADD_IF) {
@@ -15031,17 +15043,6 @@ void dhd_detach(dhd_pub_t *dhdp)
 	destroy_workqueue(dhd->rx_wq);
 	dhd->rx_wq = NULL;
 #endif /* DHD_PCIE_NATIVE_RUNTIMEPM */
-#ifdef DEBUGABILITY
-	if (dhdp->dbg) {
-#ifdef DBG_PKT_MON
-		dhd_os_dbg_detach_pkt_monitor(dhdp);
-		osl_spin_lock_deinit(dhd->pub.osh, dhd->pub.dbg->pkt_mon_lock);
-#endif /* DBG_PKT_MON */
-	}
-#endif /* DEBUGABILITY */
-	if (dhdp->dbg) {
-		dhd_os_dbg_detach(dhdp);
-	}
 
 #ifdef DHD_MEM_STATS
 	osl_spin_lock_deinit(dhd->pub.osh, dhd->pub.mem_stats_lock);
@@ -16434,10 +16435,11 @@ dhd_net_bus_devreset(struct net_device *dev, uint8 flag)
 
 	dhd->pub.p2p_disc_busy_cnt = 0;
 
-	if (ret == BCME_NOMEM || ret == BCME_NOTFOUND || ret == BCME_NOTREADY) {
+	if (ret == BCME_NOMEM || ret == BCME_NOTFOUND || ret == BCME_NOTREADY ||
+		ret == BCME_NORESOURCE) {
 		DHD_ERROR(("%s: ret=%d, skip collect dump in case of "
-			"BCME_NOMEM/NOTFOUND/NOTREADY\n", __FUNCTION__, ret));
-		return BCME_ERROR;
+			"BCME_NOMEM/NOTFOUND/NOTREADY/NORESOURCE\n", __FUNCTION__, ret));
+		return ret;
 	}
 
 	if (ret) {
@@ -20246,9 +20248,8 @@ dhd_mem_dump(void *handle, void *event_info, u8 event)
 
 		fis_fw_triggered = dhd_bus_fis_fw_triggered_check(dhdp);
 
-		DHD_PRINT(("%s: fis_enab=%d fis_enab_no_db7ack=%d "
-			"fis_enab_cto=%d fis_fw_triggered=%d\n", __FUNCTION__, fis_enab,
-			dhdp->fis_enab_no_db7ack, dhdp->fis_enab_cto, fis_fw_triggered));
+		DHD_PRINT(("%s: fis_enab=%d collect_fis=%d fis_fw_triggered=%d\n",
+			__FUNCTION__, fis_enab,	dhdp->collect_fis, fis_fw_triggered));
 
 		/* Collect FIS provided dongle supports it, for the
 		 * following cases:
@@ -20256,9 +20257,7 @@ dhd_mem_dump(void *handle, void *event_info, u8 event)
 		 * 2. ROT and no db7 ack OR
 		 * 3. CTO
 		 */
-		if ((fis_enab && (dhdp->fis_enab_no_db7ack ||
-			dhdp->fis_enab_cto)) || fis_fw_triggered) {
-
+		if ((fis_enab && dhdp->collect_fis) || fis_fw_triggered) {
 			dhdp->dongle_fis_enab = FALSE;
 
 			switch (dhdp->sssr_reg_info->rev2.version) {
@@ -20289,7 +20288,7 @@ dhd_mem_dump(void *handle, void *event_info, u8 event)
 				} else {
 					DHD_ERROR(("%s: FIS trigger failed: %d\n",
 						__FUNCTION__, bcmerror));
-					if (dhdp->fis_enab_cto) {
+					if (dhd_bus_cto_triggered(dhdp)) {
 						DHD_PRINT(("%s: setting link down due to CTO \n",
 							__FUNCTION__));
 						set_linkdwn_cto = TRUE;
@@ -20304,7 +20303,7 @@ dhd_mem_dump(void *handle, void *event_info, u8 event)
 			 * it will prevent FIS dump collection. So set it here
 			 * after FIS dump collection
 			 */
-			if (dhdp->fis_enab_cto) {
+			if (dhd_bus_cto_triggered(dhdp)) {
 				DHD_PRINT(("%s: setting link down due to CTO \n",
 					__FUNCTION__));
 				set_linkdwn_cto = TRUE;

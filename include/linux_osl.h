@@ -402,7 +402,7 @@ uint64 osl_getcycles(void);
 #define	bcopy_hw_poll_for_completion()
 #define	bcopy(src, dst, len)	memcpy((dst), (src), (len))
 #define	bcmp(b1, b2, len)	memcmp((b1), (b2), (len))
-#define	bzero(b, len)		memset((b), '\0', (len))
+#define	bzero(b, len)		(void)memset_s((b), (len), '\0', (len))
 
 /* register access macros */
 #if defined(OSLREGOPS)
@@ -609,7 +609,7 @@ extern void dhd_plat_l1_exit_io(void);
 /* bcopy, bcmp, and bzero functions */
 #define	bcopy(src, dst, len)	memcpy((dst), (src), (len))
 #define	bcmp(b1, b2, len)	memcmp((b1), (b2), (len))
-#define	bzero(b, len)		memset((b), '\0', (len))
+#define	bzero(b, len)		(void)memset_s((b), (len), '\0', (len))
 
 /* uncached/cached virtual address */
 #define OSL_UNCACHED(va)	((void *)va)
@@ -688,7 +688,7 @@ extern void dhd_plat_l1_exit_io(void);
 	/* bcopy's: Linux kernel doesn't provide these (anymore) */
 	#define	bcopy(src, dst, len)	memcpy((dst), (src), (len))
 	#define	bcmp(b1, b2, len)	memcmp((b1), (b2), (len))
-	#define	bzero(b, len)		memset((b), '\0', (len))
+	#define	bzero(b, len)		(void)memset_s((b), (len), '\0', (len))
 
 	/* These are provided only because when compiling linux_osl.c there
 	 * must be an explicit prototype (separate from the definition) because

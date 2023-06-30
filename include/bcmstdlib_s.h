@@ -29,8 +29,14 @@
 	!(defined(__STDC_LIB_EXT1__) && defined(__STDC_WANT_LIB_EXT1__))
 extern int memmove_s(void *dest, size_t destsz, const void *src, size_t n);
 extern int memcpy_s(void *dest, size_t destsz, const void *src, size_t n);
-extern int memset_s(void *dest, size_t destsz, int c, size_t n);
 #endif /* !__STDC_WANT_SECURE_LIB__ && !(__STDC_LIB_EXT1__ && __STDC_WANT_LIB_EXT1__) */
+#if (!defined(__STDC_WANT_SECURE_LIB__) && \
+	!(defined(__STDC_LIB_EXT1__) && defined(__STDC_WANT_LIB_EXT1__))) || \
+	(defined(__STDC_WANT_SECURE_LIB__) && defined(WIN32))
+extern int memset_s(void *dest, size_t destsz, int c, size_t n);
+#endif /* (!__STDC_WANT_SECURE_LIB__ && !(__STDC_LIB_EXT1__ && __STDC_WANT_LIB_EXT1__)) ||
+	  (__STDC_WANT_SECURE_LIB__ && WIN32)
+*/
 #if !defined(FREEBSD) && !defined(MACOSX) && !defined(BCM_USE_PLATFORM_STRLCPY)
 extern size_t strlcpy(char *dest, const char *src, size_t size);
 #endif /* !defined(FREEBSD) && !defined(MACOSX) && !defined(BCM_USE_PLATFORM_STRLCPY) */

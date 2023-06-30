@@ -5359,7 +5359,16 @@ int wl_android_wifi_on(struct net_device *dev)
 			/* Set big hammer flag */
 			dhdp->do_chip_bighammer = TRUE;
 #ifdef BCMPCIE
+			/* if error during power on was NORESOURCE
+			 * do not collect debug_dump for any errors
+			 * seen during power off, because NORESOURCE
+			 * means dhd_prot_init has not yet occured
+			 * and dhd_log_dump will try to fire iovars
+			 * to flush FW logs
+			 */
+			dhdp->skip_logdmp = TRUE;
 			dhd_net_bus_devreset(dev, TRUE);
+			dhdp->skip_logdmp = FALSE;
 #endif /* BCMPCIE */
 
 			dhd_net_wifi_platform_set_power(dev, FALSE, WIFI_TURNOFF_DELAY);

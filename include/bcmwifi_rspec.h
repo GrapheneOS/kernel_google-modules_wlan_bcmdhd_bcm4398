@@ -174,12 +174,13 @@ typedef uint32 ratespec_bw_t;
 
 /* ======== RSPEC_BW field ======== */
 
-#define WL_RSPEC_BW_UNSPECIFIED	0u
-#define WL_RSPEC_BW_20MHZ	0x00010000u
-#define WL_RSPEC_BW_40MHZ	0x00020000u
-#define WL_RSPEC_BW_80MHZ	0x00030000u
-#define WL_RSPEC_BW_160MHZ	0x00040000u
-#define WL_RSPEC_BW_320MHZ	0x00060000u
+#define WL_RSPEC_BW_UNSPECIFIED	0x00000000u	/* 0 */
+#define WL_RSPEC_BW_20MHZ	0x00010000u	/* 1 */
+#define WL_RSPEC_BW_40MHZ	0x00020000u	/* 2 */
+#define WL_RSPEC_BW_80MHZ	0x00030000u	/* 3 */
+#define WL_RSPEC_BW_160MHZ	0x00040000u	/* 4 */
+// unused			0x00050000u	/* 5 */
+#define WL_RSPEC_BW_320MHZ	0x00060000u	/* 6 */
 
 
 /* ======== RSPEC_ENCODING field ======== */
@@ -209,6 +210,8 @@ typedef uint32 ratespec_bw_t;
 #define RSPEC_IS320MHZ(rspec)	(FALSE)
 #endif /* WL_BW320MHZ */
 
+#define WL_RSPEC_BW(rspec)	(((rspec) & WL_RSPEC_BW_MASK) >> WL_RSPEC_BW_SHIFT)
+
 #define RSPEC_BW_GE(rspec, rspec_bw) (RSPEC_BW(rspec) >= rspec_bw)
 #define RSPEC_BW_LE(rspec, rspec_bw) (RSPEC_BW(rspec) <= rspec_bw)
 #define RSPEC_BW_GT(rspec, rspec_bw) (!RSPEC_BW_LE(rspec, rspec_bw))
@@ -221,7 +224,11 @@ typedef uint32 ratespec_bw_t;
 
 #define RSPEC_TXEXP(rspec)	(((rspec) & WL_RSPEC_TXEXP_MASK) >> WL_RSPEC_TXEXP_SHIFT)
 
+/* deprecated! */
 #define RSPEC_ENCODE(rspec)	(((rspec) & WL_RSPEC_ENCODING_MASK) >> WL_RSPEC_ENCODING_SHIFT)
+
+#define WL_RSPEC_ENCODE(rspec)	(((rspec) & WL_RSPEC_ENCODING_MASK) >> WL_RSPEC_ENCODING_SHIFT)
+
 #define RSPEC_ISLEGACY(rspec)	(((rspec) & WL_RSPEC_ENCODING_MASK) == WL_RSPEC_ENCODE_RATE)
 
 #define	RSPEC_ISCCK(rspec)	(RSPEC_ISLEGACY(rspec) && \
@@ -315,20 +322,23 @@ extern const uint8 rate_info[];
 ratespec_t wf_vht_plcp_to_rspec(const uint8 *plcp);
 ratespec_t wf_he_plcp_to_rspec(const uint8 *plcp);
 ratespec_t wf_ht_plcp_to_rspec(const uint8 *plcp);
+#ifndef MOVE_WF_EHT_RXH_TO_RSPEC_TO_BCMWIFI_UTILS
+#if defined(BCMDRIVER) && defined(DONGLEBUILD)
+/* API to converting incoming RXH(ctx) to rspec based on corerev (minor/major) */
+ratespec_t wf_eht_rxh_to_rspec(d11rxhdr_t *rxh, uint corerev, uint corerev_minor);
+#endif /* BCMDRIVER && DONGLEBUILD */
+#endif /* MOVE_WF_EHT_RXH_TO_RSPEC_TO_BCMWIFI_UTILS */
 
 #ifdef BCMDBG
 uint wf_rspec_to_rate_legacy(ratespec_t rspec);
 #endif
 uint wf_rspec_to_rate(ratespec_t rspec);
 uint wf_rspec_to_rate_rsel(ratespec_t rspec);
-#if defined(BCMDRIVER) && defined(DONGLEBUILD)
-/* API to converting incoming RXH(ctx) to rspec based on corerev (minor/major) */
-ratespec_t wf_eht_rxh_to_rspec(d11rxhdr_t *rxh, uint corerev, uint corerev_minor);
-#endif /* BCMDRIVER && DONGLEBUILD */
 
 /* WL_CHANSPEC_BW_x to WL_RSPEC_BW_x mapping.
  * Indexed by WL_CHSPEC_BW(chspec) and return WL_RSPEC_BW_x.
  */
+/* deprecated! */
 ratespec_t wf_chspec2rspec_bw(uint8 chspec_bw);
 
 #endif /* _bcmwifi_rspec_h_ */

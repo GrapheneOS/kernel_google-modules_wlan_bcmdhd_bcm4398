@@ -3667,7 +3667,7 @@ wl_cfgnan_start_handler(struct net_device *ndev, struct bcm_cfg80211 *cfg,
 	/* TODO: For now enabling NDPE by default as framework is not setting use_ndpe_attr
 	 * When (cmd_data->use_ndpe_attr) is set by framework, Add additional check for
 	 * (cmd_data->use_ndpe_attr) as below
-	 * if (nancfg->capabilities.ndpe_attr_supported && cmd_data->use_ndpe_attr)
+	 * if (capabilities.ndpe_attr_supported && cmd_data->use_ndpe_attr)
 	 */
 	if (nancfg->capabilities.ndpe_attr_supported)
 	{

@@ -47,7 +47,7 @@
 
 #include <bcmwifi_channels.h>
 
-#if defined(WIN32) && (defined(BCMDLL) || defined(WLMDLL))
+#if defined(WIN32) && (defined(BCMDLL) || defined(WLMDLL) || defined(_CONSOLE))
 #include <bcmstdlib.h>	/* For wlexe/Makefile.wlm_dll */
 #endif
 
@@ -1575,13 +1575,6 @@ wf_valid_20MHz_chan(uint channel, chanspec_band_t band)
 		}
 
 		if (i == num_ch) {
-			/* check for channel 165 which is not the side band
-			 * of 40MHz 5G channel
-			 */
-			if (channel == 165) {
-				i = 0;
-			}
-
 			/* check for legacy JP channels on failure */
 			if (channel == 34 || channel == 38 ||
 			    channel == 42 || channel == 46) {
@@ -1594,7 +1587,6 @@ wf_valid_20MHz_chan(uint channel, chanspec_band_t band)
 			return TRUE;
 		}
 	}
-
 	else if (band == WL_CHANSPEC_BAND_6G) {
 		/* Use the simple pattern of 6GHz 20MHz channels for validity check */
 		if ((channel >= CH_MIN_6G_CHANNEL &&
