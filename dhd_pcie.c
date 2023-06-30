@@ -11277,13 +11277,7 @@ dhdpcie_bus_suspend(struct dhd_bus *bus, bool state)
 				d3_read_retry++;
 			}
 		}
-#else /* DHD_PCIE_NATIVE_RUNTIMEPM */
-		/*
-		 * Disable L1ss on EP and RC side before doing D3
-		 */
-		DHD_PRINT(("%s: disable L1SS during suspend, before D3 inform\n", __func__));
-		dhd_plat_l1ss_ctrl(0);
-
+#else
 		DHD_OS_WAKE_LOCK_WAIVE(bus->dhd);
 #ifdef DHD_TIMESYNC
 		/* disable time sync mechanism, if configed */
@@ -11301,22 +11295,15 @@ dhdpcie_bus_suspend(struct dhd_bus *bus, bool state)
 
 #if defined(PCIE_OOB) || defined(PCIE_INB_DW)
 		DHD_BUS_INB_DW_LOCK(bus->inb_lock, flags);
-		DHD_PRINT(("%s: Before DW_ASSERT inband_dw_state:%d\n",
-			__FUNCTION__, dhdpcie_bus_get_pcie_inband_dw_state(bus)));
 		if (dhdpcie_bus_get_pcie_inband_dw_state(bus) ==
 			DW_DEVICE_DS_DISABLED_WAIT) {
 			DHD_BUS_INB_DW_UNLOCK(bus->inb_lock, flags);
 			DHD_ERROR(("Waiting for DS-Exit, abort suspend\n"));
 			rc = BCME_ERROR;
-			dhd_plat_l1ss_ctrl(1);
 			goto fail;
 		}
 		DHD_BUS_INB_DW_UNLOCK(bus->inb_lock, flags);
 		dhd_bus_set_device_wake(bus, TRUE, __FUNCTION__);
-		DHD_BUS_INB_DW_LOCK(bus->inb_lock, flags);
-		DHD_PRINT(("%s: After DW_ASSERT inband_dw_state:%d\n",
-			__FUNCTION__, dhdpcie_bus_get_pcie_inband_dw_state(bus)));
-		DHD_BUS_INB_DW_UNLOCK(bus->inb_lock, flags);
 #endif /* defined(PCIE_OOB) || defined(PCIE_INB_DW) */
 #ifdef PCIE_OOB
 		bus->oob_presuspend = TRUE;
@@ -11350,11 +11337,7 @@ dhdpcie_bus_suspend(struct dhd_bus *bus, bool state)
 #ifdef PCIE_INB_DW
 		if (INBAND_DW_ENAB(bus)) {
 			DHD_BUS_INB_DW_LOCK(bus->inb_lock, flags);
-			DHD_PRINT(("%s: Before D3_INFORM inband_dw_state:%d\n",
-				__FUNCTION__, dhdpcie_bus_get_pcie_inband_dw_state(bus)));
 			dhdpcie_send_mb_data(bus, H2D_HOST_D3_INFORM, __FUNCTION__);
-			DHD_PRINT(("%s: After D3_INFORM inband_dw_state:%d\n",
-				__FUNCTION__, dhdpcie_bus_get_pcie_inband_dw_state(bus)));
 			DHD_BUS_INB_DW_UNLOCK(bus->inb_lock, flags);
 		} else
 #endif /* PCIE_INB_DW */
@@ -11409,8 +11392,6 @@ dhdpcie_bus_suspend(struct dhd_bus *bus, bool state)
 			if (active) {
 				DHD_ERROR(("%s():Suspend failed because of wakelock"
 					"restoring Dongle to D0\n", __FUNCTION__));
-
-				dhd_plat_l1ss_ctrl(1);
 
 				if (bus->dhd->dhd_watchdog_ms_backup) {
 					DHD_PRINT(("%s: Enabling wdtick due to wakelock active\n",
