@@ -1875,6 +1875,8 @@ wl_cfgvendor_stop_hal(struct wiphy *wiphy,
 	dhd_pub_t *dhd = (dhd_pub_t *)(cfg->pub);
 #endif /* DHD_FILE_DUMP_EVENT */
 
+	WL_INFORM(("%s, Cleanup virtual_ifaces\n", __FUNCTION__));
+	wl_cfg80211_cleanup_virtual_ifaces(cfg, true);
 	cfg->hal_started = false;
 #ifdef DHD_FILE_DUMP_EVENT
 	dhd_set_dump_status(dhd, DUMP_NOT_READY);
