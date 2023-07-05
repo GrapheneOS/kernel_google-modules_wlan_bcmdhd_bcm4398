@@ -10320,6 +10320,8 @@ wl_cfgvendor_apf_set_filter(struct wiphy *wiphy,
 	int ret, tmp, type, max_len;
 	struct bcm_cfg80211 *cfg = wiphy_priv(wiphy);
 
+	WL_ERR(("%s: Enter\n", __FUNCTION__));
+
 	if (len <= 0) {
 		WL_ERR(("Invalid len: %d\n", len));
 		ret = -EINVAL;
@@ -10344,6 +10346,7 @@ wl_cfgvendor_apf_set_filter(struct wiphy *wiphy,
 				if (nla_len(iter) == sizeof(uint32) && !program_len) {
 					program_len = nla_get_u32(iter);
 				} else {
+					WL_ERR(("iter valid is not valid and program len is not 0\n"));
 					ret = -EINVAL;
 					goto exit;
 				}
@@ -10393,11 +10396,17 @@ wl_cfgvendor_apf_set_filter(struct wiphy *wiphy,
 	}
 
 	ret = dhd_dev_apf_add_filter(ndev, program, program_len);
+	if (unlikely(ret)) {
+		WL_ERR(("APF add filter failed, ret=%d\n", ret));
+		goto exit;
+	}
+	WL_INFORM_MEM(("Success to add APF filter program, program_len=%d\n", program_len));
 
 exit:
 	if (program) {
 		MFREE(cfg->osh, program, program_len);
 	}
+	WL_ERR(("%s: Exit\n", __FUNCTION__));
 	return ret;
 }
 
