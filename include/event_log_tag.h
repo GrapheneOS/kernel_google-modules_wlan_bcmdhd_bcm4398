@@ -630,9 +630,16 @@
 #define EVENT_LOG_TAG_RATE_INFO			474
 #define EVENT_LOG_TAG_RATE_TRACE		475
 
+#define EVENT_LOG_TAG_WL_EMLSR			476
+
+#define EVENT_LOG_TAG_SAQM_MGR_TRACE		477
+#define EVENT_LOG_TAG_SAQM_MGR_INFO		478
+#define EVENT_LOG_TAG_SAQM_MGR_ERROR		479
+
+#define EVENT_LOG_TAG_PERIODIC_CNTRS_SEC	480
 
 /* EVENT_LOG_TAG_MAX	= Set to the same value of last tag, not last tag + 1 */
-#define EVENT_LOG_TAG_MAX			475
+#define EVENT_LOG_TAG_MAX			480
 
 typedef enum wl_el_set_type_def {
 	EVENT_LOG_SET_TYPE_DEFAULT = 0, /* flush the log buffer when it is full - Default option */

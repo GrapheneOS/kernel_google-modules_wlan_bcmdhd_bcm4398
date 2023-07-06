@@ -1495,13 +1495,14 @@ static u32
 wl_cfgscan_map_nl80211_scan_type(struct bcm_cfg80211 *cfg, struct cfg80211_scan_request *request)
 {
 	u32 scan_flags = 0;
+	dhd_pub_t *dhd = (dhd_pub_t *)cfg->pub;
 
 	if (!request) {
 		return scan_flags;
 	}
 
 	if (cfg->latency_mode &&
-		wl_is_sta_connected(cfg)) {
+		wl_is_sta_connected(cfg) && FW_SUPPORTED(dhd, sc)) {
 		WL_DBG_MEM(("latency mode on. force LP scan\n"));
 		scan_flags |= WL_SCANFLAGS_LOW_POWER_SCAN;
 		goto exit;
@@ -1513,7 +1514,7 @@ wl_cfgscan_map_nl80211_scan_type(struct bcm_cfg80211 *cfg, struct cfg80211_scan_
 	if (request->flags & NL80211_SCAN_FLAG_HIGH_ACCURACY) {
 		scan_flags |= WL_SCANFLAGS_HIGH_ACCURACY;
 	}
-	if (request->flags & NL80211_SCAN_FLAG_LOW_POWER) {
+	if ((request->flags & NL80211_SCAN_FLAG_LOW_POWER) && FW_SUPPORTED(dhd, sc)) {
 		scan_flags |= WL_SCANFLAGS_LOW_POWER_SCAN;
 	}
 	if (request->flags & NL80211_SCAN_FLAG_LOW_PRIORITY) {
@@ -2363,6 +2364,14 @@ wl_cfgscan_handle_scanbusy(struct bcm_cfg80211 *cfg, struct net_device *ndev, s3
 		 * value to cfg80211 stack
 		 */
 		scanbusy_err = -EAGAIN;
+	}
+
+	if (wl_get_drv_status_all(cfg, CSA_ACTIVE)) {
+		/* override error to EGAIN to avoid forcing panic as CSA can
+		 * take upto 25secs. Don't limit on number of scans in this case.
+		 */
+		scanbusy_err = -EAGAIN;
+		WL_ERR(("scan busy due to csa in progress\n"));
 	}
 
 	/* if continuous busy state, clear assoc type in FW by disassoc cmd */
@@ -7125,7 +7134,7 @@ bool wl_is_chanspec_restricted(struct bcm_cfg80211 *cfg, chanspec_t sta_chanspec
 		return TRUE;
 	}
 
-	WL_INFORM_MEM(("STA chanspec:0x%x per_chan_info:0x%x\n", sta_chanspec, bitmap));
+	WL_DBG_MEM(("STA chanspec:0x%x per_chan_info:0x%x\n", sta_chanspec, bitmap));
 	return FALSE;
 }
 
@@ -7146,7 +7155,7 @@ static bool wl_find_matching_chanspec(chanspec_t sta_chanspec,
 					sta_chanspec));
 				return true;
 			}
-			WL_INFORM_MEM(("skipped chanspec:0x%x\n", pList[i]));
+			WL_DBG(("skipped chanspec:0x%x\n", pList[i]));
 		}
 	}
 
@@ -7492,6 +7501,12 @@ wl_handle_ap_sta_mlo_concurrency(struct bcm_cfg80211 *cfg, struct net_info *mld_
 			WL_DBG(("Attempting ACS with 2G band\n"));
 			return BCME_OK;
 		}
+	}
+
+	/* After all combination checks if scc fails return failure */
+	if (!scc_case) {
+		WL_ERR(("No possible SCC. Fail ACS\n"));
+		return BCME_UNSUPPORTED;
 	}
 
 	return BCME_OK;

@@ -1398,7 +1398,6 @@ static int dhdpcie_resume_dev(struct pci_dev *dev)
 	 * Re-enable L1ss in Resume path. Implementation defalts to NOP
 	 * If need override in the paltform file
 	 */
-	DHD_PRINT(("%s: enable L1SS during resume\n", __func__));
 	dhd_plat_l1ss_ctrl(1);
 
 

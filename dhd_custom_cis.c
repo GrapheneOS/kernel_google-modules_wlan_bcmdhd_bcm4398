@@ -149,6 +149,7 @@ vid_info_t vid_naming_table_4390[] = {
 	/* 4390a0 */
 	{ 3, { 0x10, 0x63, }, { "_USI_G6BB_6310_V10" } },
 	{ 3, { 0x11, 0x63, }, { "_USI_G6BB_6311_V11" } },
+	{ 3, { 0x13, 0x63, }, { "_USI_G6BB_6313_V13" } },
 };
 
 #ifdef DHD_USE_CISINFO

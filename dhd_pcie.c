@@ -98,7 +98,7 @@
 #endif /* FW_SIGNATURE */
 
 #ifdef COEX_CPU
-#include <coex_shared_debug.h>
+#include <coex_shared_memfile.h>
 #endif /* COEX_CPU */
 
 #ifdef DNGL_AXI_ERROR_LOGGING
@@ -783,7 +783,6 @@ const bcm_iovar_t dhdpcie_iovars[] = {
 	{NULL, 0, 0, 0, 0, 0 }
 };
 
-extern void exynos_pcie_d3_ack_timeout_set(bool val);
 
 #ifdef BCMQT_HW
 #define MAX_READ_TIMEOUT	200 * 1000	/* 200 ms in dongle time */
@@ -1718,6 +1717,17 @@ dhdpcie_bus_intstatus(dhd_bus_t *bus)
 }
 
 void
+dhdpcie_set_collect_fis(dhd_bus_t *bus)
+{
+#if defined(BOARD_HIKEY) || defined(CONFIG_X86)
+	if (CHIPTYPE(bus->sih->socitype) == SOCI_NCI) {
+		DHD_PRINT(("%s : Collect FIS dumps\n", __FUNCTION__));
+		bus->dhd->collect_fis = TRUE;
+	}
+#endif /* BOARD_HIKEY || CONFIG_X86 */
+}
+
+void
 dhdpcie_cto_recovery_handler(dhd_pub_t *dhd)
 {
 	dhd_bus_t *bus = dhd->bus;
@@ -1779,11 +1789,7 @@ dhdpcie_cto_recovery_handler(dhd_pub_t *dhd)
 #ifdef DHD_SSSR_DUMP
 			DHD_PRINT(("%s : Set collect_sssr as TRUE\n", __FUNCTION__));
 			bus->dhd->collect_sssr = TRUE;
-#if defined(BOARD_HIKEY) || defined(CONFIG_X86)
-			if (CHIPTYPE(bus->sih->socitype) == SOCI_NCI) {
-				bus->dhd->fis_enab_cto = TRUE;
-			}
-#endif /* BOARD_HIKEY || CONFIG_X86 */
+			dhdpcie_set_collect_fis(bus);
 #endif /* DHD_SSSR_DUMP */
 #ifdef DHD_SDTC_ETB_DUMP
 			if (bus->dhd->etb_dap_flush_supported) {
@@ -1807,7 +1813,7 @@ dhdpcie_cto_recovery_handler(dhd_pub_t *dhd)
 	/* do not set linkdown if FIS dump collection
 	 * is to be done for CTO
 	 */
-	if (!bus->dhd->fis_enab_cto) {
+	if (!bus->dhd->collect_fis) {
 		bus->is_linkdown = TRUE;
 	}
 	bus->dhd->hang_reason = HANG_REASON_PCIE_CTO_DETECT;
@@ -2586,7 +2592,6 @@ dhd_update_chip_specific_tunables(dhd_pub_t *dhd)
 		/* Enable htput support for all 160Mhz chips */
 		case BCM4388_CHIP_ID:
 		case BCM4389_CHIP_ID:
-		case BCM4390_CHIP_GRPID:
 		case BCM4399_CHIP_GRPID:
 			dhd->htput_support = TRUE;
 			set_ring_size_version = 2;
@@ -2594,6 +2599,7 @@ dhd_update_chip_specific_tunables(dhd_pub_t *dhd)
 			dhd->max_prealloc_flowrings = MAX_FLOW_RINGS_V2;
 #endif /* FLOW_RING_PREALLOC */
 			break;
+		case BCM4390_CHIP_GRPID:
 		case BCM4397_CHIP_GRPID:
 			dhd->htput_support = TRUE;
 			/* For 4397/4398 use ring size version 3(2.5gbps)
@@ -5123,6 +5129,7 @@ _dhdpcie_download_firmware(struct dhd_bus *bus)
 		if ((bcmerror = dhdpcie_download_code_file(bus, bus->fw_path))) {
 			DHD_ERROR(("%s:%d dongle image file download failed\n", __FUNCTION__,
 				__LINE__));
+			bcmerror = BCME_NORESOURCE;
 			goto err;
 		} else {
 			embed = FALSE;
@@ -5370,6 +5377,17 @@ dhdpcie_chk_cmnbp_status_indirect(dhd_bus_t *bus)
 	uint32 idx = 0, core_addr = 0;
 	uint buscorerev = bus->sih->buscorerev;
 
+	if (CHIPTYPE(bus->sih->socitype) != SOCI_NCI) {
+		/* Check the common backplane status */
+		intstatus = si_corereg(bus->sih, bus->sih->buscoreidx, bus->pcie_mailbox_int, 0, 0);
+		if (intstatus == (uint32) -1) {
+			DHD_ERROR(("%s: common backplane is down, intstatus:0x%x\n",
+				__FUNCTION__, intstatus));
+			return BCME_NOTUP;
+		}
+		return BCME_OK;
+	}
+
 	offset = PCIMailBoxInt(buscorerev);
 	idx = si_findcoreidx(bus->sih, PCIE2_CORE_ID, 0);
 	core_addr = si_get_coreaddr(bus->sih, idx);
@@ -5464,13 +5482,14 @@ dhdpcie_get_link_state(dhd_bus_t *bus)
 		bpaddr = core_addr + ARMCA7_WAR_REG_OFF;
 		if (si_bpind_access(bus->sih, 0, bpaddr, (int32 *)&val,
 			TRUE, CC_BPIND_ACCESS_POLL_TMO_US) == BCME_OK) {
-			if (val != ARMCA7_WAR_REG_VAL) {
+			if (val == (uint32)-1) {
 				link_state = DHD_PCIE_WLAN_BP_DOWN;
-				DHD_PRINT(("%s: wlan backplane is down \n",
-					__FUNCTION__));
+				DHD_PRINT(("%s: wlan backplane is down ARMCA7_WAR_REG=0x%x \n",
+					__FUNCTION__, val));
 			}
 		} else {
 			DHD_ERROR(("%s: Failed to read armca7 reg !\n",	__FUNCTION__));
+			link_state = DHD_PCIE_WLAN_BP_DOWN;
 			goto exit;
 		}
 	} else {
@@ -5534,16 +5553,10 @@ dhd_validate_pcie_link_cbp_wlbp(dhd_bus_t *bus)
 		dhd_bus_dump_dar_registers(bus);
 #if defined(DHD_FW_COREDUMP)
 #ifdef DHD_SSSR_DUMP
-#ifdef OEM_ANDROID
 		DHD_PRINT(("%s : Set collect_sssr\n", __FUNCTION__));
 		bus->dhd->collect_sssr = TRUE;
-#endif /* OEM_ANDROID */
+		dhdpcie_set_collect_fis(bus);
 #endif /* DHD_SSSR_DUMP */
-		/* save core dump or write to a file */
-		if (bus->dhd->memdump_enabled) {
-			bus->dhd->memdump_type = DUMP_TYPE_READ_SHM_FAIL;
-			dhdpcie_mem_dump(bus);
-		}
 #endif /* DHD_FW_COREDUMP */
 	}
 	return;
@@ -5917,7 +5930,7 @@ dhdpcie_read_dnglbp(dhd_bus_t *bus, int src, int src_size, uint8 *obuf)
 #ifdef DHD_DEBUG_UART
 			bus->dhd->memdump_success = FALSE;
 #endif	/* DHD_DEBUG_UART */
-			break;
+			goto exit;
 		}
 		DHD_TRACE(("."));
 
@@ -5938,7 +5951,7 @@ dhdpcie_read_dnglbp(dhd_bus_t *bus, int src, int src_size, uint8 *obuf)
 	} else {
 		DHD_ERROR(("%s: Last word is 0x%x\n", __FUNCTION__, *sharea_addr));
 	}
-
+exit:
 	return ret;
 }
 
@@ -6224,6 +6237,23 @@ dhdpcie_mem_dump(dhd_bus_t *bus)
 		goto exit;
 	}
 
+	if (bus->link_state != DHD_PCIE_ALL_GOOD) {
+		DHD_ERROR(("%s: Pcie link state(%d) not good\n",
+			__FUNCTION__, bus->link_state));
+#ifdef DHD_SSSR_DUMP
+		if (bus->dhd->collect_fis) {
+			DHD_PRINT(("FIS is set, collect it in memdump work\n"));
+			ret = BCME_OK;
+			goto sched_memdump;
+		} else
+#endif /* DHD_SSSR_DUMP */
+		{
+			DHD_ERROR(("%s: skip memdump\n", __FUNCTION__));
+			ret = BCME_ERROR;
+			goto exit;
+		}
+	}
+
 	/* Induce DB7 trap for below non-trap cases */
 	switch (dhdp->memdump_type) {
 		case DUMP_TYPE_RESUMED_ON_TIMEOUT:
@@ -6294,13 +6324,7 @@ dhdpcie_mem_dump(dhd_bus_t *bus)
 					/* For android collect FIS dumps */
 #ifdef DHD_SSSR_DUMP
 					dhdp->collect_sssr = TRUE;
-#if defined(BOARD_HIKEY) || defined(CONFIG_X86)
-					if (CHIPTYPE(bus->sih->socitype) == SOCI_NCI) {
-						DHD_PRINT(("%s : Collect FIS dumps\n",
-							__FUNCTION__));
-						dhdp->fis_enab_no_db7ack = TRUE;
-					}
-#endif /* BOARD_HIKEY || CONFIG_X86 */
+					dhdpcie_set_collect_fis(bus);
 #endif /* DHD_SSSR_DUMP */
 					if (timeout) {
 						collect_cbaon_dmps = TRUE;
@@ -6368,7 +6392,7 @@ dhdpcie_mem_dump(dhd_bus_t *bus)
 	 * collect FIS - this will have arm pc and nci wrapper regs anyway
 	 */
 #ifdef DHD_SSSR_DUMP
-	if (timeout && !dhdp->fis_enab_no_db7ack) {
+	if (timeout && !dhdp->collect_fis) {
 #else
 	if (timeout) {
 #endif /* DHD_SSSR_DUMP */
@@ -6389,6 +6413,10 @@ dhdpcie_mem_dump(dhd_bus_t *bus)
 		dhd_schedule_pktlog_dump(dhdp);
 #endif /* DHD_PKT_LOGGING && DHD_DUMP_FILE_WRITE_FROM_KERNEL */
 	}
+
+#ifdef DHD_SSSR_DUMP
+sched_memdump:
+#endif /* DHD_SSSR_DUMP */
 	dhd_schedule_memdump(dhdp, dhdp->soc_ram, dhdp->soc_ram_length);
 	/* buf, actually soc_ram free handled in dhd_{free,clear} */
 
@@ -7841,6 +7869,7 @@ dhd_bus_iovar_op(dhd_pub_t *dhdp, const char *name,
 	int bcmerror = BCME_UNSUPPORTED;
 	uint val_size;
 	uint32 actionid;
+	ulong flags;
 
 	DHD_TRACE(("%s: Enter\n", __FUNCTION__));
 
@@ -7857,6 +7886,14 @@ dhd_bus_iovar_op(dhd_pub_t *dhdp, const char *name,
 	ASSERT(!set || (!params && !plen));
 	if (!(!set || (!params && !plen)))
 		return BCME_BADARG;
+
+	DHD_GENERAL_LOCK(dhdp, flags);
+	if (DHD_BUS_BUSY_CHECK_IN_SSSR(dhdp)) {
+		DHD_ERROR_RLMT(("%s: SSSR in progress, abort!!\n", __FUNCTION__));
+		DHD_GENERAL_UNLOCK(dhdp, flags);
+		return BCME_BUSY;
+	}
+	DHD_GENERAL_UNLOCK(dhdp, flags);
 
 	DHD_INFO(("%s: %s %s, len %d plen %d\n", __FUNCTION__,
 	         name, (set ? "set" : "get"), len, plen));
@@ -8658,9 +8695,6 @@ dhd_bus_devreset(dhd_pub_t *dhdp, uint8 flag)
 	int bcmerror = 0;
 	unsigned long flags;
 	int retry = POWERUP_MAX_RETRY;
-#ifdef OEM_ANDROID
-	uint16 chipid = 0;
-#endif /* OEM_ANDROID */
 
 	if (flag == TRUE) { /* Turn off WLAN */
 		/* Removing Power */
@@ -8673,17 +8707,7 @@ dhd_bus_devreset(dhd_pub_t *dhdp, uint8 flag)
 		dhdpcie_advertise_bus_cleanup(bus->dhd);
 
 #ifdef OEM_ANDROID
-		/*
-		 * This will be enabled from phone platforms to
-		 * reset (FLR) dongle during Wifi OFF (currently only for 4398).
-		 */
-		chipid = dhd_get_chipid(bus);
-		if (BCM4397_CHIP(chipid)) {
-			dhdpcie_dongle_reset(bus);
-		}  else {
-			DHD_ERROR(("%s: chip 0x%x does not need FLR during OFF, skip.\n",
-				__FUNCTION__, chipid));
-		}
+		dhdpcie_dongle_reset(bus);
 #endif /* OEM_ANDROID */
 
 		if (bus->dhd->busstate != DHD_BUS_DOWN) {
@@ -11279,13 +11303,7 @@ dhdpcie_bus_suspend(struct dhd_bus *bus, bool state)
 				d3_read_retry++;
 			}
 		}
-#else /* DHD_PCIE_NATIVE_RUNTIMEPM */
-		/*
-		 * Disable L1ss on EP and RC side before doing D3
-		 */
-		DHD_PRINT(("%s: disable L1SS during suspend, before D3 inform\n", __func__));
-		dhd_plat_l1ss_ctrl(0);
-
+#else
 		DHD_OS_WAKE_LOCK_WAIVE(bus->dhd);
 #ifdef DHD_TIMESYNC
 		/* disable time sync mechanism, if configed */
@@ -11310,7 +11328,6 @@ dhdpcie_bus_suspend(struct dhd_bus *bus, bool state)
 			DHD_BUS_INB_DW_UNLOCK(bus->inb_lock, flags);
 			DHD_ERROR(("Waiting for DS-Exit, abort suspend\n"));
 			rc = BCME_ERROR;
-			dhd_plat_l1ss_ctrl(1);
 			goto fail;
 		}
 		DHD_BUS_INB_DW_UNLOCK(bus->inb_lock, flags);
@@ -11378,17 +11395,20 @@ dhdpcie_bus_suspend(struct dhd_bus *bus, bool state)
 		} /* bus->wait_for_d3_ack was 0 */
 #endif /* DHD_RECOVER_TIMEOUT */
 
-#ifdef DHD_TREAT_D3ACKTO_AS_LINKDWN
 		if ((bus->wait_for_d3_ack == 0) && (timeleft == 0)) {
+			/* dump deep-sleep trace */
+			dhd_dump_ds_trace_console(bus->dhd);
+#ifdef DHD_TREAT_D3ACKTO_AS_LINKDWN
+			dhd_plat_pcie_skip_config_set(TRUE);
 			DHD_ERROR(("%s: Treating D3 ack timeout during"
 				" suspend-resume as PCIe linkdown !\n", __FUNCTION__));
-			exynos_pcie_d3_ack_timeout_set(1);
 			bus->is_linkdown = 1;
 			bus->d3ackto_as_linkdwn_cnt++;
 			bus->dhd->hang_reason = HANG_REASON_PCIE_LINK_DOWN_RC_DETECT;
+
 			dhd_os_send_hang_message(bus->dhd);
-		}
 #endif /* DHD_TREAT_D3ACKTO_AS_LINKDWN */
+		}
 
 		DHD_OS_WAKE_LOCK_RESTORE(bus->dhd);
 #endif /* DHD_PCIE_NATIVE_RUNTIMEPM */
@@ -11411,8 +11431,6 @@ dhdpcie_bus_suspend(struct dhd_bus *bus, bool state)
 			if (active) {
 				DHD_ERROR(("%s():Suspend failed because of wakelock"
 					"restoring Dongle to D0\n", __FUNCTION__));
-
-				dhd_plat_l1ss_ctrl(1);
 
 				if (bus->dhd->dhd_watchdog_ms_backup) {
 					DHD_PRINT(("%s: Enabling wdtick due to wakelock active\n",
@@ -18967,10 +18985,10 @@ dhd_dump_bus_ds_trace(dhd_bus_t *bus, struct bcmstrbuf *strbuf)
 	}
 	bcm_bprintf(strbuf, "---- DS TRACE ------\n");
 #ifdef PCIE_INB_DW
-	bcm_bprintf(strbuf, "%s\t\t%s\t%-30s\t\t%s\t\t%s\n",
+	bcm_bprintf(strbuf, "%s %13s %33s %23s %5s\n",
 		"Timestamp us", "Dir", "Value", "Inband-State", "Context");
 	for (i = 0; i < dumpsz; i ++) {
-		bcm_bprintf(strbuf, "%llu\t%s\t%-30s\t\t%s\t%s\n",
+		bcm_bprintf(strbuf, "%llu %13s %33s %23s %5s\n",
 		bus->ds_trace[i].timestamp,
 		bus->ds_trace[i].d2h ? "D2H":"H2D",
 		dhd_convert_dsval(bus->ds_trace[i].dsval, bus->ds_trace[i].d2h),
@@ -18987,6 +19005,19 @@ dhd_dump_bus_ds_trace(dhd_bus_t *bus, struct bcmstrbuf *strbuf)
 	}
 #endif /* PCIE_INB_DW */
 	bcm_bprintf(strbuf, "--------------------------\n");
+}
+
+void
+dhd_dump_ds_trace_console(dhd_pub_t *dhdp)
+{
+	struct bcmstrbuf b;
+	struct bcmstrbuf *strbuf = &b;
+
+	bzero(dhdp->concise_dbg_buf, CONCISE_DUMP_BUFLEN);
+	bcm_binit(strbuf, (char *)dhdp->concise_dbg_buf, CONCISE_DUMP_BUFLEN);
+	bcm_bprintf_bypass = TRUE;
+	dhd_dump_bus_ds_trace(dhdp->bus, strbuf);
+	bcm_bprintf_bypass = FALSE;
 }
 
 void
@@ -20545,36 +20576,62 @@ dhdpcie_dump_oobr(dhd_pub_t *dhd, uint core_bmap, uint coreunit_bmap)
 	si_setcore(sih, curcore, 0);
 }
 
+bool
+dhd_bus_cto_triggered(dhd_pub_t *dhd)
+{
+	return dhd->bus->cto_triggered;
+}
+
 int
 dhdpcie_sssr_dump(dhd_pub_t *dhd)
 {
 	uint32 powerctrl_val = 0, pwrctrl = 0;
 	uint32 pwrreq_val = 0;
-	si_t *sih = dhd->bus->sih;
+	dhd_bus_t *bus = dhd->bus;
+	si_t *sih = bus->sih;
 	uint core_bmap = 0, coreunit_bmap = 0;
 	uint32 old_max_resmask = 0, min_resmask = 0, val = 0;
 	bool saqm_isup = FALSE;
+	ulong flags;
+	int ret = BCME_OK;
+
+	DHD_GENERAL_LOCK(bus->dhd, flags);
+	DHD_BUS_BUSY_SET_IN_SSSR(bus->dhd);
+	DHD_GENERAL_UNLOCK(bus->dhd, flags);
 
 	if (!dhd->sssr_inited) {
 		DHD_ERROR(("%s: SSSR not inited\n", __FUNCTION__));
-		return BCME_ERROR;
+		ret = BCME_ERROR;
+		goto exit;
 	}
 
 	if (dhd->bus->is_linkdown) {
 		DHD_ERROR(("%s: PCIe link is down\n", __FUNCTION__));
-		return BCME_ERROR;
+		ret = BCME_ERROR;
+		goto exit;
 	}
 
 	if (dhd->bus->cto_triggered) {
 		DHD_ERROR(("%s: CTO Triggered\n", __FUNCTION__));
-		return BCME_ERROR;
+		ret = BCME_ERROR;
+		goto exit;
 	}
 
 	if (dhdpcie_validate_gci_chip_intstatus(dhd) != BCME_OK) {
 		DHD_ERROR(("%s: ## Invalid GCI Chip intstatus, Abort SSSR ##\n",
 			__FUNCTION__));
-		return BCME_ERROR;
+		ret = BCME_ERROR;
+		goto exit;
 	}
+
+	bus->link_state = dhdpcie_get_link_state(bus);
+	if (bus->link_state != DHD_PCIE_ALL_GOOD) {
+		DHD_ERROR(("%s: PCIe Link is not good! link_state=%u, Abort\n",
+			__FUNCTION__, bus->link_state));
+		ret = BCME_ERROR;
+		goto exit;
+	}
+
 	DHD_PRINT(("%s: Before WL down (powerctl: pcie:0x%x chipc:0x%x) "
 		"PMU rctl:0x%x res_state:0x%x\n", __FUNCTION__,
 		si_corereg(sih, sih->buscoreidx,
@@ -20591,7 +20648,8 @@ dhdpcie_sssr_dump(dhd_pub_t *dhd)
 	DHD_PRINT(("%s: Collecting Dump before SR\n", __FUNCTION__));
 	if (dhdpcie_sssr_dump_get_before_sr(dhd) != BCME_OK) {
 		DHD_ERROR(("%s: dhdpcie_sssr_dump_get_before_sr failed\n", __FUNCTION__));
-		return BCME_ERROR;
+		ret = BCME_ERROR;
+		goto exit;
 	}
 #endif /* DHD_SSSR_DUMP_BEFORE_SR */
 
@@ -20639,6 +20697,18 @@ dhdpcie_sssr_dump(dhd_pub_t *dhd)
 		PMU_REG(sih, RsrcState, 0, 0), old_max_resmask, min_resmask,
 		dhd->sssr_reg_info->rev5.pmu_regs.base_regs.sssr_max_res_mask,
 		PMU_REG(sih, MaxResourceMask, 0, 0)));
+
+	/* again check if some regs are read as 0xffffs to avoid getting
+	 * sssr from a bad pcie link
+	 */
+	if (pwrctrl == (uint32)-1) {
+		DHD_ERROR(("%s: PCIe Link after WL down is not good! pwrctrl=%x, Abort\n",
+			__FUNCTION__, pwrctrl));
+		bus->link_state = DHD_PCIE_COMMON_BP_DOWN;
+		bus->is_linkdown = TRUE;
+		ret = BCME_ERROR;
+		goto exit;
+	}
 
 	if (dhd->sssr_reg_info->rev2.version >= SSSR_REG_INFO_VER_5) {
 		dhd_sbreg_op(dhd, dhd->sssr_reg_info->rev5.pmu_regs.base_regs.pmu_max_res_mask,
@@ -20730,7 +20800,8 @@ dhdpcie_sssr_dump(dhd_pub_t *dhd)
 	DHD_PRINT(("%s: Collecting Dump after SR\n", __FUNCTION__));
 	if (dhdpcie_sssr_dump_get_after_sr(dhd) != BCME_OK) {
 		DHD_ERROR(("%s: dhdpcie_sssr_dump_get_after_sr failed\n", __FUNCTION__));
-		return BCME_ERROR;
+		ret = BCME_ERROR;
+		goto exit;
 	}
 	dhd->sssr_dump_collected = TRUE;
 
@@ -20742,7 +20813,12 @@ dhdpcie_sssr_dump(dhd_pub_t *dhd)
 	dhd_write_sssr_dump(dhd, SSSR_DUMP_MODE_SSSR);
 	DHD_PRINT(("%s: sssr dump done\n", __FUNCTION__));
 
-	return BCME_OK;
+exit:
+	DHD_GENERAL_LOCK(bus->dhd, flags);
+	DHD_BUS_BUSY_CLEAR_IN_SSSR(bus->dhd);
+	DHD_GENERAL_UNLOCK(bus->dhd, flags);
+
+	return ret;
 }
 
 #define PCIE_CFG_DSTATE_MASK		0x11u

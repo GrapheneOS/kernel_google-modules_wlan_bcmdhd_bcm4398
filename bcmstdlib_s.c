@@ -156,7 +156,11 @@ BCMPOSTTRAPFN(memcpy_s)(void *dest, size_t destsz, const void *src, size_t n)
 exit:
 	return err;
 }
+#endif /* !__STDC_WANT_SECURE_LIB__ && !(__STDC_LIB_EXT1__ && __STDC_WANT_LIB_EXT1__) */
 
+#if (!defined(__STDC_WANT_SECURE_LIB__) && \
+	!(defined(__STDC_LIB_EXT1__) && defined(__STDC_WANT_LIB_EXT1__))) || \
+	(defined(__STDC_WANT_SECURE_LIB__) && defined(WIN32))
 /*
  * memset_s - secure memset
  * dest : pointer to the object to be set
@@ -191,7 +195,10 @@ BCMPOSTTRAPFN(memset_s)(void *dest, size_t destsz, int c, size_t n)
 exit:
 	return err;
 }
-#endif /* !__STDC_WANT_SECURE_LIB__ && !(__STDC_LIB_EXT1__ && __STDC_WANT_LIB_EXT1__) */
+
+#endif /* (!__STDC_WANT_SECURE_LIB__ && !(__STDC_LIB_EXT1__ && __STDC_WANT_LIB_EXT1__)) ||
+	  (__STDC_WANT_SECURE_LIB__ && WIN32)
+*/
 
 #if !defined(FREEBSD) && !defined(MACOSX) && !defined(BCM_USE_PLATFORM_STRLCPY)
 /**

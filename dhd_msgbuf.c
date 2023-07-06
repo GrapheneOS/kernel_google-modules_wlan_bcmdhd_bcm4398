@@ -52,6 +52,7 @@
 #include <pcie_core.h>
 #include <bcmpcie.h>
 #include <dhd_pcie.h>
+#include <dhd_plat.h>
 #ifdef DHD_TIMESYNC
 #include <dhd_timesync.h>
 #endif /* DHD_TIMESYNC */
@@ -1282,7 +1283,6 @@ static void dhd_prot_h2d_sync_init(dhd_pub_t *dhd);
 void dhd_fill_cso_info(dhd_pub_t *dhd, void *pktbuf, void *txdesc, uint32 item_len);
 #endif
 
-extern void exynos_pcie_d3_ack_timeout_set(bool val);
 
 uint
 dhd_get_ring_size_from_version_array(uint cursize, uint* size_array, int version)
@@ -11640,6 +11640,7 @@ void
 dhd_msgbuf_iovar_timeout_dump(dhd_pub_t *dhd)
 {
 	uint32 intstatus;
+
 	if (dhd->is_sched_error) {
 		DHD_ERROR(("%s: ROT due to scheduling problem\n", __FUNCTION__));
 	}
@@ -11712,7 +11713,7 @@ dhd_msgbuf_wait_ioctl_cmplt(dhd_pub_t *dhd, uint32 len, void *buf)
 #ifdef DHD_TREAT_D3ACKTO_AS_LINKDWN
 	if ((prot->ioctl_received == 0) && (timeleft == 0)) {
 		DHD_ERROR(("%s: Treating IOVAR timeout as PCIe linkdown !\n", __FUNCTION__));
-		exynos_pcie_d3_ack_timeout_set(1);
+		dhd_plat_pcie_skip_config_set(TRUE);
 		dhd->bus->is_linkdown = 1;
 		dhd->bus->iovarto_as_linkdwn_cnt++;
 		dhd->hang_reason = HANG_REASON_PCIE_LINK_DOWN_RC_DETECT;
@@ -11723,6 +11724,8 @@ dhd_msgbuf_wait_ioctl_cmplt(dhd_pub_t *dhd, uint32 len, void *buf)
 	if (timeleft == 0 && (!dhd->dongle_trap_data) && (!dhd_query_bus_erros(dhd))) {
 		/* Dump iovar name */
 		dhd_msgbuf_dump_iovar_name(dhd);
+		/* dump deep-sleep trace */
+		dhd_dump_ds_trace_console(dhd);
 		dhd_validate_pcie_link_cbp_wlbp(dhd->bus);
 		if (dhd->bus->link_state != DHD_PCIE_ALL_GOOD) {
 			DHD_ERROR(("%s: bus->link_state:%d\n",
@@ -17800,7 +17803,9 @@ dhd_prot_smmu_fault_dump(dhd_pub_t *dhdp)
 #ifdef DHD_FW_COREDUMP
 	dhdp->memdump_type = DUMP_TYPE_SMMU_FAULT;
 #ifdef DNGL_AXI_ERROR_LOGGING
-	dhdp->memdump_enabled = DUMP_MEMFILE;
+	if (dhdp->memdump_enabled == DUMP_DISABLED) {
+		dhdp->memdump_enabled = DUMP_MEMFILE;
+	}
 	dhd_bus_get_mem_dump(dhdp);
 #else
 	dhdp->memdump_enabled = DUMP_MEMONLY;

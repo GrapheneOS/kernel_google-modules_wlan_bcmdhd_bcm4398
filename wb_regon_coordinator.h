@@ -68,6 +68,7 @@ typedef struct wbrc_ext_msg {
 #define WBRC_MSG_BUF_MAXLEN (sizeof(wbrc_ext_msg_t) + (WBRC_BT_FW_MAXSIZE))
 
 #define WBRC_WAIT_TIMEOUT 6000u /* 6s */
+#define WBRC_WAIT_BT_RESET_ACK_TIMEOUT 12000u /* 12s */
 
 #define WBRC_HEADER_DIR_WBRC2BT 0x01u
 #define WBRC_HEADER_DIR_BT2WBRC 0x02u

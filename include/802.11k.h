@@ -231,12 +231,14 @@ typedef struct dot11_rmrep_bcn dot11_rmrep_bcn_t;
 #define DOT11_RMREQ_BCN_TABLE	2
 
 /* Sub-element IDs for Beacon Request */
-#define DOT11_RMREQ_BCN_SSID_ID 0
-#define DOT11_RMREQ_BCN_REPINFO_ID  1
-#define DOT11_RMREQ_BCN_REPDET_ID   2
-#define DOT11_RMREQ_BCN_REQUEST_ID  10
-#define DOT11_RMREQ_BCN_APCHREP_ID  DOT11_MNG_AP_CHREP_ID
+#define DOT11_RMREQ_BCN_SSID_ID		0
+#define DOT11_RMREQ_BCN_REPINFO_ID	1
+#define DOT11_RMREQ_BCN_REPDET_ID	2
+#define DOT11_RMREQ_BCN_REQUEST_ID	10
+#define DOT11_RMREQ_BCN_APCHREP_ID	DOT11_MNG_AP_CHREP_ID
+#define DOT11_RMREQ_BCN_WIDE_BWCS_ID	163u	/* Wide Bandwidth Channel Switch */
 #define DOT11_RMREQ_BCN_LAST_RPT_IND_REQ_ID 164
+#define DOT11_RMREQ_BCN_BW_IND_ID	165u	/* Bandwidth Indication P802.11be D3.0 */
 
 /* Reporting Detail element definition */
 #define DOT11_RMREQ_BCN_REPDET_FIXED	0	/* Fixed length fields only */
@@ -259,9 +261,11 @@ typedef struct dot11_rmrep_last_bcn_rpt_ind_req dot11_rmrep_last_bcn_rpt_ind_req
 
 /* Sub-element IDs for Beacon Report */
 #define DOT11_RMREP_BCN_FRM_BODY	1
-#define DOT11_RMREP_BCN_FRM_BODY_FRAG_ID	2
-#define DOT11_RMREP_BCN_LAST_RPT_IND 164
-#define DOT11_RMREP_BCN_FRM_BODY_LEN_MAX	224 /* 802.11k-2008 7.3.2.22.6 */
+#define DOT11_RMREP_BCN_FRM_BODY_FRAG_ID 2
+#define DOT11_RMREP_BCN_LAST_RPT_IND	164
+#define DOT11_RMREP_BCN_BW_IND_ID	165u	/* Bandwidth Indication P802.11be D3.0 */
+
+#define DOT11_RMREP_BCN_FRM_BODY_LEN_MAX 224	/* 802.11k-2008 7.3.2.22.6 */
 
 /* Refer IEEE P802.11-REVmd/D1.0 9.4.2.21.7 Beacon report */
 BWL_PRE_PACKED_STRUCT struct dot11_rmrep_bcn_frm_body_fragmt_id {
@@ -270,7 +274,6 @@ BWL_PRE_PACKED_STRUCT struct dot11_rmrep_bcn_frm_body_fragmt_id {
 	/* More fragments(B15), fragment Id(B8-B14), Bcn rpt instance ID (B0 - B7) */
 	uint16 frag_info_rpt_id;
 } BWL_POST_PACKED_STRUCT;
-
 typedef struct dot11_rmrep_bcn_frm_body_fragmt_id dot11_rmrep_bcn_frm_body_fragmt_id_t;
 
 BWL_PRE_PACKED_STRUCT struct dot11_rmrep_bcn_frm_body_frag_id {
@@ -279,8 +282,17 @@ BWL_PRE_PACKED_STRUCT struct dot11_rmrep_bcn_frm_body_frag_id {
 	uint8 bcn_rpt_id;               /* Bcn rpt instance ID */
 	uint8 frag_info;                /* fragment Id(7 bits) | More fragments(1 bit) */
 } BWL_POST_PACKED_STRUCT;
-
 typedef struct dot11_rmrep_bcn_frm_body_frag_id dot11_rmrep_bcn_frm_body_frag_id_t;
+
+/* Bandwidth Indication subelement in Beacon Request/Report P802.11be D3.0 */
+typedef BWL_PRE_PACKED_STRUCT struct dot11_rm_bw_ind_se {
+	uint8	id;
+	uint8	len;
+	uint8	bw_ind_parms;		/* Bandwidth Indication Parameters */
+	uint8	bw_ind_info[];		/* Bandwidth Indication Information */
+	/* see EHT Operation Information field */
+} BWL_POST_PACKED_STRUCT dot11_rm_bw_ind_se_t;
+
 #define DOT11_RMREP_BCNRPT_FRAG_ID_DATA_LEN  2u
 #define DOT11_RMREP_BCNRPT_FRAG_ID_SE_LEN sizeof(dot11_rmrep_bcn_frm_body_frag_id_t)
 #define DOT11_RMREP_BCNRPT_FRAG_ID_NUM_SHIFT  1u
