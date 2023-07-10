@@ -1191,7 +1191,7 @@ dhd_dbg_send_evtlog_to_ring(prcd_event_log_hdr_t *plog_hdr,
 }
 #endif /* EWP_BCM_TRACE || EWP_RTT_LOGGING || EWP_ECNTRS_LOGGING || EWP_CX_TIMELINE */
 
-static void
+static int
 dhd_dbg_logtrace_process_payload(dhd_pub_t *dhdp, char *data, uint datalen, dll_t *list_head,
 	bool cx_evntlog)
 {
@@ -1200,6 +1200,7 @@ dhd_dbg_logtrace_process_payload(dhd_pub_t *dhdp, char *data, uint datalen, dll_
 	event_log_hdr_t *log_hdr;
 	prcd_event_log_hdr_t prcd_log_hdr;
 	loglist_item_t *log_item;
+	int ret = BCME_OK;
 
 	/* start parsing from the tail of packet
 	 * Sameple format of a meessage
@@ -1220,6 +1221,15 @@ dhd_dbg_logtrace_process_payload(dhd_pub_t *dhdp, char *data, uint datalen, dll_
 		if (!dhd_dbg_process_event_log_hdr(log_hdr, &prcd_log_hdr)) {
 			DHD_ERROR(("%s: Error while parsing event log header\n",
 				__FUNCTION__));
+			/* if the log hdr itself is improper, should not
+			 * trust rest of the contents of the header. Hence
+			 * proceeding to the next event log using the info
+			 * in this log hdr can prove to be dangerous.
+			 * So better to return rather than process the rest of
+			 * the event logs in the buffer.
+			 */
+			ret = BCME_ERROR;
+			break;
 		}
 
 		/* skip zero padding at end of frame */
@@ -1234,6 +1244,7 @@ dhd_dbg_logtrace_process_payload(dhd_pub_t *dhdp, char *data, uint datalen, dll_
 		 * whole payload of 256 words
 		 */
 		if (prcd_log_hdr.count == 0) {
+			ret = BCME_ERROR;
 			break;
 		}
 		/* Both tag_stats and proxd are binary payloads so skip
@@ -1245,6 +1256,7 @@ dhd_dbg_logtrace_process_payload(dhd_pub_t *dhdp, char *data, uint datalen, dll_
 			(prcd_log_hdr.tag != EVENT_LOG_TAG_BCM_TRACE) &&
 			(!cx_evntlog || !prcd_log_hdr.binary_payload) &&
 			(prcd_log_hdr.count > MAX_NO_OF_ARG)) {
+			ret = BCME_ERROR;
 			break;
 		}
 
@@ -1252,6 +1264,7 @@ dhd_dbg_logtrace_process_payload(dhd_pub_t *dhdp, char *data, uint datalen, dll_
 			DATA_UNIT_FOR_LOG_CNT;
 		/* log data should not cross the event data boundary */
 		if ((uint32)((char *)log_hdr - data) < log_pyld_len) {
+			ret = BCME_ERROR;
 			break;
 		}
 		/* skip 4 bytes time stamp packet */
@@ -1263,6 +1276,7 @@ dhd_dbg_logtrace_process_payload(dhd_pub_t *dhdp, char *data, uint datalen, dll_
 		if (!(log_item = MALLOC(dhdp->osh, sizeof(*log_item)))) {
 			DHD_ERROR(("%s allocating log list item failed\n",
 				__FUNCTION__));
+			ret = BCME_ERROR;
 			break;
 		}
 
@@ -1271,6 +1285,8 @@ dhd_dbg_logtrace_process_payload(dhd_pub_t *dhdp, char *data, uint datalen, dll_
 		dll_insert(&log_item->list, list_head);
 		datalen -= (log_pyld_len + log_hdr_len);
 	}
+
+	return ret;
 }
 
 void
@@ -1427,8 +1443,11 @@ dhd_dbg_msgtrace_log_parser(dhd_pub_t *dhdp, void *event_data,
 	cx_evntlog = FALSE;
 #endif /* COEX_CPU */
 
-	dhd_dbg_logtrace_process_payload(dhdp, data, datalen, &list_head, cx_evntlog);
 	dll_inited = TRUE;
+	if (dhd_dbg_logtrace_process_payload(dhdp, data, datalen, &list_head, cx_evntlog)
+		!= BCME_OK) {
+		goto exit;
+	}
 
 	while (!dll_empty(&list_head)) {
 		msg_processed = FALSE;

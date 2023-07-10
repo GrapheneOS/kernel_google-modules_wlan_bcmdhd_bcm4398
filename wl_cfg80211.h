@@ -1018,6 +1018,7 @@ enum wl_status {
 	WL_STATUS_CONNECTED,
 	WL_STATUS_DISCONNECTING,
 	WL_STATUS_AP_CREATING,
+	WL_STATUS_AP_BSS_UP_IN_PROG,
 	WL_STATUS_AP_ROLE_UPGRADED,
 	WL_STATUS_AP_CREATED,
 	/* whole sending action frame procedure:
@@ -1050,7 +1051,8 @@ enum wl_status {
 	WL_STATUS_NESTED_CONNECT,
 	WL_STATUS_CFG80211_CONNECT,
 	WL_STATUS_AUTHORIZED,
-	WL_STATUS_ROAMING
+	WL_STATUS_ROAMING,
+	WL_STATUS_CSA_ACTIVE
 };
 
 #ifdef WL_MLO
@@ -1098,6 +1100,12 @@ enum wl_mode {
 	WL_MODE_MAX
 };
 
+typedef enum wl_prof_assoc_status {
+	WL_PROF_ASSOC_SUCCESS,
+	WL_PROF_ASSOC_FAIL,
+	WL_PROF_ASSOC_4WAY_FAIL
+} wl_prof_assoc_status_t;
+
 /* driver profile list */
 enum wl_prof_list {
 	WL_PROF_MODE,
@@ -1110,7 +1118,8 @@ enum wl_prof_list {
 	WL_PROF_ACT,
 	WL_PROF_BEACONINT,
 	WL_PROF_DTIMPERIOD,
-	WL_PROF_LATEST_BSSID
+	WL_PROF_LATEST_BSSID,
+	WL_PROF_ASSOC_STATUS
 };
 
 /* donlge escan state */
@@ -1293,6 +1302,7 @@ struct wl_profile {
 	u32 mode;
 	s32 band;
 	u32 channel;
+	u32 assoc_status;
 	struct wlc_ssid ssid;
 	struct wl_security sec;
 	struct wl_ibss ibss;
@@ -1381,6 +1391,19 @@ typedef struct wl_mlo_config {
 	wl_mlo_ap_cfg_t ap;
 } wl_mlo_config_t;
 #endif /* WL_MLO */
+
+#define MAX_20MHZ_CHANNELS   16u
+
+#define MAX_SAP_BW_6G	WL_CHANSPEC_BW_160
+#define MAX_SAP_BW_5G	WL_CHANSPEC_BW_80
+#define MAX_SAP_BW_2G	WL_CHANSPEC_BW_20
+
+typedef struct wl_chan_info {
+	chanspec_t chspec;
+	u32 chaninfo;
+	bool is_primary;
+	u8 array[MAX_20MHZ_CHANNELS];
+} wl_chan_info_t;
 
 struct net_info {
 	struct net_device *ndev;

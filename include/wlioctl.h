@@ -4794,7 +4794,6 @@ enum wl_sflash_subcmd_id {
 	((uint32)OFFSETOF(wl_cnt_ge80_txfunfl_v1_t, txfunfl))
 #define WL_CNT_REV80_MCST_TXFUNFl_STRUCT_SZ(fcnt) \
 	(WL_CNT_REV80_MCST_TXFUNFlW_STRUCT_FIXED_SZ + (fcnt * sizeof(uint32)))
-#define WL_CNT_REV80_MCST_TXFUNFlW_STRUCT_SZ (WL_CNT_REV80_MCST_TXFUNFl_STRUCT_SZ(NFIFO_EXT))
 #define WL_CNT_REV80_RXERR_MCST_STRUCT_SZ ((uint32)sizeof(wl_cnt_ge80_rxerr_mcst_v1_t))
 
 #define WL_CNT_MCXST_STRUCT_SZ ((uint32)sizeof(wl_cnt_ge64mcxst_v1_t))
@@ -5403,6 +5402,39 @@ typedef struct wl_he_omi_cnt_wlc_v1 {
 	uint32 he_omitx_dlmursdrec;	/* count for Resound recommendation change req */
 	uint32 he_omitx_dlmursdrec_ack;	/* count for Resound recommendation req txed successfully */
 } wl_he_omi_cnt_wlc_v1_t;
+
+typedef struct wl_he_omi_cnt_v2 {
+	uint16 len;
+	uint8  link_idx;
+	uint8  PAD;
+	uint32 he_omitx_sched;          /* Count for total number of OMIs scheduled */
+	uint32 he_omitx_success;        /* Count for OMI Tx success */
+	uint32 he_omitx_retries;        /* Count for OMI retries as TxDone not set */
+	uint32 he_omitx_dur;            /* Accumulated duration of OMI completion time */
+	uint32 he_omitx_ulmucfg;        /* count for UL MU enable/disable change req */
+	uint32 he_omitx_ulmucfg_ack;    /* count for UL MU enable/disable req txed successfully */
+	uint32 he_omitx_txnsts;         /* count for Txnsts change req */
+	uint32 he_omitx_txnsts_ack;     /* count for Txnsts change req txed successfully */
+	uint32 he_omitx_rxnss;          /* count for Rxnss change req */
+	uint32 he_omitx_rxnss_ack;      /* count for Rxnss change req txed successfully */
+	uint32 he_omitx_bw;             /* count for BW change req */
+	uint32 he_omitx_bw_ack;         /* count for BW change req txed successfully */
+	uint32 he_omitx_ersudis;        /* count for ER SU enable/disable req */
+	uint32 he_omitx_ersudis_ack;    /* count for ER SU enable/disable req txed successfully */
+	uint32 he_omitx_dlmursdrec;	/* count for Resound recommendation change req */
+	uint32 he_omitx_dlmursdrec_ack;	/* count for Resound recommendation req txed successfully */
+} wl_he_omi_cnt_v2_t;
+
+/* he omi counters Version 2 */
+#define HE_OMI_COUNTERS_V2		(2u)
+typedef struct wl_he_omi_cnt_wlc_v2 {
+	uint16	version;
+	uint16	len;
+	uint8	num_links;	/* Number of links supported on slice */
+	uint8	pad[3];
+	/* Per ML Link OMI counters */
+	wl_he_omi_cnt_v2_t counters[];
+} wl_he_omi_cnt_wlc_v2_t;
 
 typedef struct wlc_dyn_bw_cnt_v1 {
 	uint32 dyn_bw_tx_rts20_cnt;
@@ -18858,7 +18890,7 @@ typedef struct bcnreq {
 	uint8 PAD[2];
 } bcnreq_t;
 
-#define WL_RRM_BCN_REQ_VER		1
+#define WL_RRM_BCN_REQ_VER	1
 typedef struct bcn_req {
 	uint8 version;
 	uint8 bcn_mode;
@@ -18873,6 +18905,26 @@ typedef struct bcn_req {
 	uint8 pad_2;
 	chanspec_list_t chspec_list;
 } bcn_req_t;
+
+#define WL_RRM_BCN_REQ_VER_2	2u
+struct wl_bcn_req_v2 {
+	uint8	version;		/* size to be compatible with older version */
+	uint8	pad1[1];
+	uint16	length;			/* length for fixed struct + variable chanspec list */
+	uint8	bcn_mode;
+	uint8	last_bcn_rpt_ind;	/* Last Beacon Report Indication */
+	uint8	bw_ind;			/* Bandwidth Indication */
+	uint8	pad2[1];
+	int32	dur;
+	int32	channel;
+	struct ether_addr da;
+	uint16	random_int;
+	wlc_ssid_t ssid;
+	uint16	reps;
+	uint8	req_elements;
+	uint8	pad3[1];
+	chanspec_list_t chspec_list;
+};
 
 typedef struct rrmreq {
 	struct ether_addr da;
@@ -26763,6 +26815,32 @@ typedef union sssr_reg_info {
 	sssr_reg_info_v4_t rev4;
 	sssr_reg_info_v5_t rev5;
 } sssr_reg_info_cmn_t;
+
+typedef struct sssr_header {
+	uint32 magic; /* should be 53535352 = 'SSSR' */
+	uint16 header_version; /* version number of this SSSR header */
+	uint16 sr_version; /* version of SR version. This is to differentiate changes in SR ASM. */
+	/*
+	 * Header length from the next field ?data_len? and upto the start of
+	 * binary_data[]. This is 20 bytes for version 0
+	 */
+	uint32 header_len;
+	uint32 data_len;  /* number of bytes in binary_data[] */
+	uint16 chipid;     /* chipid */
+	uint16 chiprev;    /* chiprev */
+	/*
+	 * For D11 MAC/sAQM cores, the coreid, coreunit &  WAR_signature in the dump belong
+	 * to respective cores. For the DIG SSSR dump these fields are extracted from the ARM core.
+	 */
+	uint16 coreid;
+	uint16 coreunit;
+
+	uint32 war_reg; /* Value of WAR register */
+	uint32 flags;	/* For future use */
+
+	uint8  binary_data[];
+} sssr_header_t;
+#define SSSR_HEADER_MAGIC 0x53535352u /* SSSR */
 
 /* ADaptive Power Save(ADPS) structure definition */
 #define WL_ADPS_IOV_MAJOR_VER	1

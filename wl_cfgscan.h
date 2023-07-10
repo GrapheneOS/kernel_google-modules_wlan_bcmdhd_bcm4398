@@ -58,8 +58,6 @@
 #define SCAN_PARAMS_VER_3    3u
 #define SCAN_PARAMS_VER_4    4u
 
-#define MAX_20MHZ_CHANNELS   16u
-
 /* SCAN_PARAMS V3 and V2 have same size. so use V3 with appriate version param */
 #define IS_SCAN_PARAMS_V3_V2(cfg) (((cfg->scan_params_ver == SCAN_PARAMS_VER_3) || \
 			(cfg->scan_params_ver == SCAN_PARAMS_VER_2)) ? TRUE : FALSE)

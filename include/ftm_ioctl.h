@@ -280,7 +280,8 @@ enum wl_ftm_event_type {
 	WL_FTM_EVENT_SESSION_READY		= 21,	/* ready for burst */
 	WL_FTM_EVENT_CSI_DUMP			= 22,	/* dump RAW CSI data for debug */
 	WL_FTM_EVENT_SESSION_STOPPING		= 23,
-	WL_FTM_EVENT_LMR_FRAME			= 24
+	WL_FTM_EVENT_LMR_FRAME			= 24,
+	WL_FTM_EVENT_TIMESTAMP_DUMP		= 25
 };
 typedef uint16 wl_ftm_event_type_t;
 
@@ -393,6 +394,7 @@ typedef enum {
 	WL_FTM_TLV_ID_AZ_RTT_RESULT_V1		= 524,	/* wl_ftm_az_rtt_result_v1_t */
 	WL_FTM_TLV_ID_AZ_COUNTERS_V1		= 525,	/* wl_ftm_az_counters_v1_t */
 	WL_FTM_TLV_ID_HAL_COUNTERS_V1		= 526,	/* wl_ftm_hal_counters_v1_t */
+	WL_FTM_TLV_ID_AZ_COUNTERS_V2		= 527,	/* wl_ftm_az_counters_v2_t */
 
 	/* debug tlvs can be added starting 1024 */
 	WL_FTM_TLV_ID_DEBUG_MASK		= 1024,
@@ -414,7 +416,8 @@ typedef enum {
 	WL_FTM_TLV_ID_CSI_DUMP			= 1037,	/* wl_ftm_csi_dump_t */
 	WL_FTM_TLV_ID_CSI_RANGING_PARAMS	= 1038,	/* wl_ftm_csi_ranging_params_t */
 	WL_FTM_TLV_ID_CSI_PROC_RESULT		= 1039,	/* wl_ftm_csi_proc_result_t */
-	WL_FTM_TLV_ID_CSI_PROC_RTT		= 1040	/* wl_ftm_csi_proc_rtt_t */
+	WL_FTM_TLV_ID_CSI_PROC_RTT		= 1040,	/* wl_ftm_csi_proc_rtt_t */
+	WL_FTM_TLV_ID_TIMESTAMP_DUMP_V1		= 1041	/* wl_ftm_timestamp_dump_t */
 } wl_ftm_tlv_types_t;
 
 enum wl_ftm_wait_reason {
@@ -665,6 +668,29 @@ typedef struct wl_ftm_az_counters_v1 {
 	uint32 rxrtfpsnd;	/* RX Ranging TF Passive Sounding */
 } wl_ftm_az_counters_v1_t;
 
+/* WL_FTM_TLV_ID_AZ_COUNTERS_V2
+ * 11az ranging counters
+ */
+typedef struct wl_ftm_az_counters_v2 {
+	uint32 active;		/* 11az measurement activation */
+	uint32 meas;		/* successful measurement */
+	uint32 timeout;		/* measurement timeout */
+	uint32 rtt;		/* rtt from measurement */
+	uint32 txndpa;		/* TX NDPA */
+	uint32 rxndpa;		/* RX NDPA */
+	uint32 txndp;		/* TX NDP */
+	uint32 rxndp;		/* RX NDP */
+	uint32 txlmr;		/* TX LMR */
+	uint32 rxlmr;		/* RX LMR */
+	uint32 rxrtfpoll;	/* RX Ranging TF Poll */
+	uint32 rxrtfsnd;	/* RX Ranging TF Sounding */
+	uint32 rxrtfssnd;	/* RX Ranging TF Secure Sounding */
+	uint32 rxrtfrpt;	/* RX Ranging TF Report */
+	uint32 rxrtfpsnd;	/* RX Ranging TF Passive Sounding */
+	uint32 ndpatxtmo;	/* NDPA TX timeout */
+	uint32 dtmismatch;	/* Dialog Token mismatch */
+} wl_ftm_az_counters_v2_t;
+
 /* WL_FTM_TLV_ID_HAL_COUNTERS_V1
  * ftm HAL counters
  */
@@ -697,5 +723,27 @@ typedef struct wl_ftm_hal_counters_v1 {
 	uint32 csifrm_bmfull;	/* BM overflow while receiving CSI frame */
 	uint32 csifrm_coll;	/* Collision happened while receiving CSI frame */
 } wl_ftm_hal_counters_v1_t;
+
+typedef struct wl_ftm_timestamps {
+	uint16 tx_id;	/* Dialog tocken of received FTM frame */
+	uint16 pad;
+	uint32 t1;	/* TOD at responder */
+	uint32 t2;	/* TOA at initiator */
+	uint32 t3;	/* TOD at initiator */
+	uint32 t4;	/* TOA at responder */
+} wl_ftm_timestamps_t;
+
+#define WL_FTM_TIMESTAMP_DUMP_VERSION_1	1
+
+typedef struct wl_ftm_timestamp_dump_v1 {
+	uint16 version;
+	uint16 len;
+	uint16 sid;				/* Session id */
+	uint16 type;				/* Session type (e.g mc, az) */
+	uint16 list_entries;			/* No of timestamp entries */
+	uint16 pad;
+	wl_ftm_timestamps_t timestamps_list[];	/* list of timestamps for each list entry */
+} wl_ftm_timestamp_dump_v1_t;
+
 
 #endif /* _ftm_ioctl_h */

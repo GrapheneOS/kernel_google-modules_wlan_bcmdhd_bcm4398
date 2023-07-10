@@ -215,7 +215,9 @@ extern s32 wl_cfg80211_del_beacon(struct wiphy *wiphy, struct net_device *dev);
 
 extern s32 wl_ap_start_ind(struct bcm_cfg80211 *cfg, bcm_struct_cfgdev *cfgdev,
 	const wl_event_msg_t *e, void *data);
-extern s32 wl_csa_complete_ind(struct bcm_cfg80211 *cfg, bcm_struct_cfgdev *cfgdev,
+extern s32 wl_cfgvif_csa_start_ind(struct bcm_cfg80211 *cfg, bcm_struct_cfgdev *cfgdev,
+	const wl_event_msg_t *e, void *data);
+extern s32 wl_cfgvif_csa_complete_ind(struct bcm_cfg80211 *cfg, bcm_struct_cfgdev *cfgdev,
 	const wl_event_msg_t *e, void *data);
 extern s32 wl_cfg80211_set_ap_role(struct bcm_cfg80211 *cfg, struct net_device *dev);
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 12, 0))
@@ -313,8 +315,14 @@ extern s32 wl_cfgvif_set_multi_link(struct bcm_cfg80211 *cfg, u8 enable);
 extern s32 wl_cfgvif_get_multilink_status(struct bcm_cfg80211 *cfg,
 		struct net_device *dev, u8 *status);
 bool wl_cfgvif_bssid_match_found(struct bcm_cfg80211 *cfg, struct wireless_dev *wdev, u8 *mac_addr);
-s32 wl_cfgvif_clone_bss_info(struct bcm_cfg80211 *cfg,
-	struct net_device *ndev, u8 *src_bssid, u8 *target_bssid);
+bool wl_cfgvif_prev_conn_fail(struct bcm_cfg80211 *cfg,
+	struct net_device *ndev, struct cfg80211_connect_params *sme);
 extern s32 wl_filter_restricted_subbands(struct bcm_cfg80211 *cfg, struct net_device *dev,
 	chanspec_t *cur_chspec);
+s32 wl_cfgvif_clone_bss_info(struct bcm_cfg80211 *cfg,
+	struct net_device *ndev, u8 *src_bssid, const u8 *target_bssid);
+extern bool wl_cfgvif_is_scc_valid(chanspec_t sta_chanspec,
+		chanspec_t chspec, wl_chan_info_t *wl_chaninfo);
+extern s32 wl_cfgvif_get_ml_scc_channel_array(struct bcm_cfg80211 *cfg,
+	wl_chan_info_t *wl_chaninfo);
 #endif /* _wl_cfgvif_h_ */

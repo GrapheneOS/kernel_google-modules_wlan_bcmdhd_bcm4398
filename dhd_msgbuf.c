@@ -11640,6 +11640,7 @@ void
 dhd_msgbuf_iovar_timeout_dump(dhd_pub_t *dhd)
 {
 	uint32 intstatus;
+
 	if (dhd->is_sched_error) {
 		DHD_ERROR(("%s: ROT due to scheduling problem\n", __FUNCTION__));
 	}
@@ -11723,6 +11724,8 @@ dhd_msgbuf_wait_ioctl_cmplt(dhd_pub_t *dhd, uint32 len, void *buf)
 	if (timeleft == 0 && (!dhd->dongle_trap_data) && (!dhd_query_bus_erros(dhd))) {
 		/* Dump iovar name */
 		dhd_msgbuf_dump_iovar_name(dhd);
+		/* dump deep-sleep trace */
+		dhd_dump_ds_trace_console(dhd);
 		dhd_validate_pcie_link_cbp_wlbp(dhd->bus);
 		if (dhd->bus->link_state != DHD_PCIE_ALL_GOOD) {
 			DHD_ERROR(("%s: bus->link_state:%d\n",
@@ -17800,7 +17803,9 @@ dhd_prot_smmu_fault_dump(dhd_pub_t *dhdp)
 #ifdef DHD_FW_COREDUMP
 	dhdp->memdump_type = DUMP_TYPE_SMMU_FAULT;
 #ifdef DNGL_AXI_ERROR_LOGGING
-	dhdp->memdump_enabled = DUMP_MEMFILE;
+	if (dhdp->memdump_enabled == DUMP_DISABLED) {
+		dhdp->memdump_enabled = DUMP_MEMFILE;
+	}
 	dhd_bus_get_mem_dump(dhdp);
 #else
 	dhdp->memdump_enabled = DUMP_MEMONLY;

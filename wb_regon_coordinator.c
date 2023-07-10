@@ -905,7 +905,8 @@ wl2wbrc_req_bt_reset(void)
 	wbrc2bt_cmd_bt_reset(wbrc_data);
 	WBRC_UNLOCK(wbrc_mutex);
 
-	tmo_ret = wbrc_wait_on_condition(&wbrc_data->bt_reset_waitq, WBRC_WAIT_TIMEOUT,
+	tmo_ret = wbrc_wait_on_condition(&wbrc_data->bt_reset_waitq,
+		WBRC_WAIT_BT_RESET_ACK_TIMEOUT,
 		&wbrc_data->bt_reset_ack, TRUE);
 	if (tmo_ret <= 0) {
 		pr_err("%s: BT reset ack timeout !\n", __func__);

@@ -96,6 +96,10 @@ extern void exynos_pcie_register_dump(int ch_num);
 extern void exynos_pin_dbg_show(unsigned int pin, const char* str);
 #endif /* PRINT_WAKEUP_GPIO_STATUS */
 
+#ifdef DHD_TREAT_D3ACKTO_AS_LINKDWN
+extern void exynos_pcie_set_skip_config(int ch_num, bool val);
+#endif /* DHD_TREAT_D3ACKTO_AS_LINKDWN */
+
 #ifdef DHD_COREDUMP
 #define DEVICE_NAME "wlan"
 
@@ -394,12 +398,10 @@ dhd_get_platform_naming_for_nvram_clmblob_file(download_type_t component, char *
 		DHD_ERROR(("ext_name is not composed.\n"));
 		return BCME_ERROR;
 	}
-
 	if(hw_stage_val < EVT) {
 		DHD_ERROR(("No multi-NVRAM/CLM support on Proto/Dev device\n"));
 		return BCME_ERROR;
 	}
-
 	if (component == NVRAM) {
 #ifdef DHD_LINUX_STD_FW_API
 		nvram_clmblob_file = DHD_NVRAM_NAME;
@@ -1023,11 +1025,12 @@ uint16 dhd_plat_align_rxbuf_size(uint16 rxbufpost_sz)
 #endif
 }
 
-extern void exynos_pcie_set_skip_config(int ch_num, bool val);
 void dhd_plat_pcie_skip_config_set(bool val)
 {
+#ifdef DHD_TREAT_D3ACKTO_AS_LINKDWN
 	DHD_PRINT(("%s: set skip config\n", __FUNCTION__));
 	exynos_pcie_set_skip_config(pcie_ch_num, val);
+#endif /* DHD_TREAT_D3ACKTO_AS_LINKDWN */
 }
 
 #ifndef BCMDHD_MODULAR

@@ -389,6 +389,10 @@ extern int dhd_bus_fis_dump(dhd_pub_t *dhd);
 extern bool dhd_bus_fis_fw_triggered_check(dhd_pub_t *dhd);
 #endif /* DHD_SSSR_DUMP */
 
+#ifdef BCMPCIE
+extern bool dhd_bus_cto_triggered(dhd_pub_t *dhd);
+#endif
+
 #ifdef PCIE_FULL_DONGLE
 extern int dhdpcie_set_dma_ring_indices(dhd_pub_t *dhd, int32 int_val);
 #ifdef DHD_AGGR_WI

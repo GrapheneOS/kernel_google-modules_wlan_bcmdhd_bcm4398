@@ -261,6 +261,11 @@ dhd_log_dump(void *handle, void *event_info, u8 event)
 		return;
 	}
 
+	if (dhd->pub.skip_logdmp) {
+		DHD_PRINT(("%s: skip_logdmp is set, return\n", __FUNCTION__));
+		return;
+	}
+
 #ifdef WL_CFG80211
 	/* flush the fw preserve logs */
 	wl_flush_fw_log_buffer(dhd_linux_get_primary_netdev(&dhd->pub),
@@ -2229,12 +2234,12 @@ dhd_log_dump_trigger(dhd_pub_t *dhdp, int subcmd)
 
 	if (!dhdp) {
 		DHD_ERROR(("dhdp is NULL !\n"));
-		return;
+		goto exit;
 	}
 
 	if (subcmd >= CMD_MAX || subcmd < CMD_DEFAULT) {
 		DHD_ERROR(("%s : Invalid subcmd \n", __FUNCTION__));
-		return;
+		goto exit;
 	}
 
 	current_time_sec = DIV_U64_BY_U32(OSL_LOCALTIME_NS(), NSEC_PER_SEC);
@@ -2246,7 +2251,7 @@ dhd_log_dump_trigger(dhd_pub_t *dhdp, int subcmd)
 	if ((current_time_sec - dhdp->debug_dump_time_sec) < DEBUG_DUMP_TRIGGER_INTERVAL_SEC) {
 		DHD_ERROR(("%s : Last debug dump triggered(%lld) within %d seconds, so SKIP\n",
 			__FUNCTION__, dhdp->debug_dump_time_sec, DEBUG_DUMP_TRIGGER_INTERVAL_SEC));
-		return;
+		goto exit;
 	}
 
 	clear_debug_dump_time(dhdp->debug_dump_time_str);
@@ -2268,7 +2273,7 @@ dhd_log_dump_trigger(dhd_pub_t *dhdp, int subcmd)
 		dhd_schedule_log_dump(dhdp, flush_type);
 	} else {
 		DHD_ERROR(("%s Fail to malloc flush_type\n", __FUNCTION__));
-		return;
+		goto exit;
 	}
 #endif /* DHD_DUMP_FILE_WRITE_FROM_KERNEL */
 
@@ -2287,9 +2292,15 @@ dhd_log_dump_trigger(dhd_pub_t *dhdp, int subcmd)
 	 * to HAL and HAL will write into file
 	 */
 #if (defined(BCMPCIE) || defined(BCMSDIO)) && defined(DHD_FW_COREDUMP)
-	dhdp->memdump_type = DUMP_TYPE_BY_SYSDUMP;
-	dhd_bus_mem_dump(dhdp);
+	if (dhdp->memdump_enabled) {
+		dhdp->memdump_type = DUMP_TYPE_BY_SYSDUMP;
+		dhd_bus_mem_dump(dhdp);
+	}
 #endif /* BCMPCIE && DHD_FW_COREDUMP */
+
+exit:
+	dhdp->skip_memdump_map_read = FALSE;
+	return;
 }
 
 

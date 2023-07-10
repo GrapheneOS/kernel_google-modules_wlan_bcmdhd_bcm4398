@@ -1368,12 +1368,34 @@ dscp2up(uint8 *up_table, uint8 dscp)
 uint
 BCMFASTPATH(pktsetprio_qms)(void *pkt, uint8* up_table, bool update_vtag)
 {
+	uint8 *pktdata;
+	uint user_priority = 0;
+	uint rc = 0;
+
+#if defined(EAPOL_PKT_PRIO) || defined(DHD_LOSSLESS_ROAMING)
+	/* For some reason, EAPOL frames are always going with UP 7.
+	 * Avoid consulting qosmap table and return early with highest prioroity UP
+	 * for the EAPOL frames.
+	 */
+	struct ether_header *eh;
+
+	pktdata = (uint8 *)PKTDATA(OSH_NULL, pkt);
+	ASSERT_FP(ISALIGNED((uintptr)pktdata, sizeof(uint16)));
+
+	eh = (struct ether_header *) pktdata;
+
+	/* Send EAPOL frames with the highest priority (i.e., UP 7) irrespective of qosmap */
+	if (eh->ether_type == hton16(ETHER_TYPE_802_1X)) {
+		user_priority = PRIO_8021D_NC;
+		rc = PKTPRIO_DSCP;
+		PKTSETPRIO(pkt, user_priority);
+		return (rc | user_priority);
+	}
+#endif /* defined(EAPOL_PKT_PRIO) || defined(DHD_LOSSLESS_ROAMING) */
+
 	if (up_table) {
-		uint8 *pktdata;
 		uint pktlen;
 		uint8 dscp;
-		uint user_priority = 0;
-		uint rc = 0;
 
 		pktdata = (uint8 *)PKTDATA(OSH_NULL, pkt);
 		pktlen = PKTLEN(OSH_NULL, pkt);
@@ -1460,7 +1482,7 @@ BCMFASTPATH(wl_set_up_table)(uint8 *up_table, bcm_tlv_t *qos_map_ie)
 	}
 
 	/* clear table to check table was set or not */
-	memset(up_table, 0xff, UP_TABLE_MAX);
+	(void)memset_s(up_table, UP_TABLE_MAX, 0xff, UP_TABLE_MAX);
 
 	/* length of QoS Map IE must be 16+n*2, n is number of exceptions */
 	if (qos_map_ie != NULL && qos_map_ie->id == DOT11_MNG_QOS_MAP_ID &&
@@ -1481,7 +1503,7 @@ BCMFASTPATH(wl_set_up_table)(uint8 *up_table, bcm_tlv_t *qos_map_ie)
 
 			if (!up_table_set(up_table, i / 2, low, high)) {
 				/* clear the table on failure */
-				memset(up_table, 0xff, UP_TABLE_MAX);
+				(void)memset_s(up_table, UP_TABLE_MAX, 0xff, UP_TABLE_MAX);
 				return BCME_ERROR;
 			}
 		}
@@ -6391,7 +6413,10 @@ BCMATTACHFN(varbuf_append)(varbuf_t *b, const char *fmt, ...)
 		for (s = b->base; s < b->buf;) {
 			if ((memcmp(s, b->buf, len) == 0) && s[len] == '=') {
 				len = strlen(s) + 1;
-				memmove(s, (s + len), (size_t)((b->buf + r + 1) - (s + len)));
+				if (memmove_s(s, b->size - len,
+					(s + len), (size_t)((b->buf + r + 1) - (s + len)))) {
+					ASSERT(0);
+				}
 				b->buf -= len;
 				b->size += (unsigned int)len;
 				break;
