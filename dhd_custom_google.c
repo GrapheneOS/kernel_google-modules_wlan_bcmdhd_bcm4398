@@ -811,7 +811,8 @@ void dhd_plat_report_bh_sched(void *plat_info, int resched)
 
 	if (resched > 0) {
 		resched_streak++;
-		return;
+		if (resched_streak <= RESCHED_STREAK_MAX_HIGH)
+			return;
 	}
 
 	if (resched_streak > resched_streak_max) {
@@ -1032,7 +1033,10 @@ void dhd_plat_pcie_skip_config_set(bool val)
 	exynos_pcie_set_skip_config(pcie_ch_num, val);
 #endif /* DHD_TREAT_D3ACKTO_AS_LINKDWN */
 }
-
+ bool dhd_plat_pcie_enable_big_core(void)
+ {
+	return is_irq_on_big_core;
+ }
 #ifndef BCMDHD_MODULAR
 /* Required only for Built-in DHD */
 device_initcall(dhd_wlan_init);
