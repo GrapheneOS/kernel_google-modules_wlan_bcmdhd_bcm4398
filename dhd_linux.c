@@ -17856,7 +17856,6 @@ dhd_dev_apf_add_filter(struct net_device *ndev, u8* program,
 			DHD_ERROR(("%s: Failed to config APF filter\n", __FUNCTION__));
 			goto exit;
 		}
-		DHD_ERROR(("%s: exit\n", __FUNCTION__));
 	}
 exit:
 	DHD_APF_UNLOCK(ndev);
