@@ -1598,7 +1598,7 @@ wl_cfg80211_cleanup_virtual_ifaces(struct bcm_cfg80211 *cfg, bool rtnl_lock_reqd
 #endif /* WL_STATIC_IF */
 			{
 				dev_close(iter->ndev);
-				WL_DBG(("Cleaning up iface:%s \n", iter->ndev->name));
+				WL_INFORM_MEM(("Cleaning up iface:%s \n", iter->ndev->name));
 #if defined(WLAN_ACCEL_BOOT)
 				/* Trigger force reg_on to ensure clean up of virtual interface
 				* states in FW for any residual interface states, casued due to

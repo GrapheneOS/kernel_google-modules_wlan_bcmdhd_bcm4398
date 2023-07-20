@@ -2087,6 +2087,9 @@ typedef struct dhd_pub {
 #endif /* DHD_SSSR_DUMP_BEFORE_SR */
 	uint *sssr_saqm_buf_after;
 	bool skip_logdmp;
+#ifdef DHD_TREAT_D3ACKTO_AS_LINKDWN
+	bool no_pcie_access_during_dump;
+#endif /* DHD_TREAT_D3ACKTO_AS_LINKDWN */
 } dhd_pub_t;
 
 #if defined(__linux__)

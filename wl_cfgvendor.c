@@ -1875,6 +1875,8 @@ wl_cfgvendor_stop_hal(struct wiphy *wiphy,
 	dhd_pub_t *dhd = (dhd_pub_t *)(cfg->pub);
 #endif /* DHD_FILE_DUMP_EVENT */
 
+	WL_INFORM(("%s, Cleanup virtual_ifaces\n", __FUNCTION__));
+	wl_cfg80211_cleanup_virtual_ifaces(cfg, true);
 	cfg->hal_started = false;
 #ifdef DHD_FILE_DUMP_EVENT
 	dhd_set_dump_status(dhd, DUMP_NOT_READY);
@@ -8780,6 +8782,10 @@ wl_cfgvendor_dbg_file_dump(struct wiphy *wiphy,
 			case DUMP_BUF_ATTR_DHD_DUMP :
 				ret = dhd_print_dump_data(bcmcfg_to_prmry_ndev(cfg), NULL,
 					buf->data_buf[0], NULL, (uint32)buf->len, &pos);
+#ifdef DHD_TREAT_D3ACKTO_AS_LINKDWN
+				WL_ERR(("%s: reset no_pcie_access_during_dump\n", __func__));
+				dhd_pub->no_pcie_access_during_dump = FALSE;
+#endif /* DHD_TREAT_D3ACKTO_AS_LINKDWN */
 				break;
 #if defined(BCMPCIE)
 			case DUMP_BUF_ATTR_EXT_TRAP :
@@ -9250,6 +9256,10 @@ static int wl_cfgvendor_dbg_get_ring_data(struct wiphy *wiphy,
 		dhd_pub->skip_memdump_map_read = true;
 		WL_MEM(("Doing dump_start op for ring_id %d ring:%s\n",
 			ring_id, ring_name));
+#ifdef DHD_TREAT_D3ACKTO_AS_LINKDWN
+		WL_ERR(("%s: set no_pcie_access_during_dump\n", __func__));
+		dhd_pub->no_pcie_access_during_dump = TRUE;
+#endif /* DHD_TREAT_D3ACKTO_AS_LINKDWN */
 		dhd_log_dump_vendor_trigger(dhd_pub);
 	}
 
@@ -10342,6 +10352,9 @@ wl_cfgvendor_apf_set_filter(struct wiphy *wiphy,
 				if (nla_len(iter) == sizeof(uint32) && !program_len) {
 					program_len = nla_get_u32(iter);
 				} else {
+					WL_ERR(("program len %d is invalid/"
+						"already initialised\n",
+						nla_len(iter)));
 					ret = -EINVAL;
 					goto exit;
 				}
@@ -10391,6 +10404,11 @@ wl_cfgvendor_apf_set_filter(struct wiphy *wiphy,
 	}
 
 	ret = dhd_dev_apf_add_filter(ndev, program, program_len);
+	if (unlikely(ret)) {
+		WL_ERR(("APF add filter failed, ret=%d\n", ret));
+		goto exit;
+	}
+	WL_INFORM_MEM(("Success to add APF filter program, program_len=%d\n", program_len));
 
 exit:
 	if (program) {

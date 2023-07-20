@@ -2413,10 +2413,10 @@ wl_cfgnan_check_for_valid_5gchan(struct net_device *ndev, uint8 chan)
 	s32 ret = BCME_OK;
 	uint bitmap;
 	u8 ioctl_buf[WLC_IOCTL_SMLEN];
-	uint32 chanspec_arg;
+	uint32 chanspec_arg, chanspec, chan_info;
 
 	NAN_DBG_ENTER();
-	chanspec_arg = CH20MHZ_CHSPEC(chan);
+	chanspec = chanspec_arg = CH20MHZ_CHSPEC(chan);
 	chanspec_arg = wl_chspec_host_to_driver(chanspec_arg);
 	bzero(ioctl_buf, WLC_IOCTL_SMLEN);
 	ret = wldev_iovar_getbuf(ndev, "per_chan_info",
@@ -2477,6 +2477,20 @@ wl_cfgnan_check_for_valid_5gchan(struct net_device *ndev, uint8 chan)
 		goto exit;
 	}
 
+	if (wl_cfgscan_get_chan_info(wl_get_cfg(ndev),
+			&chan_info, chanspec) != BCME_OK) {
+		WL_ERR(("can't find cached chan info for chanspec:%x\n", chanspec));
+	} else {
+		WL_DBG(("chanspec:%x chan_info:%x\n", chanspec, chan_info));
+		if ((chan_info & (WL_CHAN_RESTRICTED |
+			WL_CHAN_CLM_RESTRICTED | WL_CHAN_P2P_PROHIBITED |
+			WL_CHAN_INDOOR_ONLY | WL_CHAN_RADAR |
+			WL_CHAN_PASSIVE))) {
+			WL_ERR(("chan_info:%x, NAN can not operate\n", chan_info));
+			ret = BCME_BADCHAN;
+			goto exit;
+		}
+	}
 exit:
 	NAN_DBG_EXIT();
 	return ret;

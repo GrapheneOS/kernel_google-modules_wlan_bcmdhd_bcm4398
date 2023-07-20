@@ -17831,6 +17831,7 @@ dhd_dev_apf_add_filter(struct net_device *ndev, u8* program,
 	if (dhdp->apf_set) {
 		ret = _dhd_apf_delete_filter(ndev, PKT_FILTER_APF_ID);
 		if (unlikely(ret)) {
+			DHD_ERROR(("%s: Failed to delete APF filter\n", __FUNCTION__));
 			goto exit;
 		}
 		dhdp->apf_set = FALSE;
@@ -17838,6 +17839,7 @@ dhd_dev_apf_add_filter(struct net_device *ndev, u8* program,
 
 	ret = _dhd_apf_add_filter(ndev, PKT_FILTER_APF_ID, program, program_len);
 	if (ret) {
+		DHD_ERROR(("%s: Failed to add APF filter\n", __FUNCTION__));
 		goto exit;
 	}
 	dhdp->apf_set = TRUE;
@@ -17851,6 +17853,7 @@ dhd_dev_apf_add_filter(struct net_device *ndev, u8* program,
 		ret = _dhd_apf_config_filter(ndev, PKT_FILTER_APF_ID,
 			PKT_FILTER_MODE_FORWARD_ON_MATCH, TRUE);
 		if (ret) {
+			DHD_ERROR(("%s: Failed to config APF filter\n", __FUNCTION__));
 			goto exit;
 		}
 	}
