@@ -1581,6 +1581,47 @@ chanspec_t wl_freq_to_chanspec(int freq)
 	return chanspec;
 }
 
+s32
+wl_cfgscan_get_chan_info(struct bcm_cfg80211 *cfg,
+		u32 *chan_info, chanspec_t in_chspec)
+{
+	s32 ret = BCME_OK;
+	u16 list_count;
+	wl_chanspec_list_v1_t *list = NULL;
+	int i;
+	u32 chaninfo = 0;
+	chanspec_t chspec;
+
+	if (!cfg->chan_info_list) {
+		WL_ERR(("No chan info list\n"));
+		return -EINVAL;
+	}
+
+	list = (wl_chanspec_list_v1_t *)cfg->chan_info_list;
+	list_count = list->count;
+	if (((sizeof(wl_chanspec_attr_v1_t) * list_count) +
+		(OFFSETOF(wl_chanspec_list_v1_t, chspecs))) >= CHAN_LIST_BUF_LEN) {
+		WL_ERR(("exceeds buffer size:%d\n", list_count));
+		return -EINVAL;
+	}
+
+	for (i = 0; i < dtoh32(list_count); i++) {
+		chspec = dtoh32(list->chspecs[i].chanspec);
+		chaninfo = dtoh32(list->chspecs[i].chaninfo);
+		chspec = wl_chspec_driver_to_host(chspec);
+
+		if (in_chspec == chspec) {
+			/* matching chspec, return chan_info */
+			*chan_info = chaninfo;
+			WL_DBG(("matching chspec found:0x%x chaninfo:0x%x\n",
+				chspec, chaninfo));
+			break;
+		}
+	}
+
+	return ret;
+}
+
 static void
 wl_cfgscan_populate_scan_channels(struct bcm_cfg80211 *cfg,
 	struct ieee80211_channel **channels, u32 n_channels,
@@ -1588,6 +1629,7 @@ wl_cfgscan_populate_scan_channels(struct bcm_cfg80211 *cfg,
 {
 	u32 i = 0, j = 0;
 	u32 chanspec = 0;
+	u32 chan_info;
 	bool is_p2p_scan = false;
 #ifdef P2P_SKIP_DFS
 	int is_printed = false;
@@ -1644,17 +1686,26 @@ wl_cfgscan_populate_scan_channels(struct bcm_cfg80211 *cfg,
 					continue;
 				}
 
+			if (CHSPEC_IS5G(chanspec)) {
 #ifdef P2P_SKIP_DFS
-			if (CHSPEC_IS5G(chanspec) &&
-				(wf_chspec_center_channel(chanspec) >= 52 &&
-				wf_chspec_center_channel(chanspec) <= 144)) {
-				if (is_printed == false) {
-					WL_ERR(("SKIP DFS CHANs(52~144)\n"));
-					is_printed = true;
+				if ((wf_chspec_center_channel(chanspec) >= 52 &&
+					wf_chspec_center_channel(chanspec) <= 144)) {
+					if (is_printed == false) {
+						WL_ERR(("SKIP DFS CHANs(52~144)\n"));
+						is_printed = true;
+					}
+					continue;
 				}
-				continue;
-			}
 #endif /* P2P_SKIP_DFS */
+
+				if ((wl_cfgscan_get_chan_info(cfg,
+					&chan_info, chanspec) == BCME_OK) &&
+					(chan_info & WL_CHAN_P2P_PROHIBITED)) {
+					WL_DBG(("skipping freq:%d chaninfo:0x%x\n",
+						channels[i]->center_freq, chan_info));
+					continue;
+				}
+			}
 
 #ifdef WL_UNII4_CHAN
 			/* Skip UNII-4 frequencies */

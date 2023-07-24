@@ -3687,6 +3687,18 @@ dhdpcie_bus_release(dhd_bus_t *bus)
 	DHD_TRACE(("%s: Exit\n", __FUNCTION__));
 } /* dhdpcie_bus_release */
 
+#ifdef OEM_ANDROID
+static void
+dhdpcie_clear_cc_pwr_req(dhd_bus_t *bus)
+{
+	if (bus->link_state == DHD_PCIE_ALL_GOOD) {
+		/* clear any held chipcommon pwr requests in good shutdown (no SSSR dump) case */
+		DHD_PRINT(("%s: clear chipcommon pwr req all domains\n", __FUNCTION__));
+		si_corereg(bus->sih, 0, CC_REG_OFF(PowerControl), 0xFFFFFFFF, 0);
+	}
+}
+#endif /* OEM_ANDROID */
+
 void
 dhdpcie_bus_release_dongle(dhd_bus_t *bus, osl_t *osh, bool dongle_isolation, bool reset_flag)
 {
@@ -3726,6 +3738,11 @@ dhdpcie_bus_release_dongle(dhd_bus_t *bus, osl_t *osh, bool dongle_isolation, bo
 		if (bus->sih->buscorerev == 13)
 			 pcie_serdes_iddqdisable(bus->osh, bus->sih,
 			                         (sbpcieregs_t *)bus->regs);
+
+#ifdef OEM_ANDROID
+		/* Clear power requests in android to avoid high current after rmmod */
+		dhdpcie_clear_cc_pwr_req(bus);
+#endif /* OEM_ANDROID */
 
 		/* For inbuilt drivers pcie clk req will be done by RC,
 		 * so do not do clkreq from dhd
@@ -6212,7 +6229,16 @@ dhdpcie_mem_dump(dhd_bus_t *bus)
 	}
 
 #if defined(__linux__)
+#ifdef DHD_TREAT_D3ACKTO_AS_LINKDWN
+	if (!dhdp->no_pcie_access_during_dump) {
+		dhd_plat_pcie_register_dump(dhdp->plat_info);
+	} else {
+		DHD_PRINT(("%s: no_pcie_access_during_dump is set,"
+			" don't do plat reg dump\n", __FUNCTION__));
+	}
+#else
 	dhd_plat_pcie_register_dump(dhdp->plat_info);
+#endif /* DHD_TREAT_D3ACKTO_AS_LINKDWN */
 #endif /* __linux__ */
 
 #ifdef SUPPORT_LINKDOWN_RECOVERY
@@ -13757,7 +13783,16 @@ void dhd_bus_dump(dhd_pub_t *dhdp, struct bcmstrbuf *strbuf)
 #endif /* DHD_WAKE_STATUS */
 
 	dhd_prot_print_info(dhdp, strbuf);
+#ifdef DHD_TREAT_D3ACKTO_AS_LINKDWN
+	if (!dhdp->no_pcie_access_during_dump) {
+		dhd_dump_intr_registers(dhdp, strbuf);
+	} else {
+		DHD_PRINT(("%s: no_pcie_access_during_dump is set,"
+			" don't dump intr regs\n", __FUNCTION__));
+	}
+#else
 	dhd_dump_intr_registers(dhdp, strbuf);
+#endif /* DHD_TREAT_D3ACKTO_AS_LINKDWN */
 	dhd_dump_intr_counters(dhdp, strbuf);
 	bcm_bprintf(strbuf, "h2d_mb_data_ptr_addr 0x%x, d2h_mb_data_ptr_addr 0x%x\n",
 		dhdp->bus->h2d_mb_data_ptr_addr, dhdp->bus->d2h_mb_data_ptr_addr);

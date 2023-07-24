@@ -8782,6 +8782,10 @@ wl_cfgvendor_dbg_file_dump(struct wiphy *wiphy,
 			case DUMP_BUF_ATTR_DHD_DUMP :
 				ret = dhd_print_dump_data(bcmcfg_to_prmry_ndev(cfg), NULL,
 					buf->data_buf[0], NULL, (uint32)buf->len, &pos);
+#ifdef DHD_TREAT_D3ACKTO_AS_LINKDWN
+				WL_ERR(("%s: reset no_pcie_access_during_dump\n", __func__));
+				dhd_pub->no_pcie_access_during_dump = FALSE;
+#endif /* DHD_TREAT_D3ACKTO_AS_LINKDWN */
 				break;
 #if defined(BCMPCIE)
 			case DUMP_BUF_ATTR_EXT_TRAP :
@@ -9252,6 +9256,10 @@ static int wl_cfgvendor_dbg_get_ring_data(struct wiphy *wiphy,
 		dhd_pub->skip_memdump_map_read = true;
 		WL_MEM(("Doing dump_start op for ring_id %d ring:%s\n",
 			ring_id, ring_name));
+#ifdef DHD_TREAT_D3ACKTO_AS_LINKDWN
+		WL_ERR(("%s: set no_pcie_access_during_dump\n", __func__));
+		dhd_pub->no_pcie_access_during_dump = TRUE;
+#endif /* DHD_TREAT_D3ACKTO_AS_LINKDWN */
 		dhd_log_dump_vendor_trigger(dhd_pub);
 	}
 
@@ -10320,8 +10328,6 @@ wl_cfgvendor_apf_set_filter(struct wiphy *wiphy,
 	int ret, tmp, type, max_len;
 	struct bcm_cfg80211 *cfg = wiphy_priv(wiphy);
 
-	WL_ERR(("%s: Enter\n", __FUNCTION__));
-
 	if (len <= 0) {
 		WL_ERR(("Invalid len: %d\n", len));
 		ret = -EINVAL;
@@ -10346,7 +10352,9 @@ wl_cfgvendor_apf_set_filter(struct wiphy *wiphy,
 				if (nla_len(iter) == sizeof(uint32) && !program_len) {
 					program_len = nla_get_u32(iter);
 				} else {
-					WL_ERR(("iter valid is not valid and program len is not 0\n"));
+					WL_ERR(("program len %d is invalid/"
+						"already initialised\n",
+						nla_len(iter)));
 					ret = -EINVAL;
 					goto exit;
 				}
@@ -10406,7 +10414,6 @@ exit:
 	if (program) {
 		MFREE(cfg->osh, program, program_len);
 	}
-	WL_ERR(("%s: Exit\n", __FUNCTION__));
 	return ret;
 }
 

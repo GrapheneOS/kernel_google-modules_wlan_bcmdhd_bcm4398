@@ -19646,7 +19646,12 @@ static int wl_construct_reginfo(struct bcm_cfg80211 *cfg, s32 bw_cap_2g,
 		WL_ERR(("No scan cache buf available\n"));
 		return -ENOMEM;
 	}
-	list = cfg->chan_info_list;
+
+	list = MALLOCZ(cfg->osh, CHAN_LIST_BUF_LEN);
+	if (list == NULL) {
+		WL_ERR(("failed to allocate local buf\n"));
+		return -ENOMEM;
+	}
 
 	err = wldev_iovar_getbuf_bsscfg(dev, "chan_info_list", NULL,
 		0, list, CHAN_LIST_BUF_LEN, 0, &cfg->ioctl_buf_sync);
@@ -19656,13 +19661,13 @@ static int wl_construct_reginfo(struct bcm_cfg80211 *cfg, s32 bw_cap_2g,
 			0, list, CHAN_LIST_BUF_LEN, 0, &cfg->ioctl_buf_sync);
 		if (err != BCME_OK) {
 			WL_ERR(("get chanspecs err(%d)\n", err));
-			return err;
+			goto exit;
 		}
 		/* Update indicating legacy chan info usage */
 		legacy_chan_info = TRUE;
 	} else if (err != BCME_OK) {
 		WL_ERR(("get chan_info_list err(%d)\n", err));
-		return err;
+		goto exit;
 	}
 
 	WL_CHANNEL_ARRAY_INIT(__wl_2ghz_channels);
@@ -19683,10 +19688,19 @@ static int wl_construct_reginfo(struct bcm_cfg80211 *cfg, s32 bw_cap_2g,
 
 	if (tot_size > CHAN_LIST_BUF_LEN) {
 		WL_ERR(("invalid chan_info_list size (%d)\n", tot_size));
-		return err;
+		goto exit;
 	}
 
 	WL_DBG(("chan_info_list cnt:%d\n", list_count));
+
+	if (!wl_cfgvif_get_iftype_count(cfg, WL_IF_TYPE_STA)) {
+		/* Cache chan_info_list whenever regulatory is updated except from
+		 * the STA connection as STA connection would clear radar/indoor flags.
+		 */
+		WL_INFORM_MEM(("updating chan_info_list\n"));
+		/* chan_info_list cache allocated using same macro */
+		(void)memcpy_s(cfg->chan_info_list, CHAN_LIST_BUF_LEN, list, CHAN_LIST_BUF_LEN);
+	}
 
 	for (i = 0; i < dtoh32(list_count); i++) {
 		index = 0;
@@ -19808,6 +19822,10 @@ static int wl_construct_reginfo(struct bcm_cfg80211 *cfg, s32 bw_cap_2g,
 	__wl_band_6ghz.n_channels = ARRAYSIZE(__wl_6ghz_channels);
 #endif /* CFG80211_6G_SUPPORT */
 
+exit:
+	if (list) {
+		MFREE(cfg->osh, list, CHAN_LIST_BUF_LEN);
+	}
 	return err;
 }
 
