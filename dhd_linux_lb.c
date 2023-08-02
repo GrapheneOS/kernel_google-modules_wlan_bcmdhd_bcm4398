@@ -23,6 +23,7 @@
  */
 
 #include <dhd_linux_priv.h>
+#include <dhd_plat.h>
 
 extern dhd_pub_t* g_dhd_pub;
 
@@ -194,6 +195,7 @@ void dhd_select_cpu_candidacy(dhd_info_t *dhd)
 	uint32 tx_cpu = 0; /* cpu selected for tx processing job */
 	uint32 dpc_cpu = atomic_read(&dhd->dpc_cpu);
 	uint32 net_tx_cpu = atomic_read(&dhd->net_tx_cpu);
+	bool use_big_core = dhd_plat_pcie_enable_big_core();
 
 	cpumask_clear(dhd->cpumask_set8_new);
 	cpumask_clear(dhd->cpumask_set4_new);
@@ -223,7 +225,10 @@ void dhd_select_cpu_candidacy(dhd_info_t *dhd)
 	cpumask_clear_cpu(net_tx_cpu, dhd->cpumask_set4_new);
 	cpumask_clear_cpu(net_tx_cpu, dhd->cpumask_set0_new);
 
-	set8_available_cpus = cpumask_weight(dhd->cpumask_set8_new);
+	if (use_big_core)
+		set8_available_cpus = cpumask_weight(dhd->cpumask_set8_new);
+	else
+		set8_available_cpus = 0;
 	set4_available_cpus = cpumask_weight(dhd->cpumask_set4_new);
 
 	DHD_INFO(("%s select cpu from set4/8\n", __FUNCTION__));
