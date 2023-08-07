@@ -1794,8 +1794,16 @@ BCMFASTPATH(dhd_prot_d2h_sync_xorcsum)(dhd_pub_t *dhd, msgbuf_ring_t *ring,
 			 * complete message has arrived.
 			 */
 			if (msg->epoch == ring_seqnum) {
-				prot_checksum = bcm_compute_xor32((volatile uint32 *)msg,
-					num_words);
+				/* Based on customer request, to avoid tput regression
+				 * skip xorcsum for high tput case
+				 */
+				bool use_big_core = dhd_plat_pcie_enable_big_core();
+				if (use_big_core) {
+					prot_checksum = 0;
+				} else {
+					prot_checksum = bcm_compute_xor32((volatile uint32 *)msg,
+						num_words);
+				}
 				if (prot_checksum == 0U) { /* checksum is OK */
 					ring->seqnum++; /* next expected sequence number */
 					/* Check for LIVELOCK induce flag, which is set by firing

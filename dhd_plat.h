@@ -96,5 +96,6 @@ extern uint32 dhd_plat_get_rc_device_id(void);
 
 extern uint16 dhd_plat_align_rxbuf_size(uint16 rxbufpost_sz);
 extern void dhd_plat_pcie_skip_config_set(bool val);
+extern bool dhd_plat_pcie_enable_big_core(void);
 #endif /* __linux__ */
 #endif /* __DHD_PLAT_H__ */

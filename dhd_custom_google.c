@@ -80,6 +80,7 @@ static uint64 last_affinity_update_time_ns = 0;
 static uint hw_stage_val = 0;
 /* force to switch to small core at beginning */
 static bool is_irq_on_big_core = TRUE;
+static bool is_plat_pcie_resume = FALSE;
 
 static int pcie_ch_num = EXYNOS_PCIE_CH_NUM;
 #if defined(CONFIG_SOC_GOOGLE)
@@ -784,11 +785,13 @@ irq_affinity_hysteresis_control(struct pci_dev *pdev, int resched_streak_max,
 			DHD_ERROR(("%s switches to big core unsuccessfully!\n", __FUNCTION__));
 		}
 	}
-	if (is_irq_on_big_core && (resched_streak_max <= RESCHED_STREAK_MAX_LOW) &&
-		!has_recent_affinity_update) {
+	if (is_plat_pcie_resume ||
+            (is_irq_on_big_core && (resched_streak_max <= RESCHED_STREAK_MAX_LOW) &&
+             !has_recent_affinity_update)) {
 		err = set_affinity(pdev->irq, cpumask_of(IRQ_AFFINITY_SMALL_CORE));
 		if (!err) {
 			is_irq_on_big_core = FALSE;
+                        is_plat_pcie_resume = FALSE;
 			last_affinity_update_time_ns = curr_time_ns;
 			DHD_INFO(("%s switches to all cores successfully\n", __FUNCTION__));
 		} else {
@@ -811,7 +814,8 @@ void dhd_plat_report_bh_sched(void *plat_info, int resched)
 
 	if (resched > 0) {
 		resched_streak++;
-		return;
+		if (resched_streak <= RESCHED_STREAK_MAX_HIGH)
+			return;
 	}
 
 	if (resched_streak > resched_streak_max) {
@@ -978,8 +982,8 @@ int dhd_plat_pcie_resume(void *plat_info)
 {
 	int ret = 0;
 	ret = exynos_pcie_pm_resume(pcie_ch_num);
-	is_irq_on_big_core = true;
-	return ret;
+        is_plat_pcie_resume = TRUE;
+        return ret;
 }
 
 void dhd_plat_pin_dbg_show(void *plat_info)
@@ -1032,7 +1036,10 @@ void dhd_plat_pcie_skip_config_set(bool val)
 	exynos_pcie_set_skip_config(pcie_ch_num, val);
 #endif /* DHD_TREAT_D3ACKTO_AS_LINKDWN */
 }
-
+ bool dhd_plat_pcie_enable_big_core(void)
+ {
+	return is_irq_on_big_core;
+ }
 #ifndef BCMDHD_MODULAR
 /* Required only for Built-in DHD */
 device_initcall(dhd_wlan_init);
