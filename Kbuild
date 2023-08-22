@@ -349,7 +349,7 @@ ifneq ($(CONFIG_SOC_GOOGLE),)
         # Recover timeouts
         DHDCFLAGS += -DDHD_RECOVER_TIMEOUT
         # PCIE CPL TIMEOUT WAR
-	DHDCFLAGS += -DDHD_TREAT_D3ACKTO_AS_LINKDWN
+	#DHDCFLAGS += -DDHD_TREAT_D3ACKTO_AS_LINKDWN
 	# Skip coredump for certain health check traps
 	DHDCFLAGS += -DDHD_SKIP_COREDUMP_ON_HC
 	# Skip coredump for older chip revs
