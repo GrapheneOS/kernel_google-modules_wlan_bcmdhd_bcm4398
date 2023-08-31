@@ -225,10 +225,11 @@ void dhd_select_cpu_candidacy(dhd_info_t *dhd)
 	cpumask_clear_cpu(net_tx_cpu, dhd->cpumask_set4_new);
 	cpumask_clear_cpu(net_tx_cpu, dhd->cpumask_set0_new);
 
-	if (use_big_core)
+	if (use_big_core) {
 		set8_available_cpus = cpumask_weight(dhd->cpumask_set8_new);
-	else
+	} else {
 		set8_available_cpus = 0;
+	}
 	set4_available_cpus = cpumask_weight(dhd->cpumask_set4_new);
 
 	DHD_INFO(("%s select cpu from set4/8\n", __FUNCTION__));

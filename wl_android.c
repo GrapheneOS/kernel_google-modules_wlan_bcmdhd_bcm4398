@@ -5358,10 +5358,10 @@ int wl_android_wifi_on(struct net_device *dev)
 				__FUNCTION__, retry));
 			/* Set big hammer flag */
 			dhdp->do_chip_bighammer = TRUE;
-
 			/*
 			 * If failed to power up wifi chip, dhd_open() which invoked this function
 			 * will invoke dhd_stop. As part of dhd_stop this clean-up will be handled.
+			 *
 			 */
 			if (retry != 0) {
 #ifdef BCMPCIE

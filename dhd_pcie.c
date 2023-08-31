@@ -11347,7 +11347,7 @@ dhdpcie_bus_suspend(struct dhd_bus *bus, bool state)
 
 #if defined(PCIE_OOB) || defined(PCIE_INB_DW)
 		DHD_BUS_INB_DW_LOCK(bus->inb_lock, flags);
-		DHD_PRINT(("%s: Before DW_ASSERT inband_dw_state:%d\n",
+		DHD_RPM(("%s: Before DW_ASSERT inband_dw_state:%d\n",
 			__FUNCTION__, dhdpcie_bus_get_pcie_inband_dw_state(bus)));
 		if (dhdpcie_bus_get_pcie_inband_dw_state(bus) ==
 			DW_DEVICE_DS_DISABLED_WAIT) {
@@ -11359,7 +11359,7 @@ dhdpcie_bus_suspend(struct dhd_bus *bus, bool state)
 		DHD_BUS_INB_DW_UNLOCK(bus->inb_lock, flags);
 		dhd_bus_set_device_wake(bus, TRUE, __FUNCTION__);
 		DHD_BUS_INB_DW_LOCK(bus->inb_lock, flags);
-		DHD_PRINT(("%s: After DW_ASSERT inband_dw_state:%d\n",
+		DHD_RPM(("%s: After DW_ASSERT inband_dw_state:%d\n",
 			__FUNCTION__, dhdpcie_bus_get_pcie_inband_dw_state(bus)));
 		DHD_BUS_INB_DW_UNLOCK(bus->inb_lock, flags);
 #endif /* defined(PCIE_OOB) || defined(PCIE_INB_DW) */
@@ -11395,10 +11395,10 @@ dhdpcie_bus_suspend(struct dhd_bus *bus, bool state)
 #ifdef PCIE_INB_DW
 		if (INBAND_DW_ENAB(bus)) {
 			DHD_BUS_INB_DW_LOCK(bus->inb_lock, flags);
-			DHD_PRINT(("%s: Before D3_INFORM inband_dw_state:%d\n",
+			DHD_RPM(("%s: Before D3_INFORM inband_dw_state:%d\n",
 				__FUNCTION__, dhdpcie_bus_get_pcie_inband_dw_state(bus)));
 			dhdpcie_send_mb_data(bus, H2D_HOST_D3_INFORM, __FUNCTION__);
-			DHD_PRINT(("%s: After D3_INFORM inband_dw_state:%d\n",
+			DHD_RPM(("%s: After D3_INFORM inband_dw_state:%d\n",
 				__FUNCTION__, dhdpcie_bus_get_pcie_inband_dw_state(bus)));
 			DHD_BUS_INB_DW_UNLOCK(bus->inb_lock, flags);
 		} else
@@ -14785,7 +14785,7 @@ dhd_bus_ringbell_2(struct dhd_bus *bus, uint32 value, bool devwake)
 	/* makesure we are on PCIE */
 	/* Skip once bus enters low power state (D3_INFORM/D3_ACK) */
 	if (__DHD_CHK_BUS_IN_LPS(bus)) {
-		DHD_PRINT(("%s: trying to ring the doorbell after D3 inform %d\n",
+		DHD_RPM(("%s: trying to ring the doorbell after D3 inform %d\n",
 			__FUNCTION__, bus->bus_low_power_state));
 		return;
 	}
@@ -14809,7 +14809,7 @@ dhdpcie_bus_ringbell_fast(struct dhd_bus *bus, uint32 value)
 {
 	/* Skip once bus enters low power state (D3_INFORM/D3_ACK) */
 	if (__DHD_CHK_BUS_IN_LPS(bus)) {
-		DHD_PRINT(("%s: trying to ring the doorbell after D3 inform %d\n",
+		DHD_RPM(("%s: trying to ring the doorbell after D3 inform %d\n",
 			__FUNCTION__, bus->bus_low_power_state));
 		return;
 	}
@@ -14854,7 +14854,7 @@ dhdpcie_bus_ringbell_2_fast(struct dhd_bus *bus, uint32 value, bool devwake)
 {
 	/* Skip once bus enters low power state (D3_INFORM/D3_ACK) */
 	if (__DHD_CHK_BUS_IN_LPS(bus)) {
-		DHD_PRINT(("%s: trying to ring the doorbell after D3 inform %d\n",
+		DHD_RPM(("%s: trying to ring the doorbell after D3 inform %d\n",
 			__FUNCTION__, bus->bus_low_power_state));
 		return;
 	}
@@ -14890,7 +14890,7 @@ dhd_bus_ringbell_oldpcie(struct dhd_bus *bus, uint32 value)
 	uint32 w;
 	/* Skip once bus enters low power state (D3_INFORM/D3_ACK) */
 	if (__DHD_CHK_BUS_IN_LPS(bus)) {
-		DHD_PRINT(("%s: trying to ring the doorbell after D3 inform %d\n",
+		DHD_RPM(("%s: trying to ring the doorbell after D3 inform %d\n",
 			__FUNCTION__, bus->bus_low_power_state));
 		return;
 	}
@@ -20547,7 +20547,7 @@ dhdpcie_validate_gci_chip_intstatus(dhd_pub_t *dhd)
 #define OOBR_CAP2_NUMTOPEXTRSRC_MASK	0x1Fu
 #define OOBR_CAP2_NUMTOPEXTRSRC_SHIFT	4u	 /* Bits 8:4 */
 
-static void
+static int
 dhdpcie_dump_oobr(dhd_pub_t *dhd, uint core_bmap, uint coreunit_bmap)
 {
 	si_t *sih = dhd->bus->sih;
@@ -20558,7 +20558,12 @@ dhdpcie_dump_oobr(dhd_pub_t *dhd, uint core_bmap, uint coreunit_bmap)
 	uint val = 0, idx = 0;
 
 	if (CHIPTYPE(sih->socitype) != SOCI_NCI) {
-		return;
+		return BCME_UNSUPPORTED;
+	}
+
+	if (dhd->bus->is_linkdown) {
+		DHD_ERROR(("%s: PCIe link is down\n", __FUNCTION__));
+		return BCME_NOTUP;
 	}
 
 	curcore = si_coreid(dhd->bus->sih);
@@ -20567,6 +20572,12 @@ dhdpcie_dump_oobr(dhd_pub_t *dhd, uint core_bmap, uint coreunit_bmap)
 		uint corecap2 = R_REG(dhd->osh, &reg->capability2);
 		uint numtopextrsrc = (corecap2 >> OOBR_CAP2_NUMTOPEXTRSRC_SHIFT) &
 			OOBR_CAP2_NUMTOPEXTRSRC_MASK;
+		if (corecap2 == (uint)-1) {
+			DHD_ERROR(("%s:corecap2=0x%x ! Bad value, set linkdown\n",
+				__FUNCTION__, corecap2));
+			dhd->bus->is_linkdown = TRUE;
+			return BCME_NOTUP;
+		}
 		/*
 		 * Convert the value (8:4) to a loop count to dump topextrsrcmap.
 		 * TopRsrcDestSel0 is accessible if NUM_TOP_EXT_RSRC > 0
@@ -20609,6 +20620,7 @@ dhdpcie_dump_oobr(dhd_pub_t *dhd, uint core_bmap, uint coreunit_bmap)
 	}
 
 	si_setcore(sih, curcore, 0);
+	return BCME_OK;
 }
 
 bool
@@ -20779,7 +20791,12 @@ dhdpcie_sssr_dump(dhd_pub_t *dhd)
 		}
 
 		if (core_bmap) {
-			dhdpcie_dump_oobr(dhd, core_bmap, coreunit_bmap);
+			ret = dhdpcie_dump_oobr(dhd, core_bmap, coreunit_bmap);
+			if (ret == BCME_NOTUP) {
+				DHD_ERROR(("%s: dhdpcie_dump_oobr fails due to linkdown !\n",
+					__FUNCTION__));
+				goto exit;
+			}
 		}
 
 		dhd_bus_pcie_pwr_req_wl_domain(dhd->bus, CC_REG_OFF(PowerControl), TRUE);

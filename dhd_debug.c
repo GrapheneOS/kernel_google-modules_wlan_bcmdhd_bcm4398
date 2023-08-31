@@ -401,7 +401,7 @@ dhd_dbg_msgtrace_seqchk(uint32 *prev, uint32 cur)
 		DHD_EVENT(("%s duplicate trace\n", __FUNCTION__));
 		return -1;
 	} else if (cur > *prev) {
-		DHD_EVENT(("%s lost %d packets\n", __FUNCTION__, cur - *prev));
+		DHD_INFO(("%s lost %d packets\n", __FUNCTION__, cur - *prev));
 	} else {
 		DHD_EVENT(("%s seq out of order, dhd %d, dongle %d\n",
 			__FUNCTION__, *prev, cur));
