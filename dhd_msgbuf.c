@@ -4018,6 +4018,11 @@ dhd_prot_attach(dhd_pub_t *dhd)
 		/* pre-allocation htput ring */
 		dhd->prot->prealloc_htput_flowring_buf = MALLOCZ(osh,
 			sizeof(dhd_dma_buf_t)* dhd->htput_total_flowrings);
+		if (dhd->prot->prealloc_htput_flowring_buf == NULL) {
+			DHD_ERROR(("%s : malloc of prealloc_htput_flowring_buf failed!\n",
+				__FUNCTION__));
+			goto fail;
+		}
 		for (i = 0; i < dhd->htput_total_flowrings; i++) {
 			if (dhd_dma_buf_alloc(dhd, &dhd->prot->prealloc_htput_flowring_buf[i],
 				(uint32)(h2d_htput_max_txpost * h2d_txpost_size_prealloc))) {
@@ -4038,6 +4043,10 @@ dhd_prot_attach(dhd_pub_t *dhd)
 	/* pre-allocation flow ring */
 	dhd->prot->prealloc_regular_flowring_buf = MALLOCZ(osh,
 		sizeof(dhd_dma_buf_t) * dhd->max_prealloc_regular_flowrings);
+	if (dhd->prot->prealloc_regular_flowring_buf == NULL) {
+		DHD_ERROR(("%s : malloc of prealloc_regular_flowring_buf failed!\n", __FUNCTION__));
+		goto fail;
+	}
 	for (i = 0; i < dhd->max_prealloc_regular_flowrings; i++) {
 		if (dhd_dma_buf_alloc(dhd, &dhd->prot->prealloc_regular_flowring_buf[i],
 			(uint32)(h2d_max_txpost * h2d_txpost_size_prealloc))) {
@@ -5036,19 +5045,22 @@ void dhd_prot_detach(dhd_pub_t *dhd)
 		dhd_prot_flowrings_pool_detach(dhd);
 
 #ifdef FLOW_RING_PREALLOC
-		if (dhd->htput_support) {
-			for (i = 0; i < dhd->htput_total_flowrings; i++) {
-				dhd_dma_buf_free(dhd, &prot->prealloc_htput_flowring_buf[i]);
+		if (prot->prealloc_htput_flowring_buf) {
+			if (dhd->htput_support) {
+				for (i = 0; i < dhd->htput_total_flowrings; i++) {
+					dhd_dma_buf_free(dhd, &prot->prealloc_htput_flowring_buf[i]);
+				}
 			}
+			MFREE(dhd->osh, prot->prealloc_htput_flowring_buf,
+				sizeof(dhd_dma_buf_t) * dhd->htput_total_flowrings);
 		}
-		MFREE(dhd->osh, prot->prealloc_htput_flowring_buf,
-			sizeof(dhd_dma_buf_t) * dhd->htput_total_flowrings);
-
-		for (i = 0; i < dhd->max_prealloc_regular_flowrings; i++) {
-			dhd_dma_buf_free(dhd, &prot->prealloc_regular_flowring_buf[i]);
+		if (prot->prealloc_regular_flowring_buf) {
+			for (i = 0; i < dhd->max_prealloc_regular_flowrings; i++) {
+				dhd_dma_buf_free(dhd, &prot->prealloc_regular_flowring_buf[i]);
+			}
+			MFREE(dhd->osh, prot->prealloc_regular_flowring_buf,
+				sizeof(dhd_dma_buf_t) * dhd->max_prealloc_regular_flowrings);
 		}
-		MFREE(dhd->osh, prot->prealloc_regular_flowring_buf,
-			sizeof(dhd_dma_buf_t) * dhd->max_prealloc_regular_flowrings);
 #endif /* FLOW_RING_PREALLOC */
 
 		/* detach info rings */
@@ -5182,14 +5194,16 @@ dhd_prot_reset(dhd_pub_t *dhd)
 	dhd_dma_buf_reset(dhd, &prot->d2h_dma_indx_wr_buf);
 
 #ifdef FLOW_RING_PREALLOC
-	if (dhd->htput_support) {
+	if (dhd->htput_support && prot->prealloc_htput_flowring_buf) {
 		for (i = 0; i < dhd->htput_total_flowrings; i++) {
 			dhd_dma_buf_reset(dhd, &prot->prealloc_htput_flowring_buf[i]);
 		}
 	}
 
-	for (i = 0; i < dhd->max_prealloc_regular_flowrings; i++) {
-		dhd_dma_buf_reset(dhd, &prot->prealloc_regular_flowring_buf[i]);
+	if (prot->prealloc_regular_flowring_buf) {
+		for (i = 0; i < dhd->max_prealloc_regular_flowrings; i++) {
+			dhd_dma_buf_reset(dhd, &prot->prealloc_regular_flowring_buf[i]);
+		}
 	}
 #endif /* FLOW_RING_PREALLOC */
 
