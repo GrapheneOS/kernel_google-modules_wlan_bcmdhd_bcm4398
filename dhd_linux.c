@@ -2272,12 +2272,7 @@ int dhd_bssidx2idx(dhd_pub_t *dhdp, uint32 bssidx)
 int dhd_process_cid_mac(dhd_pub_t *dhdp, bool prepost)
 {
 	uint chipid = dhd_bus_chip_id(dhdp);
-	int ret = BCME_OK;
 	if (prepost) { /* pre process */
-		ret = dhd_alloc_cis(dhdp);
-		if (ret != BCME_OK) {
-			return ret;
-		}
 		switch (chipid) {
 #ifndef DHD_READ_CIS_FROM_BP
 			case BCM4389_CHIP_GRPID:
@@ -2286,7 +2281,11 @@ int dhd_process_cid_mac(dhd_pub_t *dhdp, bool prepost)
 				break;
 #endif /* !DHD_READ_CIS_FROM_BP */
 			default:
-				dhd_read_cis(dhdp);
+				/* cis information is filled in
+				 * dhd_parse_board_information much before
+				 * fw download, so no need to read cis from otp
+				 * here again
+				 */
 				break;
 		}
 		dhd_check_module_cid(dhdp);
@@ -2294,7 +2293,6 @@ int dhd_process_cid_mac(dhd_pub_t *dhdp, bool prepost)
 		dhd_set_macaddr_from_file(dhdp);
 	} else { /* post process */
 		dhd_write_macaddr(&dhdp->mac);
-		dhd_clear_cis(dhdp);
 	}
 
 	return BCME_OK;
@@ -9435,6 +9433,11 @@ dhd_attach(osl_t *osh, struct dhd_bus *bus, uint bus_hdrlen)
 	dhd_rx_pktpool_init(dhd);
 #endif /* RX_PKT_POOL */
 
+	if (dhd_alloc_cis(&dhd->pub) != BCME_OK) {
+		DHD_ERROR(("%s: alloc CIS buf failed!\n", __FUNCTION__));
+		goto fail;
+	}
+
 #ifdef WL_CFGVENDOR_SEND_HANG_EVENT
 	dhd->pub.hang_info = MALLOCZ(osh, VENDOR_SEND_HANG_EXT_INFO_LEN);
 	if (dhd->pub.hang_info == NULL) {
@@ -15016,6 +15019,8 @@ void dhd_detach(dhd_pub_t *dhdp)
 #ifdef RX_PKT_POOL
 	dhd_rx_pktpool_deinit(dhd);
 #endif
+	dhd_clear_cis(dhdp);
+
 	/* Free the memory alloc'd for socram */
 	if (dhd->pub.soc_ram) {
 #if defined(CONFIG_DHD_USE_STATIC_BUF) && defined(DHD_USE_STATIC_MEMDUMP)

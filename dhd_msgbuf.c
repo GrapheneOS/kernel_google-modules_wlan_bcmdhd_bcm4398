@@ -1883,7 +1883,7 @@ BCMFASTPATH(dhd_prot_d2h_sync_edl)(dhd_pub_t *dhd, msgbuf_ring_t *ring,
 {
 	uint32 tries;
 	int msglen = 0, len = 0;
-	uint32 ring_seqnum = ring->seqnum % D2H_EPOCH_MODULO;
+	uint32 ring_seqnum;
 	dhd_prot_t *prot = dhd->prot;
 	uint32 step = 0;
 	uint32 delay = PCIE_D2H_SYNC_DELAY;
@@ -1920,6 +1920,7 @@ BCMFASTPATH(dhd_prot_d2h_sync_edl)(dhd_pub_t *dhd, msgbuf_ring_t *ring,
 			 * that the complete message has arrived.
 			 */
 			valid_msg = FALSE;
+			ring_seqnum = ring->seqnum % D2H_EPOCH_MODULO;
 			if (msg->epoch == ring_seqnum &&
 				msg->msg_type == MSG_TYPE_INFO_PYLD &&
 				msg->request_id > 0 &&
@@ -1974,19 +1975,19 @@ BCMFASTPATH(dhd_prot_d2h_sync_edl)(dhd_pub_t *dhd, msgbuf_ring_t *ring,
 	} /* for PCIE_D2H_SYNC_NUM_OF_STEPS */
 
 	DHD_ERROR(("%s: EDL header check fails !\n", __FUNCTION__));
-	DHD_ERROR(("%s: header: seqnum=%u; expected-seqnum=%u"
+	DHD_ERROR(("%s: header: dongle-seqnum=%u; host-expected-seqnum=%u:%u"
 		" msgtype=0x%x; expected-msgtype=0x%x"
 		" length=%u; expected-max-length=%u", __FUNCTION__,
-		msg->epoch, ring_seqnum, msg->msg_type, MSG_TYPE_INFO_PYLD,
+		msg->epoch, ring->seqnum, ring_seqnum, msg->msg_type, MSG_TYPE_INFO_PYLD,
 		msg->request_id, ring->item_len));
 	dhd_prhex("msg header bytes: ", (volatile uchar *)msg, sizeof(*msg), DHD_ERROR_VAL);
 	if (trailer && msglen > 0 &&
 			(msglen + sizeof(cmn_msg_hdr_t)) <= ring->item_len) {
-		DHD_ERROR(("%s: trailer: seqnum=%u; expected-seqnum=%u"
+		DHD_ERROR(("%s: trailer: dongle-seqnum=%u; host-expected-seqnum=%u:%u"
 			" msgtype=0x%x; expected-msgtype=0x%x"
 			" length=%u; expected-length=%u", __FUNCTION__,
-			trailer->epoch, ring_seqnum, trailer->msg_type, MSG_TYPE_INFO_PYLD,
-			trailer->request_id, msg->request_id));
+			trailer->epoch, ring->seqnum, ring_seqnum, trailer->msg_type,
+			MSG_TYPE_INFO_PYLD, trailer->request_id, msg->request_id));
 		dhd_prhex("msg trailer bytes: ", (volatile uchar *)trailer,
 			sizeof(*trailer), DHD_ERROR_VAL);
 	}
@@ -4017,6 +4018,11 @@ dhd_prot_attach(dhd_pub_t *dhd)
 		/* pre-allocation htput ring */
 		dhd->prot->prealloc_htput_flowring_buf = MALLOCZ(osh,
 			sizeof(dhd_dma_buf_t)* dhd->htput_total_flowrings);
+		if (dhd->prot->prealloc_htput_flowring_buf == NULL) {
+			DHD_ERROR(("%s : malloc of prealloc_htput_flowring_buf failed!\n",
+				__FUNCTION__));
+			goto fail;
+		}
 		for (i = 0; i < dhd->htput_total_flowrings; i++) {
 			if (dhd_dma_buf_alloc(dhd, &dhd->prot->prealloc_htput_flowring_buf[i],
 				(uint32)(h2d_htput_max_txpost * h2d_txpost_size_prealloc))) {
@@ -4037,6 +4043,10 @@ dhd_prot_attach(dhd_pub_t *dhd)
 	/* pre-allocation flow ring */
 	dhd->prot->prealloc_regular_flowring_buf = MALLOCZ(osh,
 		sizeof(dhd_dma_buf_t) * dhd->max_prealloc_regular_flowrings);
+	if (dhd->prot->prealloc_regular_flowring_buf == NULL) {
+		DHD_ERROR(("%s : malloc of prealloc_regular_flowring_buf failed!\n", __FUNCTION__));
+		goto fail;
+	}
 	for (i = 0; i < dhd->max_prealloc_regular_flowrings; i++) {
 		if (dhd_dma_buf_alloc(dhd, &dhd->prot->prealloc_regular_flowring_buf[i],
 			(uint32)(h2d_max_txpost * h2d_txpost_size_prealloc))) {
@@ -5035,19 +5045,22 @@ void dhd_prot_detach(dhd_pub_t *dhd)
 		dhd_prot_flowrings_pool_detach(dhd);
 
 #ifdef FLOW_RING_PREALLOC
-		if (dhd->htput_support) {
-			for (i = 0; i < dhd->htput_total_flowrings; i++) {
-				dhd_dma_buf_free(dhd, &prot->prealloc_htput_flowring_buf[i]);
+		if (prot->prealloc_htput_flowring_buf) {
+			if (dhd->htput_support) {
+				for (i = 0; i < dhd->htput_total_flowrings; i++) {
+					dhd_dma_buf_free(dhd, &prot->prealloc_htput_flowring_buf[i]);
+				}
 			}
+			MFREE(dhd->osh, prot->prealloc_htput_flowring_buf,
+				sizeof(dhd_dma_buf_t) * dhd->htput_total_flowrings);
 		}
-		MFREE(dhd->osh, prot->prealloc_htput_flowring_buf,
-			sizeof(dhd_dma_buf_t) * dhd->htput_total_flowrings);
-
-		for (i = 0; i < dhd->max_prealloc_regular_flowrings; i++) {
-			dhd_dma_buf_free(dhd, &prot->prealloc_regular_flowring_buf[i]);
+		if (prot->prealloc_regular_flowring_buf) {
+			for (i = 0; i < dhd->max_prealloc_regular_flowrings; i++) {
+				dhd_dma_buf_free(dhd, &prot->prealloc_regular_flowring_buf[i]);
+			}
+			MFREE(dhd->osh, prot->prealloc_regular_flowring_buf,
+				sizeof(dhd_dma_buf_t) * dhd->max_prealloc_regular_flowrings);
 		}
-		MFREE(dhd->osh, prot->prealloc_regular_flowring_buf,
-			sizeof(dhd_dma_buf_t) * dhd->max_prealloc_regular_flowrings);
 #endif /* FLOW_RING_PREALLOC */
 
 		/* detach info rings */
@@ -5181,14 +5194,16 @@ dhd_prot_reset(dhd_pub_t *dhd)
 	dhd_dma_buf_reset(dhd, &prot->d2h_dma_indx_wr_buf);
 
 #ifdef FLOW_RING_PREALLOC
-	if (dhd->htput_support) {
+	if (dhd->htput_support && prot->prealloc_htput_flowring_buf) {
 		for (i = 0; i < dhd->htput_total_flowrings; i++) {
 			dhd_dma_buf_reset(dhd, &prot->prealloc_htput_flowring_buf[i]);
 		}
 	}
 
-	for (i = 0; i < dhd->max_prealloc_regular_flowrings; i++) {
-		dhd_dma_buf_reset(dhd, &prot->prealloc_regular_flowring_buf[i]);
+	if (prot->prealloc_regular_flowring_buf) {
+		for (i = 0; i < dhd->max_prealloc_regular_flowrings; i++) {
+			dhd_dma_buf_reset(dhd, &prot->prealloc_regular_flowring_buf[i]);
+		}
 	}
 #endif /* FLOW_RING_PREALLOC */
 
@@ -6059,17 +6074,19 @@ dhd_prot_init_edl_rings(dhd_pub_t *dhd)
 		return ret;
 	}
 
+	prot->d2hring_edl->seqnum = D2H_EPOCH_INIT_VAL;
+	prot->d2hring_edl->current_phase = BCMPCIE_CMNHDR_PHASE_BIT_INIT;
+	OSL_SMP_WMB();
+
 	DHD_ERROR_MEM(("trying to send create d2h edl ring: idx %d\n", prot->d2hring_edl->idx));
 	ret = dhd_send_d2h_ringcreate(dhd, prot->d2hring_edl,
 		BCMPCIE_D2H_RING_TYPE_EDL, DHD_D2H_DBGRING_REQ_PKTID);
-	if (ret != BCME_OK)
+	if (ret != BCME_OK) {
 		return ret;
-
-	prot->d2hring_edl->seqnum = D2H_EPOCH_INIT_VAL;
-	prot->d2hring_edl->current_phase = BCMPCIE_CMNHDR_PHASE_BIT_INIT;
+	}
 
 	return BCME_OK;
-} /* dhd_prot_init_btlog_rings */
+} /* dhd_prot_init_edl_rings */
 
 static void
 dhd_prot_detach_edl_rings(dhd_pub_t *dhd)
@@ -7821,14 +7838,12 @@ dhd_prot_process_edl_complete(dhd_pub_t *dhd, void *evt_decode_data)
 			ring->curr_rd += 1;
 		}
 
-		if (err != BCME_OK) {
-			return 0;
-		}
-
-		/* process the edl work item, i.e, the event log */
-		err = dhd_event_logtrace_process_edl(dhd, msg_addr, evt_decode_data);
-		if (err == BCME_NOTUP) {
-			return 0;
+		if (err == BCME_OK) {
+			/* process the edl work item, i.e. the event log */
+			err = dhd_event_logtrace_process_edl(dhd, msg_addr, evt_decode_data);
+			if (err == BCME_NOTUP) {
+				return 0;
+			}
 		}
 
 		/* Dummy sleep so that scheduler kicks in after processing any logprints */

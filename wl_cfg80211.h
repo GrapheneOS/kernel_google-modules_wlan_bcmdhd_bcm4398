@@ -66,6 +66,11 @@
 #define WL_CFG_VNDR_OUI_SYNC_LOCK(lock, flags)		(flags) = osl_spin_lock(lock)
 #define WL_CFG_VNDR_OUI_SYNC_UNLOCK(lock, flags)	osl_spin_unlock((lock), (flags))
 
+#define WL_CFG_WBTEXT_BSSID_LIST_SYNC_INIT(osh)           osl_spin_lock_init(osh)
+#define WL_CFG_WBTEXT_BSSID_LIST_SYNC_DEINIT(osh, lock)   osl_spin_lock_deinit(osh, lock)
+#define WL_CFG_WBTEXT_BSSID_LIST_SYNC_LOCK(lock, flags)   (flags) = osl_spin_lock(lock)
+#define WL_CFG_WBTEXT_BSSID_LIST_SYNC_UNLOCK(lock, flags) osl_spin_unlock((lock), (flags))
+
 #include <wifi_stats.h>
 #include <wl_cfgp2p.h>
 #ifdef WL_NAN
@@ -2285,6 +2290,7 @@ struct bcm_cfg80211 {
 	uint8 vif_count;	/* Virtual Interface count */
 #ifdef WBTEXT
 	struct list_head wbtext_bssid_list;
+	void *wbtext_bssid_list_sync;
 #endif /* WBTEXT */
 #ifdef SUPPORT_AP_RADIO_PWRSAVE
 	ap_rps_info_t ap_rps_info;

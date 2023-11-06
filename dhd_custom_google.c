@@ -399,10 +399,12 @@ dhd_get_platform_naming_for_nvram_clmblob_file(download_type_t component, char *
 		DHD_ERROR(("ext_name is not composed.\n"));
 		return BCME_ERROR;
 	}
+
 	if(hw_stage_val < EVT) {
 		DHD_ERROR(("No multi-NVRAM/CLM support on Proto/Dev device\n"));
 		return BCME_ERROR;
 	}
+
 	if (component == NVRAM) {
 #ifdef DHD_LINUX_STD_FW_API
 		nvram_clmblob_file = DHD_NVRAM_NAME;
@@ -786,12 +788,12 @@ irq_affinity_hysteresis_control(struct pci_dev *pdev, int resched_streak_max,
 		}
 	}
 	if (is_plat_pcie_resume ||
-            (is_irq_on_big_core && (resched_streak_max <= RESCHED_STREAK_MAX_LOW) &&
-             !has_recent_affinity_update)) {
+		(is_irq_on_big_core && (resched_streak_max <= RESCHED_STREAK_MAX_LOW) &&
+		!has_recent_affinity_update)) {
 		err = set_affinity(pdev->irq, cpumask_of(IRQ_AFFINITY_SMALL_CORE));
 		if (!err) {
 			is_irq_on_big_core = FALSE;
-                        is_plat_pcie_resume = FALSE;
+			is_plat_pcie_resume = FALSE;
 			last_affinity_update_time_ns = curr_time_ns;
 			DHD_INFO(("%s switches to all cores successfully\n", __FUNCTION__));
 		} else {
@@ -814,8 +816,9 @@ void dhd_plat_report_bh_sched(void *plat_info, int resched)
 
 	if (resched > 0) {
 		resched_streak++;
-		if (resched_streak <= RESCHED_STREAK_MAX_HIGH)
+		if (resched_streak <= RESCHED_STREAK_MAX_HIGH) {
 			return;
+		}
 	}
 
 	if (resched_streak > resched_streak_max) {
@@ -982,8 +985,8 @@ int dhd_plat_pcie_resume(void *plat_info)
 {
 	int ret = 0;
 	ret = exynos_pcie_pm_resume(pcie_ch_num);
-        is_plat_pcie_resume = TRUE;
-        return ret;
+	is_plat_pcie_resume = TRUE;
+	return ret;
 }
 
 void dhd_plat_pin_dbg_show(void *plat_info)
@@ -1036,10 +1039,12 @@ void dhd_plat_pcie_skip_config_set(bool val)
 	exynos_pcie_set_skip_config(pcie_ch_num, val);
 #endif /* DHD_TREAT_D3ACKTO_AS_LINKDWN */
 }
- bool dhd_plat_pcie_enable_big_core(void)
- {
+
+bool dhd_plat_pcie_enable_big_core(void)
+{
 	return is_irq_on_big_core;
- }
+}
+
 #ifndef BCMDHD_MODULAR
 /* Required only for Built-in DHD */
 device_initcall(dhd_wlan_init);

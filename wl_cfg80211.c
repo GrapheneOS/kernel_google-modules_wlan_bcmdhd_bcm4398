@@ -432,6 +432,8 @@ static bool wl_cfg80211_wbtext_send_btm_query(struct bcm_cfg80211 *cfg, struct n
 	struct wl_profile *profile);
 static void wl_cfg80211_wbtext_set_wnm_maxidle(struct bcm_cfg80211 *cfg, struct net_device *dev);
 static int wl_cfg80211_recv_nbr_resp(struct net_device *dev, uint8 *body, uint body_len);
+static s32 wl_wbtext_init(struct bcm_cfg80211 *cfg);
+static void wl_wbtext_deinit(struct bcm_cfg80211 *cfg);
 #endif /* WBTEXT */
 
 #ifdef RTT_SUPPORT
@@ -7246,18 +7248,17 @@ wl_cfg80211_config_rsnxe_ie(struct bcm_cfg80211 *cfg, struct net_device *dev,
 			WL_ERR(("set wsec_info_sae_pwe failed %d\n", err));
 			return err;
 		}
-	} else {
-		err = wldev_iovar_setbuf(dev, "rsnxe", ie, ie_len,
-			smbuf, sizeof(smbuf), NULL);
-		if (!err) {
-			WL_DBG(("Configured RSNXE IE\n"));
-		} else if (err == BCME_UNSUPPORTED) {
-			WL_DBG(("FW does not support rsnxe iovar\n"));
-			err = BCME_OK;
-		} else {
-			WL_ERR(("rsnxe set error (%d)\n", err));
-		}
+	}
 
+	err = wldev_iovar_setbuf(dev, "rsnxe", ie, ie_len,
+			smbuf, sizeof(smbuf), NULL);
+	if (!err) {
+		WL_DBG(("Configured RSNXE IE\n"));
+	} else if (err == BCME_UNSUPPORTED) {
+		WL_DBG(("FW does not support rsnxe iovar\n"));
+		err = BCME_OK;
+	} else {
+		WL_ERR(("rsnxe set error (%d)\n", err));
 	}
 	return err;
 }
@@ -12495,7 +12496,7 @@ wl_cfg80211_cleanup_connection(struct net_device *net, bool user_enforced)
 				wl_cfg80211_disassoc(iter->ndev, WLAN_REASON_DEAUTH_LEAVING);
 			} else {
 				WL_INFORM(("Disconnected state. Interface clean "
-					"up skipped for ifname:%s", iter->ndev->name));
+					"up skipped for ifname:%s \n", iter->ndev->name));
 			}
 		}
 	}
@@ -14728,10 +14729,10 @@ wl_handle_link_down(struct bcm_cfg80211 *cfg, wl_assoc_status_t *as)
 
 	CFG80211_DISCONNECTED(ndev, reason, ie_ptr, ie_len,
 		loc_gen, GFP_KERNEL);
-	WL_INFORM_MEM(("[%s] Disconnect event sent to upper layer"
-		"event:%d e->reason=%d reason=%d ie_len=%d loc_gen=%d"
+	WL_INFORM_MEM(("[%s] Disconnect event sent to upper layer "
+		"event:%d e->reason=%d loc_reason=%d ie_len=%d loc_gen=%d "
 		"from " MACDBG "\n",
-		ndev->name,	event, ntoh32(as->reason), reason, ie_len,
+		ndev->name,	event, dtoh32(as->reason), reason, ie_len,
 		loc_gen, MAC2STRDBG((const u8*)(&as->addr))));
 
 	/* clear connected state */
@@ -16173,7 +16174,7 @@ static s32 wl_update_bss_info(struct bcm_cfg80211 *cfg, struct net_device *ndev,
 		}
 		bi = (wl_bss_info_v109_t *)(buf + 4);
 		chspec = wl_chspec_driver_to_host(bi->chanspec);
-		WL_INFORM_MEM(("chanspec:0x%x\n band:%d chan:%d", chspec, CHSPEC_BAND(chspec),
+		WL_INFORM_MEM(("chanspec:0x%x band:0x%x chan:%d\n", chspec, CHSPEC_BAND(chspec),
 			wf_chspec_ctlchan(wl_chspec_driver_to_host(chspec))));
 		/* chanspec queried for ASSOCIATED BSSID needs to be valid */
 		if (!(target_bssid) && !wf_chspec_valid(chspec)) {
@@ -18589,6 +18590,13 @@ static s32 wl_init_priv(struct bcm_cfg80211 *cfg)
 	wl_cellavoid_init(cfg);
 #endif /* WL_CELLULAR_CHAN_AVOID */
 
+#ifdef WBTEXT
+	err = wl_wbtext_init(cfg);
+	if (err) {
+		return err;
+	}
+#endif /* WBTEXT */
+
 #ifdef CONFIG_SLEEP_MONITOR
 	sleep_monitor_register_ops(cfg, &wlan_sleep_monitor_ops,
 		SLEEP_MONITOR_WIFI);
@@ -18612,6 +18620,11 @@ static void wl_deinit_priv(struct bcm_cfg80211 *cfg)
 #ifdef WL_CELLULAR_CHAN_AVOID
 	wl_cellavoid_deinit(cfg);
 #endif /* WL_CELLULAR_CHAN_AVOID */
+
+#ifdef WBTEXT
+	wl_wbtext_deinit(cfg);
+#endif /* WBTEXT */
+
 	wl_deinit_priv_mem(cfg);
 	if (wl_cfg80211_netdev_notifier_registered) {
 		wl_cfg80211_netdev_notifier_registered = FALSE;
@@ -21322,7 +21335,7 @@ wl_update_prof(struct bcm_cfg80211 *cfg, struct net_device *ndev,
 		} else {
 			bzero(profile->bssid, ETHER_ADDR_LEN);
 		}
-		WL_INFORM_MEM(("prof_bssid:"MACDBG"\n", MAC2STRDBG(profile->latest_bssid)));
+		WL_INFORM_MEM(("prof_bssid: "MACDBG"\n", MAC2STRDBG(profile->latest_bssid)));
 		break;
 	case WL_PROF_SEC:
 		memcpy(&profile->sec, data, sizeof(profile->sec));
@@ -23715,14 +23728,19 @@ wl_get_netdev_by_name(struct bcm_cfg80211 *cfg, char *ifname)
 static bool wl_cfg80211_wbtext_check_bssid_list(struct bcm_cfg80211 *cfg, struct ether_addr *ea)
 {
 	wl_wbtext_bssid_t *bssid = NULL;
+	unsigned long flags;
+
+	WL_CFG_WBTEXT_BSSID_LIST_SYNC_LOCK(cfg->wbtext_bssid_list_sync, flags);
 	GCC_DIAGNOSTIC_PUSH_SUPPRESS_CAST();
 	/* check duplicate */
 	list_for_each_entry(bssid, &cfg->wbtext_bssid_list, list) {
 		GCC_DIAGNOSTIC_POP();
 		if (!memcmp(bssid->ea.octet, ea, ETHER_ADDR_LEN)) {
+			WL_CFG_WBTEXT_BSSID_LIST_SYNC_UNLOCK(cfg->wbtext_bssid_list_sync, flags);
 			return FALSE;
 		}
 	}
+	WL_CFG_WBTEXT_BSSID_LIST_SYNC_UNLOCK(cfg->wbtext_bssid_list_sync, flags);
 
 	return TRUE;
 }
@@ -23731,6 +23749,7 @@ static bool wl_cfg80211_wbtext_add_bssid_list(struct bcm_cfg80211 *cfg, struct e
 {
 	wl_wbtext_bssid_t *bssid = NULL;
 	char eabuf[ETHER_ADDR_STR_LEN];
+	unsigned long flags;
 
 	bssid = (wl_wbtext_bssid_t *)MALLOC(cfg->osh, sizeof(wl_wbtext_bssid_t));
 	if (bssid == NULL) {
@@ -23741,7 +23760,10 @@ static bool wl_cfg80211_wbtext_add_bssid_list(struct bcm_cfg80211 *cfg, struct e
 	memcpy(bssid->ea.octet, ea, ETHER_ADDR_LEN);
 
 	INIT_LIST_HEAD(&bssid->list);
+
+	WL_CFG_WBTEXT_BSSID_LIST_SYNC_LOCK(cfg->wbtext_bssid_list_sync, flags);
 	list_add_tail(&bssid->list, &cfg->wbtext_bssid_list);
+	WL_CFG_WBTEXT_BSSID_LIST_SYNC_UNLOCK(cfg->wbtext_bssid_list_sync, flags);
 
 	WL_DBG(("add wbtext bssid : %s\n", bcm_ether_ntoa(ea, eabuf)));
 
@@ -23752,7 +23774,9 @@ static void wl_cfg80211_wbtext_clear_bssid_list(struct bcm_cfg80211 *cfg)
 {
 	wl_wbtext_bssid_t *bssid = NULL, *tmp = NULL;
 	char eabuf[ETHER_ADDR_STR_LEN];
+	unsigned long flags;
 
+	WL_CFG_WBTEXT_BSSID_LIST_SYNC_LOCK(cfg->wbtext_bssid_list_sync, flags);
 	GCC_DIAGNOSTIC_PUSH_SUPPRESS_CAST();
 	list_for_each_entry_safe(bssid, tmp, &cfg->wbtext_bssid_list, list) {
 		GCC_DIAGNOSTIC_POP();
@@ -23760,6 +23784,7 @@ static void wl_cfg80211_wbtext_clear_bssid_list(struct bcm_cfg80211 *cfg)
 		list_del(&bssid->list);
 		MFREE(cfg->osh, bssid, sizeof(wl_wbtext_bssid_t));
 	}
+	WL_CFG_WBTEXT_BSSID_LIST_SYNC_UNLOCK(cfg->wbtext_bssid_list_sync, flags);
 }
 
 static void wl_cfg80211_wbtext_update_rcc(struct bcm_cfg80211 *cfg, struct net_device *dev)
@@ -24005,6 +24030,40 @@ wl_cfg80211_recv_nbr_resp(struct net_device *dev, uint8 *body, uint body_len)
 	}
 
 	return BCME_OK;
+}
+
+static s32
+wl_wbtext_init(struct bcm_cfg80211 *cfg)
+{
+	if (!cfg) {
+		WL_ERR(("cfg is NULL\n"));
+		return BCME_ERROR;
+	}
+
+	/* Allocate spinlock for protecting wbtext_bssid_list */
+	cfg->wbtext_bssid_list_sync = (void *)WL_CFG_WBTEXT_BSSID_LIST_SYNC_INIT(cfg->osh);
+
+	if (!cfg->wbtext_bssid_list_sync) {
+		WL_ERR(("Failed to alloc spinlock\n"));
+		return BCME_ERROR;
+	}
+	return BCME_OK;
+}
+
+static void
+wl_wbtext_deinit(struct bcm_cfg80211 *cfg)
+{
+	if (!cfg) {
+		WL_ERR(("cfg is NULL\n"));
+		return;
+	}
+
+	/* If there are still entries in the list, clean them up */
+	wl_cfg80211_wbtext_clear_bssid_list(cfg);
+
+	/* Free spinlock allocated in attach */
+	WL_CFG_WBTEXT_BSSID_LIST_SYNC_DEINIT(cfg->osh, cfg->wbtext_bssid_list_sync);
+	cfg->wbtext_bssid_list_sync = NULL;
 }
 #endif /* WBTEXT */
 
