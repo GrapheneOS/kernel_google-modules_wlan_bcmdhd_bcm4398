@@ -2517,12 +2517,6 @@ wl_cfg80211_iface_state_ops(struct wireless_dev *wdev,
 					wdev->netdev->name));
 			}
 #endif /* WL_NAN */
-			if ((wl_iftype == WL_IF_TYPE_STA) || (wl_iftype == WL_IF_TYPE_AP) ||
-				(wl_iftype == WL_IF_TYPE_P2P_GO) ||
-				(wl_iftype == WL_IF_TYPE_P2P_GC)) {
-				/* restore multilink status */
-				wl_cfgvif_set_multi_link(cfg, cfg->mlo.default_multilink_val);
-			}
 			break;
 		case WL_IF_CREATE_DONE:
 			if (wl_mode == WL_MODE_BSS) {
@@ -2571,6 +2565,13 @@ wl_cfg80211_iface_state_ops(struct wireless_dev *wdev,
 			wl_cfg80211_tdls_config(cfg, TDLS_STATE_IF_DELETE, false);
 #endif /* WLTDLS */
 			wl_wlfc_enable(cfg, false);
+			if ((wl_iftype == WL_IF_TYPE_STA) || ((wl_iftype == WL_IF_TYPE_AP) &&
+				!wl_get_drv_status_all(cfg, AP_CREATED)) ||
+				(wl_iftype == WL_IF_TYPE_P2P_GO) ||
+				(wl_iftype == WL_IF_TYPE_P2P_GC)) {
+				/* restore multilink status */
+				wl_cfgvif_set_multi_link(cfg, cfg->mlo.default_multilink_val);
+			}
 			break;
 		case WL_IF_CHANGE_REQ:
 			/* Flush existing IEs from firmware on role change */
@@ -3109,6 +3110,7 @@ wl_cfg80211_notify_ifadd(struct net_device *dev,
 	bool ifadd_expected = FALSE;
 	struct bcm_cfg80211 *cfg = wl_get_cfg(dev);
 	bool bss_pending_op = TRUE;
+	bool add_in_progress = FALSE;
 
 	/* P2P may send WLC_E_IF_ADD and/or WLC_E_IF_CHANGE during IF updating ("p2p_ifupd")
 	 * redirect the IF_ADD event to ifchange as it is not a real "new" interface
@@ -3119,7 +3121,7 @@ wl_cfg80211_notify_ifadd(struct net_device *dev,
 	/* Okay, we are expecting IF_ADD (as IF_ADDING is true) */
 	if (wl_get_p2p_status(cfg, IF_ADDING)) {
 		ifadd_expected = TRUE;
-		wl_clr_p2p_status(cfg, IF_ADDING);
+		add_in_progress = TRUE;
 	} else if (cfg->bss_pending_op) {
 		ifadd_expected = TRUE;
 		bss_pending_op = FALSE;
@@ -3142,8 +3144,11 @@ wl_cfg80211_notify_ifadd(struct net_device *dev,
 		}
 		WL_INFORM_MEM(("IF_ADD ifidx:%d bssidx:%d role:%d\n",
 			ifidx, bssidx, role));
-		OSL_SMP_WMB();
 		if_event_info->valid = TRUE;
+		if (add_in_progress) {
+			wl_clr_p2p_status(cfg, IF_ADDING);
+		}
+		OSL_SMP_WMB();
 		wake_up_interruptible(&cfg->netif_change_event);
 		return BCME_OK;
 	}
@@ -3158,10 +3163,11 @@ wl_cfg80211_notify_ifdel(struct net_device *dev, int ifidx, char *name, uint8 *m
 	struct bcm_cfg80211 *cfg = wl_get_cfg(dev);
 	wl_if_event_info *if_event_info = &cfg->if_event_info;
 	bool bss_pending_op = TRUE;
+	bool del_in_progress = FALSE;
 
 	if (wl_get_p2p_status(cfg, IF_DELETING)) {
 		ifdel_expected = TRUE;
-		wl_clr_p2p_status(cfg, IF_DELETING);
+		del_in_progress = TRUE;
 	} else if (cfg->bss_pending_op) {
 		ifdel_expected = TRUE;
 		bss_pending_op = FALSE;
@@ -3175,8 +3181,11 @@ wl_cfg80211_notify_ifdel(struct net_device *dev, int ifidx, char *name, uint8 *m
 			cfg->bss_pending_op = FALSE;
 		}
 		WL_INFORM_MEM(("IF_DEL ifidx:%d bssidx:%d\n", ifidx, bssidx));
-		OSL_SMP_WMB();
 		if_event_info->valid = TRUE;
+		if (del_in_progress) {
+			wl_clr_p2p_status(cfg, IF_DELETING);
+		}
+		OSL_SMP_WMB();
 		wake_up_interruptible(&cfg->netif_change_event);
 		return BCME_OK;
 	}
@@ -5034,9 +5043,8 @@ exit:
 
 #ifdef MFP
 static s32
-wl_cfg80211_set_mfp(struct bcm_cfg80211 *cfg,
-	struct net_device *dev,
-	struct cfg80211_connect_params *sme)
+wl_cfg80211_set_mfp(struct bcm_cfg80211 *cfg, struct net_device *dev,
+	struct cfg80211_connect_params *sme, bool multi_akm)
 {
 	s32 mfp = WL_MFP_NONE;
 	s32 current_mfp = WL_MFP_NONE;
@@ -5066,10 +5074,15 @@ wl_cfg80211_set_mfp(struct bcm_cfg80211 *cfg,
 		(wl_cfg80211_get_rsn_capa(wpa2_ie, &rsn_cap) == 0) && rsn_cap) {
 		WL_DBG(("rsn_cap 0x%x%x\n", rsn_cap[0], rsn_cap[1]));
 		/* Check for MFP cap in the RSN capability field */
-		if (rsn_cap[0] & RSN_CAP_MFPR) {
-			mfp = WL_MFP_REQUIRED;
-		} else if (rsn_cap[0] & RSN_CAP_MFPC) {
+		if (multi_akm == TRUE) {
+			/* Force MFP to capable in case of multi_ akm to allow seamless roam */
 			mfp = WL_MFP_CAPABLE;
+		} else {
+			if (rsn_cap[0] & RSN_CAP_MFPR) {
+				mfp = WL_MFP_REQUIRED;
+			} else if (rsn_cap[0] & RSN_CAP_MFPC) {
+				mfp = WL_MFP_CAPABLE;
+			}
 		}
 		/*
 		 * eptr --> end/last byte addr of wpa2_ie
@@ -5097,7 +5110,7 @@ wl_cfg80211_set_mfp(struct bcm_cfg80211 *cfg,
 		}
 	}
 
-	WL_DBG(("mfp:%d wpa2_ie ptr:%p mfp fw_support:%d\n",
+	WL_DBG_MEM(("mfp:%d wpa2_ie ptr:%p mfp fw_support:%d\n",
 		mfp, wpa2_ie, fw_support));
 
 	if (fw_support == false) {
@@ -5521,7 +5534,7 @@ wl_set_multi_akm(struct net_device *dev, struct bcm_cfg80211 *cfg,
 
 	wl_update_join_pref_tuple(multi_akm_auth, &pref);
 #ifdef MFP
-	if ((err = wl_cfg80211_set_mfp(cfg, dev, sme)) < 0) {
+	if ((err = wl_cfg80211_set_mfp(cfg, dev, sme, TRUE)) < 0) {
 		WL_ERR(("MFP set failed err:%d\n", err));
 		return -EINVAL;
 	}
@@ -5659,7 +5672,7 @@ wl_set_key_mgmt(struct net_device *dev, struct cfg80211_connect_params *sme,
 #endif /* !WL_FILS */
 
 #ifdef MFP
-			if ((err = wl_cfg80211_set_mfp(cfg, dev, sme)) < 0) {
+			if ((err = wl_cfg80211_set_mfp(cfg, dev, sme, FALSE)) < 0) {
 				WL_ERR(("MFP set failed err:%d\n", err));
 				return -EINVAL;
 			}
@@ -6960,17 +6973,6 @@ wl_do_preassoc_ops(struct bcm_cfg80211 *cfg,
 		wl_restore_ap_bw(cfg);
 	}
 #endif /* SUPPORT_AP_BWCTRL */
-#if defined(ROAMEXP_SUPPORT)
-	/* Clear Blacklist bssid and Whitelist ssid list before join issue
-	 * This is temporary fix since currently firmware roaming is not
-	 * disabled by android framework before SSID join from framework
-	*/
-	/* Flush blacklist bssid content */
-	dhd_dev_set_blacklist_bssid(dev, NULL, 0, true);
-	/* Flush whitelist ssid content */
-	dhd_dev_set_whitelist_ssid(dev, NULL, 0, true);
-#endif /* ROAMEXP_SUPPORT */
-
 	WL_DBG(("SME IE : len=%zu\n", sme->ie_len));
 	if (sme->ie != NULL && sme->ie_len > 0 && (wl_dbg_level & WL_DBG_DBG)) {
 		prhex(NULL, sme->ie, sme->ie_len);
@@ -7906,10 +7908,13 @@ static void wl_cfg80211_wait_for_disconnection(struct bcm_cfg80211 *cfg, struct 
 			CFG80211_CONNECT_RESULT(dev, NULL, NULL, NULL, 0, NULL, 0,
 				WLAN_STATUS_UNSPECIFIED_FAILURE,
 				GFP_KERNEL);
+			wl_clr_drv_status(cfg, CONNECTING, dev);
 		} else {
 			WL_INFORM_MEM(("force send disconnect event\n"));
+			/* clear connected status and report disconnected event */
+			wl_clr_drv_status(cfg, CONNECTED, dev);
 			CFG80211_DISCONNECTED(dev, WLAN_REASON_DEAUTH_LEAVING,
-				NULL, 0, false, GFP_KERNEL);
+				NULL, 0, TRUE, GFP_KERNEL);
 		}
 		CLR_TS(cfg, conn_start);
 		CLR_TS(cfg, authorize_start);
@@ -8009,9 +8014,6 @@ wl_cfg80211_disconnect(struct wiphy *wiphy, struct net_device *dev,
 				 in all exit paths
 				 */
 				wl_set_drv_status(cfg, DISCONNECTING, dev);
-				/* clear connecting state */
-				wl_clr_drv_status(cfg, CONNECTING, dev);
-
 #ifdef WL_CFGVENDOR_CUST_ADVLOG
 				/* get rssi before sending DISASSOC to avoid getting zero */
 				bzero(&scb_rssi, sizeof(scb_val_t));
@@ -10080,6 +10082,14 @@ wl_apply_per_sta_conn_suspend_settings(struct bcm_cfg80211 *cfg,
 		}
 	}
 #endif /* CONFIG_SILENT_ROAM */
+
+#ifdef APF
+	if (suspend) {
+		dhd_dev_apf_enable_filter(dev);
+	} else {
+		dhd_dev_apf_disable_filter(dev);
+	}
+#endif /* APF */
 	return BCME_OK;
 }
 
@@ -14473,6 +14483,13 @@ wl_post_linkdown_ops(struct bcm_cfg80211 *cfg,
 		wl_cfgscan_update_dynamic_channels(cfg, ndev, FALSE);
 	}
 #endif /* WL_DYNAMIC_CHAN_POLICY */
+
+#if defined(ROAMEXP_SUPPORT)
+	/* Flush blacklist bssid content */
+	wl_android_set_blacklist_bssid(ndev, NULL, 0, TRUE);
+	/* Flush whitelist ssid content */
+	wl_android_set_whitelist_ssid(ndev, NULL, 0, TRUE);
+#endif /* ROAMEXP_SUPPORT */
 
 	return ret;
 }

@@ -2509,9 +2509,6 @@ static int dhd_set_suspend(int value, dhd_pub_t *dhd)
 				 */
 				dhd_enable_packet_filter(1, dhd);
 #endif /* PKT_FILTER_SUPPORT */
-#ifdef APF
-				dhd_dev_apf_enable_filter(dhd_linux_get_primary_netdev(dhd));
-#endif /* APF */
 #ifdef ARP_OFFLOAD_SUPPORT
 				if (dhd->arpoe_enable) {
 					dhd_arp_offload_enable(dhd, TRUE);
@@ -2610,9 +2607,6 @@ static int dhd_set_suspend(int value, dhd_pub_t *dhd)
 				/* disable pkt filter */
 				dhd_enable_packet_filter(0, dhd);
 #endif /* PKT_FILTER_SUPPORT */
-#ifdef APF
-				dhd_dev_apf_disable_filter(dhd_linux_get_primary_netdev(dhd));
-#endif /* APF */
 #ifdef PASS_ALL_MCAST_PKTS
 				allmulti = 1;
 				for (i = 0; i < DHD_MAX_IFS; i++) {
@@ -5301,18 +5295,46 @@ dhd_80211_mon_pkt(dhd_pub_t *dhdp, host_rxbuf_cmpl_t* msg, void *pkt, int ifidx)
 	/* Distinguish rx/tx frame */
 	wl_aml_header_v1_t hdr;
 	bool wpa_sup;
+	struct sk_buff *skb = pkt;
 	frame_type type;
+#ifdef DHD_PKT_LOGGING
+	struct ether_header *eh;
+	uint32 pktid;
+	uint16 ether_type;
+	uint16 status;
+#endif /* DHD_PKT_LOGGING */
 
-	hdr = *(wl_aml_header_v1_t *)PKTDATA(dhdp->osh, pkt);
-	PKTPULL(dhdp->osh, pkt, sizeof(hdr));
+	hdr = *(wl_aml_header_v1_t *)PKTDATA(dhdp->osh, skb);
+	PKTPULL(dhdp->osh, skb, sizeof(hdr));
 	wpa_sup = !!(hdr.flags & WL_AML_F_EAPOL);
 	type = wpa_sup ? FRAME_TYPE_ETHERNET_II : FRAME_TYPE_80211_MGMT;
 
 	if (hdr.flags & WL_AML_F_DIRECTION) {
 		bool ack = !!(hdr.flags & WL_AML_F_ACKED);
-		DHD_DBG_PKT_MON_TX(dhdp, pkt, 0, type, (uint8)ack, TRUE);
+		/* Send Tx-ed mgmt frame and 4HS packet in dongle to upper layer */
+		DHD_DBG_PKT_MON_TX(dhdp, skb, 0, type, (uint8)ack, TRUE);
+
+#ifdef DHD_PKT_LOGGING
+		/* Send Tx-ed 4HS packet in dongle to packet logging buffer */
+		if (type == FRAME_TYPE_ETHERNET_II) {
+			pktid = (uint32)(unsigned long)pkt;
+			status = (ack) ? WLFC_CTL_PKTFLAG_DISCARD : WLFC_CTL_PKTFLAG_DISCARD_NOACK;
+			DHD_PKTLOG_TX(dhdp, skb, skb->data, pktid);
+			DHD_PKTLOG_TXS(dhdp, skb, skb->data, pktid, status);
+		}
+#endif /* DHD_PKT_LOGGING */
 	} else {
-		DHD_DBG_PKT_MON_RX(dhdp, (struct sk_buff *)pkt, type, TRUE);
+		/* Send Rx-ed mgmt frame and 4HS packet in dongle to upper layer */
+		DHD_DBG_PKT_MON_RX(dhdp, (struct sk_buff *)skb, type, TRUE);
+
+#ifdef DHD_PKT_LOGGING
+		/* Send Rx-ed 4HS packet in dongle to packet logging buffer */
+		if (type == FRAME_TYPE_ETHERNET_II) {
+			eh = (struct ether_header *)skb->data;
+			ether_type = ntoh16(eh->ether_type);
+			DHD_PKTLOG_RX(dhdp, (struct sk_buff *)skb, skb->data, ether_type);
+		}
+#endif /* DHD_PKT_LOGGING */
 	}
 }
 #endif /* DBG_PKT_MON && PCIE_FULL_DONGLE */
@@ -17831,16 +17853,6 @@ dhd_dev_apf_add_filter(struct net_device *ndev, u8* program,
 	int ret;
 
 	DHD_APF_LOCK(ndev);
-
-	/* delete, if filter already exists */
-	if (dhdp->apf_set) {
-		ret = _dhd_apf_delete_filter(ndev, PKT_FILTER_APF_ID);
-		if (unlikely(ret)) {
-			DHD_ERROR(("%s: Failed to delete APF filter\n", __FUNCTION__));
-			goto exit;
-		}
-		dhdp->apf_set = FALSE;
-	}
 
 	ret = _dhd_apf_add_filter(ndev, PKT_FILTER_APF_ID, program, program_len);
 	if (ret) {

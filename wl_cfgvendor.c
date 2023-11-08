@@ -3004,6 +3004,7 @@ wl_cfgvendor_set_bssid_blacklist(struct wiphy *wiphy,
 					err = -EINVAL;
 					goto exit;
 				}
+				WL_INFORM_MEM(("blacklist_flush:%d\n", flush));
 				break;
 			case GSCAN_ATTRIBUTE_BLACKLIST_BSSID:
 				if (num == 0 || !blacklist) {
@@ -3022,8 +3023,9 @@ wl_cfgvendor_set_bssid_blacklist(struct wiphy *wiphy,
 					err = -EINVAL;
 					goto exit;
 				}
-				memcpy(&(blacklist->ea[blacklist->count]), nla_data(iter),
-						ETHER_ADDR_LEN);
+				WL_INFORM_MEM(("blacklist mac_addr:" MACDBG "\n",
+					MAC2STRDBG(nla_data(iter))));
+				eacopy(nla_data(iter), &(blacklist->ea[blacklist->count]));
 				blacklist->count++;
 				break;
 		default:
@@ -3039,8 +3041,8 @@ wl_cfgvendor_set_bssid_blacklist(struct wiphy *wiphy,
 		goto exit;
 	}
 
-	err = dhd_dev_set_blacklist_bssid(bcmcfg_to_prmry_ndev(cfg),
-	          blacklist, mem_needed, flush);
+	err = wl_android_set_blacklist_bssid(wdev_to_ndev(wdev), blacklist,
+		mem_needed, flush);
 exit:
 	MFREE(cfg->osh, blacklist, mem_needed);
 	return err;
@@ -8351,7 +8353,7 @@ static int wl_update_ml_link_stat(struct bcm_cfg80211 *cfg, struct net_device *i
 				peer_list_info->peer_info->ea.octet, ETH_ALEN);
 		}
 	} else if (err == BCME_UNSUPPORTED) {
-		WL_ERR(("bssload_report is unsupported \n"));
+		WL_ERR(("bss_peer_info is unsupported \n"));
 	} else if (err == BCME_NOTASSOCIATED) {
 		WL_ERR(("bss_peer_info IOVAR failed. STA is not associated.\n"));
 	} else {
@@ -8426,7 +8428,7 @@ static int wl_update_ml_link_stat(struct bcm_cfg80211 *cfg, struct net_device *i
 		*total_len = *total_len -
 			sizeof(wifi_rate_stat_v1) +
 			(NUM_PEER * num_rate * sizeof(wifi_rate_stat_v1));
-	} else if (err == BCME_NOTASSOCIATED) {
+	} else if (err == BCME_NOTASSOCIATED || err == BCME_UNSUPPORTED) {
 		/* Skipping to read the rate stat for not associated case,
 		 * as cca stats are still needed, not returning the err code
 		 */
@@ -12552,6 +12554,18 @@ void wl_cfgvendor_usable_channels_filter(struct bcm_cfg80211 *cfg, uint32 cur_ch
 #endif /* WL_CELLULAR_CHAN_AVOID */
 }
 
+#ifdef WL_NAN_INSTANT_MODE
+static bool wl_cfgvendor_is_nan_instant_mask_set(usable_channel_info_t *u_info)
+{
+	/* handle nan instant mode filter mask case separately */
+	if ((u_info->iface_mode_mask & (1 << WIFI_INTERFACE_NAN)) &&
+		(u_info->filter_mask & WIFI_USABLE_CHANNEL_FILTER_NAN_INSTANT_MODE)) {
+		return true;
+	}
+	return false;
+}
+#endif /* WL_NAN_INSTANT_MODE */
+
 static int wl_cfgvendor_get_usable_channels_handler(struct bcm_cfg80211 *cfg,
 	usable_channel_info_t *u_info)
 {
@@ -12729,12 +12743,21 @@ static int wl_cfgvendor_get_usable_channels_handler(struct bcm_cfg80211 *cfg,
 		}
 
 		if (!restrict_chan && !ch_160mhz_5g) {
-			if (!is_unii4)
-			{
+			if (!is_unii4) {
 				if (CHSPEC_IS6G(chspec)) {
-#ifdef WL_NAN_6G
-					mask |= (1 << WIFI_INTERFACE_NAN);
-#endif /* WL_NAN_6G */
+#ifdef WL_NAN
+					if (cfg->nancfg->is_6g_nan_supported) {
+#ifdef WL_NAN_INSTANT_MODE
+						if (wl_cfgvendor_is_nan_instant_mask_set(u_info)) {
+							WL_DBG(("No support of nan "
+									"instant 6g channel\n"));
+						} else
+#endif /* WL_NAN_INSTANT_MODE */
+						{
+							mask |= (1 << WIFI_INTERFACE_NAN);
+						}
+					}
+#endif /* WL_NAN */
 #ifdef WL_SOFTAP_6G
 					/* consider only VLP and PSC channel in 6g for softap */
 					if (vlp_psc_include) {
@@ -12749,10 +12772,7 @@ static int wl_cfgvendor_get_usable_channels_handler(struct bcm_cfg80211 *cfg,
 						mask |= (1 << WIFI_INTERFACE_P2P_GO);
 					}
 #ifdef WL_NAN_INSTANT_MODE
-					/* handle nan instant mode filter mask case separately */
-					if ((u_info->iface_mode_mask & (1 << WIFI_INTERFACE_NAN)) &&
-						(u_info->filter_mask &
-						WIFI_USABLE_CHANNEL_FILTER_NAN_INSTANT_MODE)) {
+					if (wl_cfgvendor_is_nan_instant_mask_set(u_info)) {
 						if (chspec == nan_inst_mode_chspec) {
 							mask |= (1 << WIFI_INTERFACE_NAN);
 						}

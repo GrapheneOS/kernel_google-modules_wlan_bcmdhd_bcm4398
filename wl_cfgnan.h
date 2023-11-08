@@ -794,7 +794,8 @@ typedef struct wl_nancfg
 	uint32 nan_ctrl2_flag1;
 	uint32 nan_ctrl2_flag2;
 	nan_hal_capabilities_t capabilities;
-	uint8  is_suspension_supported;
+	uint8 is_suspension_supported;
+	uint8 is_6g_nan_supported;
 } wl_nancfg_t;
 
 #define NAN_RTT_ENABLED(cfg) (wl_cfgnan_is_enabled(cfg) && \

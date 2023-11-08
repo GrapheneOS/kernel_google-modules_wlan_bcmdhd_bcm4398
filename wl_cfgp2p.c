@@ -3062,6 +3062,9 @@ wl_cfgp2p_if_add(struct bcm_cfg80211 *cfg, wl_iftype_t wl_iftype,
 		new_ndev = wl_cfg80211_post_ifcreate(bcmcfg_to_prmry_ndev(cfg), event,
 			event->mac, cfg->p2p->vir_ifname, false);
 		if (unlikely(!new_ndev)) {
+			WL_ERR(("Failed to register p2p ndev: p2p_status %d,"
+				"event valid %d",
+				wl_get_p2p_status(cfg, IF_ADDING), event->valid));
 			goto fail;
 		}
 

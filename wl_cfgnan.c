@@ -2894,6 +2894,9 @@ wl_cfgnan_set_awake_dws(struct net_device *ndev, nan_config_cmd_data_t *cmd_data
 		}
 	}
 
+	WL_INFORM_MEM(("awake dws 2g:%d 5g:%d\n", awake_dws->dw_interval_2g,
+			awake_dws->dw_interval_5g));
+
 	sub_cmd->id = htod16(WL_NAN_CMD_SYNC_AWAKE_DWS);
 	sub_cmd->len = sizeof(sub_cmd->u.options) +
 		sizeof(*awake_dws);
@@ -5702,6 +5705,9 @@ wl_cfgnan_sd_params_handler(struct net_device *ndev,
 	if (cmd_data->period) {
 		sd_params->awake_dw = cmd_data->period;
 	}
+
+	WL_INFORM_MEM(("cmd period:%d awake_dw:%d\n", cmd_data->period, sd_params->awake_dw));
+
 	sd_params->period = 1;
 
 	if (cmd_data->ttl) {
@@ -6895,6 +6901,10 @@ wl_cfgnan_get_capability(struct net_device *ndev,
 	if (fw_cap->flags1 & WL_NAN_FW_CAP_FLAG1_SUSPENSION) {
 		capabilities->is_suspension_supported = true;
 		cfg->nancfg->is_suspension_supported = true;
+	}
+
+	if (fw_cap->flags1 & WL_NAN_FW_CAP_FLAG1_6G) {
+		cfg->nancfg->is_6g_nan_supported = true;
 	}
 
 fail:
@@ -10437,7 +10447,7 @@ wl_cfgnan_register_nmi_ndev(struct bcm_cfg80211 *cfg)
 	int ret = 0;
 	struct net_device* ndev = NULL;
 	struct wireless_dev *wdev = NULL;
-	uint8 temp_addr[ETHER_ADDR_LEN] = { 0x00, 0x90, 0x4c, 0x33, 0x22, 0x11 };
+	const uint8 temp_addr[ETHER_ADDR_LEN] = { 0x00, 0x90, 0x4c, 0x33, 0x22, 0x11 };
 	struct bcm_cfg80211 **priv;
 
 	if (cfg->nmi_ndev) {
@@ -10468,7 +10478,11 @@ wl_cfgnan_register_nmi_ndev(struct bcm_cfg80211 *cfg)
 	ndev->netdev_ops = &wl_cfgnan_nmi_if_ops;
 
 	/* Register with a dummy MAC addr */
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 15, 0))
+	__dev_addr_set(ndev, temp_addr, ETHER_ADDR_LEN);
+#else
 	eacopy(temp_addr, ndev->dev_addr);
+#endif /* LINUX_VERSION_CODE >= KERNEL_VERSION(5, 15, 0) */
 
 	ndev->ieee80211_ptr = wdev;
 	wdev->netdev = ndev;

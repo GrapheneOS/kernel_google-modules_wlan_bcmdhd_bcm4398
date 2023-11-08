@@ -5048,7 +5048,8 @@ void dhd_prot_detach(dhd_pub_t *dhd)
 		if (prot->prealloc_htput_flowring_buf) {
 			if (dhd->htput_support) {
 				for (i = 0; i < dhd->htput_total_flowrings; i++) {
-					dhd_dma_buf_free(dhd, &prot->prealloc_htput_flowring_buf[i]);
+					dhd_dma_buf_free(dhd,
+						&prot->prealloc_htput_flowring_buf[i]);
 				}
 			}
 			MFREE(dhd->osh, prot->prealloc_htput_flowring_buf,
