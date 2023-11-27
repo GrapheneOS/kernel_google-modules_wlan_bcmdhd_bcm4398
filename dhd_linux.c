@@ -5311,30 +5311,34 @@ dhd_80211_mon_pkt(dhd_pub_t *dhdp, host_rxbuf_cmpl_t* msg, void *pkt, int ifidx)
 
 	if (hdr.flags & WL_AML_F_DIRECTION) {
 		bool ack = !!(hdr.flags & WL_AML_F_ACKED);
-		/* Send Tx-ed mgmt frame and 4HS packet in dongle to upper layer */
-		DHD_DBG_PKT_MON_TX(dhdp, skb, 0, type, (uint8)ack, TRUE);
-
 #ifdef DHD_PKT_LOGGING
 		/* Send Tx-ed 4HS packet in dongle to packet logging buffer */
-		if (type == FRAME_TYPE_ETHERNET_II) {
+		if (skb && type == FRAME_TYPE_ETHERNET_II) {
 			pktid = (uint32)(unsigned long)pkt;
 			status = (ack) ? WLFC_CTL_PKTFLAG_DISCARD : WLFC_CTL_PKTFLAG_DISCARD_NOACK;
 			DHD_PKTLOG_TX(dhdp, skb, skb->data, pktid);
 			DHD_PKTLOG_TXS(dhdp, skb, skb->data, pktid, status);
 		}
 #endif /* DHD_PKT_LOGGING */
-	} else {
-		/* Send Rx-ed mgmt frame and 4HS packet in dongle to upper layer */
-		DHD_DBG_PKT_MON_RX(dhdp, (struct sk_buff *)skb, type, TRUE);
 
+		/* Send Tx-ed mgmt frame and 4HS packet in dongle to upper layer */
+		DHD_DBG_PKT_MON_TX(dhdp, skb, 0, type, (uint8)ack, TRUE);
+
+		/* skb can be null here. do null check if skb is used */
+	} else {
 #ifdef DHD_PKT_LOGGING
 		/* Send Rx-ed 4HS packet in dongle to packet logging buffer */
-		if (type == FRAME_TYPE_ETHERNET_II) {
+		if (skb && type == FRAME_TYPE_ETHERNET_II) {
 			eh = (struct ether_header *)skb->data;
 			ether_type = ntoh16(eh->ether_type);
 			DHD_PKTLOG_RX(dhdp, (struct sk_buff *)skb, skb->data, ether_type);
 		}
 #endif /* DHD_PKT_LOGGING */
+
+		/* Send Rx-ed mgmt frame and 4HS packet in dongle to upper layer */
+		DHD_DBG_PKT_MON_RX(dhdp, (struct sk_buff *)skb, type, TRUE);
+
+		/* skb can be null here. do null check if skb is used */
 	}
 }
 #endif /* DBG_PKT_MON && PCIE_FULL_DONGLE */
