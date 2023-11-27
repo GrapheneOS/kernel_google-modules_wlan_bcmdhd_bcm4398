@@ -5107,8 +5107,10 @@ void dhd_prot_tx_flow_ring_trace_dump(dhd_pub_t *dhdp, struct bcmstrbuf *strbuf)
 
 #if defined(__linux__)
 int dhd_get_reboot_status(struct dhd_pub *dhdp);
+int dhd_get_module_exit_status(struct dhd_pub *dhdp);
 #else
 static INLINE int dhd_get_reboot_status(struct dhd_pub *dhdp) { return 0; }
+static INLINE int dhd_get_module_exit_status(struct dhd_pub *dhdp) { return 0; }
 #endif /* __linux__ */
 
 #if defined(WBRC) && defined(BT_FW_DWNLD)

@@ -25609,6 +25609,12 @@ dhd_get_reboot_status(struct dhd_pub *dhdp)
 	return restart_in_progress;
 }
 
+int
+dhd_get_module_exit_status(struct dhd_pub *dhdp)
+{
+	return OSL_ATOMIC_READ(dhdp->osh, &exit_in_progress);
+}
+
 /**
  * Given an skb list, walkthrough the list of skbs and print the skb address to dmesg
  * caller should hold the lock if needed.
