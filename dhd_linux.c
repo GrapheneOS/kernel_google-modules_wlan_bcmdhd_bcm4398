@@ -2509,6 +2509,9 @@ static int dhd_set_suspend(int value, dhd_pub_t *dhd)
 				 */
 				dhd_enable_packet_filter(1, dhd);
 #endif /* PKT_FILTER_SUPPORT */
+#ifdef APF
+				dhd_dev_apf_enable_filter(dhd_linux_get_primary_netdev(dhd));
+#endif /* APF */
 #ifdef ARP_OFFLOAD_SUPPORT
 				if (dhd->arpoe_enable) {
 					dhd_arp_offload_enable(dhd, TRUE);
@@ -2607,6 +2610,9 @@ static int dhd_set_suspend(int value, dhd_pub_t *dhd)
 				/* disable pkt filter */
 				dhd_enable_packet_filter(0, dhd);
 #endif /* PKT_FILTER_SUPPORT */
+#ifdef APF
+				dhd_dev_apf_disable_filter(dhd_linux_get_primary_netdev(dhd));
+#endif /* APF */
 #ifdef PASS_ALL_MCAST_PKTS
 				allmulti = 1;
 				for (i = 0; i < DHD_MAX_IFS; i++) {
@@ -17857,6 +17863,16 @@ dhd_dev_apf_add_filter(struct net_device *ndev, u8* program,
 	int ret;
 
 	DHD_APF_LOCK(ndev);
+
+	/* delete, if filter already exists */
+	if (dhdp->apf_set) {
+		ret = _dhd_apf_delete_filter(ndev, PKT_FILTER_APF_ID);
+		if (unlikely(ret)) {
+			DHD_ERROR(("%s: Failed to delete APF filter\n", __FUNCTION__));
+			goto exit;
+		}
+		dhdp->apf_set = FALSE;
+	}
 
 	ret = _dhd_apf_add_filter(ndev, PKT_FILTER_APF_ID, program, program_len);
 	if (ret) {
