@@ -6679,7 +6679,7 @@ wl_cfg80211_ch_switch_notify(struct net_device *dev, uint16 chanspec,
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION (3, 8, 0))
 	freq = chandef.chan ? chandef.chan->center_freq : chandef.center_freq1;
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 19, 2)) || defined(WL_MLO_BKPORT)
-	cfg80211_ch_switch_notify(dev, &chandef, link_id);
+	cfg80211_ch_switch_notify(dev, &chandef, link_id, 0);
 #else
 	cfg80211_ch_switch_notify(dev, &chandef);
 #endif /* LINUX_VERSION_CODE > KERNEL_VERSION(5, 20, 0) || WL_MLO_BKPORT */
